@@ -1629,12 +1629,19 @@
                 <div class="section-header">
                     <div class="section-title"><span>💼</span><span>Platform Details</span></div>
                     <div>
+                        <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
                         <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                        <button class="btn btn-primary btn-small" onclick="document.getElementById('jsonFileInput').click()">
+                            <span>📥</span> Import JSON
+                        </button>
                         <button class="btn btn-primary btn-small" onclick="document.getElementById('csvFileInput').click()">
                             <span>📤</span> Import CSV
                         </button>
-                        <button class="btn btn-primary btn-small" onclick="exportData()" title="Ctrl+E">
+                        <button class="btn btn-primary btn-small" onclick="exportCSV()" title="Ctrl+E">
                             <span>📥</span> Export CSV
+                        </button>
+                         <button class="btn btn-primary btn-small" onclick="exportJSON()">
+                            <span>💾</span> Export JSON
                         </button>
                     </div>
                 </div>
@@ -1945,6 +1952,7 @@
 
             document.querySelectorAll('.data-table th.sortable').forEach(th => th.addEventListener('click', handleSort));
             document.getElementById('csvFileInput').addEventListener('change', handleCsvImport);
+            document.getElementById('jsonFileInput').addEventListener('change', handleJsonImport);
             document.getElementById('historySearch').addEventListener('input', (e) => updateHistory());
             document.querySelectorAll('input[name="cashflowType"]').forEach(radio => {
                 radio.addEventListener('change', (e) => {
@@ -1991,7 +1999,7 @@
                     if (currentTab === 'dashboard') {
                         exportChart('portfolioChart');
                     } else if (currentTab === 'platforms') {
-                        exportData();
+                        exportCSV();
                     } else {
                         exportPDF();
                     }
@@ -3231,10 +3239,8 @@
         async function exportPDF() {
             showNotification('PDF-Export wird vorbereitet...', 'warning');
             
-            // 1. Daten sammeln
+            // 1. Collect Data
             const { totalBalance, netInvested } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
-            const profit = totalBalance - netInvested;
-            const roi = netInvested !== 0 ? (profit / netInvested * 100) : 0;
             
             const tableBody = document.getElementById('platformSummaryBody');
             let tableRowsHtml = '';
@@ -3257,7 +3263,7 @@
             const portfolioChartImg = portfolioChart.canvas.toDataURL('image/png');
             const allocationChartImg = allocationChart.canvas.toDataURL('image/png');
 
-            // 2. Druckbares HTML erstellen
+            // 2. Create printable HTML
             const printHtml = `
                 <html>
                 <head>
@@ -3317,7 +3323,7 @@
                 </html>
             `;
 
-            // 3. Einen Iframe zum Drucken verwenden
+            // 3. Use an iframe to print
             const iframe = document.createElement('iframe');
             iframe.style.position = 'fixed';
             iframe.style.width = '0';
@@ -3329,7 +3335,7 @@
             iframe.contentDocument.close();
             
             iframe.onload = function() {
-                setTimeout(() => { // Timeout, um sicherzustellen, dass die Bilder geladen sind
+                setTimeout(() => { // Timeout to ensure images are loaded
                     iframe.contentWindow.focus();
                     iframe.contentWindow.print();
                     document.body.removeChild(iframe);
@@ -3338,16 +3344,10 @@
             };
         }
         
-        if (typeof window.jspdf === 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-            document.head.appendChild(script);
-        }
-
         // =================================================================================
         // DATA IMPORT / EXPORT
         // =================================================================================
-        function exportData() {
+        function exportJSON() {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, favorites }));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
@@ -3356,6 +3356,68 @@
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
             showNotification('Daten als JSON exportiert!');
+        }
+
+        function exportCSV() {
+            if (entries.length === 0 && cashflows.length === 0) {
+                return showNotification('Keine Daten zum Exportieren', 'warning');
+            }
+
+            const sanitize = (str) => {
+                if (str === null || str === undefined) return '';
+                const s = String(str);
+                if (s.search(/("|,|\n)/g) >= 0) {
+                    return `"${s.replace(/"/g, '""')}"`;
+                }
+                return s;
+            };
+
+            const header = ["Typ", "Datum", "Plattform", "Betrag", "Notiz"];
+            const rows = [];
+
+            entries.forEach(entry => {
+                rows.push([
+                    "Balance",
+                    entry.date,
+                    sanitize(entry.protocol),
+                    entry.balance,
+                    sanitize(entry.note)
+                ].join(","));
+            });
+
+            cashflows.forEach(cf => {
+                rows.push([
+                    cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung',
+                    cf.date,
+                    sanitize(cf.platform),
+                    cf.amount,
+                    sanitize(cf.note)
+                ].join(","));
+            });
+
+            const csvContent = "data:text/csv;charset=utf-8," + [header.join(","), ...rows].join("\r\n");
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `portfolio_export_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showNotification('CSV-Datei exportiert!', 'success');
+        }
+
+        function parseCsvLine(line) {
+            const regex = /(?:"([^"]*(?:""[^"]*)*)"|([^,]*))(?:,|$)/g;
+            const fields = [];
+            let match;
+            while ((match = regex.exec(line)) && match[0] !== '') {
+                if (match[1] !== undefined) {
+                    fields.push(match[1].replace(/""/g, '"'));
+                } else {
+                    fields.push(match[2]);
+                }
+            }
+            return fields;
         }
 
         function handleCsvImport(event) {
@@ -3367,14 +3429,20 @@
                 const lines = text.split(/\r\n|\n/);
                 const newEntries = [];
                 const newCashflows = [];
+                
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i];
                     if (!line) continue;
-                    const [type, date, protocol, balance, note] = line.split(',');
-                    if (type.toLowerCase() === 'balance') {
-                        newEntries.push({ id: Date.now() + Math.random(), date, protocol, balance: parseFloat(balance), note: note || '' });
-                    } else {
-                        newCashflows.push({ id: Date.now() + Math.random(), date, type: type.toLowerCase(), amount: parseFloat(balance), platform: protocol, note: note || '' });
+                    
+                    const [type, date, protocol, amountStr, note] = parseCsvLine(line);
+                    const amount = parseFloat(amountStr);
+
+                    if (type && date && protocol && !isNaN(amount)) {
+                        if (type.toLowerCase() === 'balance') {
+                            newEntries.push({ id: Date.now() + Math.random(), date, protocol, balance: amount, note: note || '' });
+                        } else if (type.toLowerCase() === 'einzahlung' || type.toLowerCase() === 'auszahlung') {
+                            newCashflows.push({ id: Date.now() + Math.random(), date, type: type.toLowerCase() === 'einzahlung' ? 'deposit' : 'withdraw', amount: amount, platform: protocol, note: note || '' });
+                        }
                     }
                 }
                 const confirmed = await showCustomPrompt({title: 'Import bestätigen', text: `${newEntries.length} Einträge und ${newCashflows.length} Cashflows gefunden. Importieren?`});
@@ -3387,6 +3455,43 @@
                 }
             };
             reader.readAsText(file);
+            event.target.value = '';
+        }
+        
+        function handleJsonImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data && data.platforms && data.entries && data.cashflows && data.favorites) {
+                        const confirmed = await showCustomPrompt({
+                            title: 'JSON Import bestätigen',
+                            text: `Dies wird alle aktuellen Daten überschreiben. Fortfahren? Geben Sie "IMPORT" ein, um zu bestätigen.` ,
+                            showInput: true
+                        });
+                        if (confirmed && confirmed.toUpperCase() === 'IMPORT') {
+                            platforms = data.platforms;
+                            entries = data.entries;
+                            cashflows = data.cashflows;
+                            favorites = data.favorites;
+                            saveData();
+                            applyDateFilter(); // This re-renders everything
+                            showNotification('Daten erfolgreich aus JSON importiert!', 'success');
+                        } else {
+                            showNotification('Import abgebrochen.', 'warning');
+                        }
+                    } else {
+                        showNotification('Ungültige JSON-Datei. Erforderliche Felder fehlen.', 'error');
+                    }
+                } catch (err) {
+                    showNotification('Fehler beim Parsen der JSON-Datei.', 'error');
+                    console.error("JSON Import Error:", err);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // Reset file input
         }
 
         // =================================================================================
