@@ -3228,27 +3228,114 @@
             });
         }
         
-        function exportPDF() {
+        async function exportPDF() {
             showNotification('PDF-Export wird vorbereitet...', 'warning');
-            const dashboard = document.getElementById('dashboard');
-            html2canvas(dashboard, {
-                 backgroundColor: currentTheme === 'dark' ? '#111827' : '#f9fafb',
-                 scale: 1.5,
-                 windowWidth: 1400,
-            }).then(canvas => {
-                 const { jsPDF } = window.jspdf;
-                 const pdf = new jsPDF('p', 'mm', 'a4');
-                 const imgData = canvas.toDataURL('image/png');
-                 const imgProps = pdf.getImageProperties(imgData);
-                 const pdfWidth = pdf.internal.pageSize.getWidth();
-                 const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-                 pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-                 pdf.save(`dashboard_export_${new Date().toISOString().split('T')[0]}.pdf`);
-                 showNotification('PDF exportiert!', 'success');
-            }).catch(err => {
-                showNotification('PDF-Export fehlgeschlagen!', 'error');
-                console.error(err);
-            });
+            
+            // 1. Daten sammeln
+            const { totalBalance, netInvested } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
+            const profit = totalBalance - netInvested;
+            const roi = netInvested !== 0 ? (profit / netInvested * 100) : 0;
+            
+            const tableBody = document.getElementById('platformSummaryBody');
+            let tableRowsHtml = '';
+            if (tableBody) {
+                const rows = tableBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length > 0) {
+                        tableRowsHtml += `
+                            <tr>
+                                <td>${cells[0].innerText}</td>
+                                <td>${cells[1].innerText}</td>
+                                <td style="color: ${cells[2].classList.contains('positive') ? 'green' : 'red'};">${cells[2].innerText}</td>
+                            </tr>
+                        `;
+                    }
+                });
+            }
+
+            const portfolioChartImg = portfolioChart.canvas.toDataURL('image/png');
+            const allocationChartImg = allocationChart.canvas.toDataURL('image/png');
+
+            // 2. Druckbares HTML erstellen
+            const printHtml = `
+                <html>
+                <head>
+                    <title>Portfolio Report</title>
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; }
+                        h1, h2 { color: #4f46e5; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; }
+                        p { margin-bottom: 10px; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+                        .summary-item { font-size: 16px; }
+                        .summary-label { font-weight: 600; }
+                        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 30px; page-break-before: always; }
+                        .chart-container { text-align: center; }
+                        img { max-width: 100%; height: auto; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Web3 Portfolio Report</h1>
+                    <p>Datum: ${formatDate(new Date().toISOString())}</p>
+                    
+                    <h2>Portfolio Übersicht</h2>
+                    <div class="summary-grid">
+                        <div class="summary-item"><span class="summary-label">Gesamtwert:</span> ${document.getElementById('totalValue').innerText}</div>
+                        <div class="summary-item"><span class="summary-label">Netto Investiert:</span> ${document.getElementById('netInvested').innerText}</div>
+                        <div class="summary-item"><span class="summary-label">Profit:</span> ${document.getElementById('totalProfit').innerText}</div>
+                        <div class="summary-item"><span class="summary-label">ROI:</span> ${document.getElementById('profitPercent').innerText}</div>
+                    </div>
+
+                    <h2>Platform Performance</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Plattform</th>
+                                <th>Balance</th>
+                                <th>Letzte Änderung</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRowsHtml}
+                        </tbody>
+                    </table>
+
+                    <div class="charts">
+                        <div class="chart-container">
+                            <h3>Portfolio Entwicklung</h3>
+                            <img src="${portfolioChartImg}" alt="Portfolio Entwicklung Chart">
+                        </div>
+                        <div class="chart-container">
+                            <h3>Portfolio-Verteilung</h3>
+                            <img src="${allocationChartImg}" alt="Portfolio Verteilung Chart">
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            // 3. Einen Iframe zum Drucken verwenden
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = 'none';
+            document.body.appendChild(iframe);
+
+            iframe.contentDocument.write(printHtml);
+            iframe.contentDocument.close();
+            
+            iframe.onload = function() {
+                setTimeout(() => { // Timeout, um sicherzustellen, dass die Bilder geladen sind
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                    document.body.removeChild(iframe);
+                    showNotification('PDF-Export bereitgestellt!', 'success');
+                }, 500);
+            };
         }
         
         if (typeof window.jspdf === 'undefined') {
