@@ -6,7 +6,7 @@
     <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
     
     <!-- PWA Support -->
-    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU=JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU9JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
     <meta name="theme-color" content="#6366f1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -1076,6 +1076,10 @@
             background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
         }
         
+        .notification.warning {
+            background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
+        }
+
         .notification.show {
             transform: translateY(0);
             opacity: 1;
@@ -1827,20 +1831,33 @@
         // CONFIGURATION & INITIAL DATA
         // =================================================================================
         const DEFAULT_PLATFORMS = [
-            { name: 'Debank', icon: '📊', type: 'Portfolio', category: 'DeFi' },
             { name: 'Binance', icon: '🏛️', type: 'Exchange', category: 'Exchange' },
-            { name: 'Noble', icon: '⚡', type: 'DeFi', category: 'DeFi' },
-            { name: 'Paradex', icon: '🔄', type: 'DEX', category: 'DeFi' },
-            { name: 'Pendle', icon: '⏰', type: 'Yield', category: 'DeFi' },
-            { name: 'Aave', icon: '👻', type: 'Lending', category: 'Lending' },
-            { name: 'Silo', icon: '🌾', type: 'Lending', category: 'Lending' },
-            { name: 'Hyperliquid', icon: '💧', type: 'Perps', category: 'DeFi' },
-            { name: 'Kraken', icon: '🦑', type: 'Exchange', category: 'Exchange' },
             { name: 'Coinbase', icon: '🪙', type: 'Exchange', category: 'Exchange' },
-            { name: 'MetaMask', icon: '🦊', type: 'Wallet', category: 'Wallet' },
+            { name: 'Kraken', icon: '🦑', type: 'Exchange', category: 'Exchange' },
+            { name: 'Bybit', icon: '🅱️', type: 'Exchange', category: 'Exchange' },
+            { name: 'OKX', icon: '⭕', type: 'Exchange', category: 'Exchange' },
+            { name: 'Gate.io', icon: '🚪', type: 'Exchange', category: 'Exchange' },
+            { name: 'KuCoin', icon: '🪐', type: 'Exchange', category: 'Exchange' },
+            { name: 'Bitget', icon: '🎯', type: 'Exchange', category: 'Exchange' },
+            { name: 'Debank', icon: '📊', type: 'Portfolio', category: 'DeFi' },
             { name: 'Uniswap', icon: '🦄', type: 'DEX', category: 'DeFi' },
-            { name: 'Compound', icon: '💸', type: 'Lending', category: 'Lending' },
+            { name: 'PancakeSwap', icon: '🥞', type: 'DEX', category: 'DeFi' },
+            { name: 'SushiSwap', icon: '🍣', type: 'DEX', category: 'DeFi' },
             { name: 'Curve', icon: '〰️', type: 'DEX', category: 'DeFi' },
+            { name: 'Aave', icon: '👻', type: 'Lending', category: 'Lending' },
+            { name: 'Compound', icon: '💸', type: 'Lending', category: 'Lending' },
+            { name: 'MakerDAO', icon: '🔷', type: 'Lending', category: 'Lending' },
+            { name: 'Hyperliquid', icon: '💧', type: 'Perps', category: 'DeFi' },
+            { name: 'GMX', icon: '🎮', type: 'Perps', category: 'DeFi' },
+            { name: 'dYdX', icon: '🔺', type: 'Perps', category: 'DeFi' },
+            { name: 'Lido', icon: '🌊', type: 'Staking', category: 'Staking' },
+            { name: 'Rocket Pool', icon: '🚀', type: 'Staking', category: 'Staking' },
+            { name: 'Arbitrum', icon: '🔵', type: 'Layer 2', category: 'Layer2' },
+            { name: 'Optimism', icon: '🔴', type: 'Layer 2', category: 'Layer2' },
+            { name: 'Polygon', icon: '🟣', type: 'Layer 2', category: 'Layer2' },
+            { name: 'MetaMask', icon: '🦊', type: 'Wallet', category: 'Wallet' },
+            { name: 'Trust Wallet', icon: '🛡️', type: 'Wallet', category: 'Wallet' },
+            { name: 'Ledger', icon: '🔒', type: 'Hardware', category: 'Wallet' },
         ];
         const GITHUB_API = 'https://api.github.com';
 
@@ -3346,12 +3363,19 @@
             const notification = document.getElementById('notification');
             const icon = document.getElementById('notificationIcon');
             const textEl = document.getElementById('notificationText');
-            notification.className = 'notification'; 
-            notification.classList.add(type === 'error' ? 'error' : (type === 'warning' ? 'warning' : ''));
+            notification.className = 'notification'; // Reset classes
+            
+            if (type === 'error' || type === 'warning') {
+                notification.classList.add(type);
+            }
+
             icon.textContent = type === 'error' ? '❌' : (type === 'warning' ? '⚠️' : '✅');
             textEl.textContent = text;
             notification.classList.add('show');
-            setTimeout(() => notification.classList.remove('show'), 3000);
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
         }
         
         function setupPromptModal() {
