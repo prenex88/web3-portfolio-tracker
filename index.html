@@ -397,7 +397,10 @@
             transform: translateY(-5px);
             box-shadow: 0 25px 35px -5px rgba(0, 0, 0, 0.15);
         }
-
+        /* Hover-Effekt deaktivieren, wenn irgendein Feld in der Sektion aktiv ist */
+        #platformInputs.is-focused .input-card:hover {
+            border-color: transparent;
+        }
         .stat-icon {
             width: 48px;
             height: 48px;
@@ -853,7 +856,10 @@
         .input-card:hover { 
             border-color: var(--primary); 
         }
-
+        .input-card.card-focused {
+            border-color: var(--primary);
+            box-shadow: 0 4px 10px -2px rgba(99, 102, 241, 0.2);
+        }
         .input-row {
             display: grid;
             grid-template-columns: 200px 1fr 150px auto auto;
@@ -2104,6 +2110,30 @@
         }
 
         function addEventListeners() {
+            const inputsContainer = document.getElementById('platformInputs');
+            if (inputsContainer) {
+                // Diese Logik steuert die blaue Hervorhebung der Karten manuell
+                inputsContainer.addEventListener('focusin', (e) => {
+                    if (e.target.classList.contains('input-field') || e.target.classList.contains('note-input')) {
+                        inputsContainer.classList.add('is-focused'); // NEU: Klasse am Container setzen
+                        document.querySelectorAll('.input-card.card-focused').forEach(card => {
+                            card.classList.remove('card-focused');
+                        });
+                        const parentCard = e.target.closest('.input-card');
+                        if (parentCard) {
+                            parentCard.classList.add('card-focused');
+                        }
+                    }
+                });
+                
+                inputsContainer.addEventListener('focusout', (e) => {
+                    const parentCard = e.target.closest('.input-card');
+                    if (parentCard && !parentCard.contains(e.relatedTarget)) {
+                        parentCard.classList.remove('card-focused');
+                        inputsContainer.classList.remove('is-focused'); // NEU: Klasse am Container entfernen
+                    }
+                });
+            }
             document.getElementById('platformInputs').addEventListener('keydown', (e) => {
                 if (e.target.classList.contains('input-field') && e.key === 'Enter') {
                     e.preventDefault();
@@ -3042,6 +3072,14 @@
             inputElement.value = '';
             inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
             showNotification(`${platformName} gespeichert!`);
+
+            // Springt zum nächsten Eingabefeld für eine schnelle Dateneingabe
+            const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field[data-platform]'));
+            const currentIndex = allInputs.indexOf(inputElement);
+
+            if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
+                allInputs[currentIndex + 1].focus();
+            }
         }
 
         function saveAllEntries() {
