@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
     
-    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU=JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU9JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
     <meta name="theme-color" content="#6366f1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -439,63 +439,6 @@
             gap: 6px;
         }
 
-        /* APR Toggle */
-        .apr-toggle-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .toggle-switch {
-            position: relative;
-            width: 50px;
-            height: 24px;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--gray);
-            transition: .4s;
-            border-radius: 24px;
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-
-        input:checked + .toggle-slider {
-            background-color: var(--primary);
-        }
-
-        input:checked + .toggle-slider:before {
-            transform: translateX(26px);
-        }
-
-        .toggle-label {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
         .positive { color: var(--success); }
         .negative { color: var(--danger); }
 
@@ -834,11 +777,6 @@
         }
         
         /* Sparkline Canvas */
-        .sparkline-container {
-            display: inline-block;
-            vertical-align: middle;
-            margin-left: 10px;
-        }
         .platform-btn .remove-tile {
             position: absolute;
             top: 4px;
@@ -1085,56 +1023,7 @@
         .data-table tr.multi-selected-row td {
             background: var(--light);
         }
-
-        /* APR Badge */
-        .apr-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-            display: inline-block;
-        }
-        .apr-high { 
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
-            color: white; 
-        }
-        .apr-medium { 
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); 
-            color: white; 
-        }
-        .apr-low { 
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
-            color: white; 
-        }
-
-        /* Status Badge */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        .status-badge::before {
-            content: '';
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-        .status-aktiv { background-color: rgba(16, 185, 129, 0.1); color: var(--success); }
-        .status-aktiv::before { background-color: var(--success); }
-        .status-leer { background-color: rgba(239, 68, 68, 0.1); color: var(--danger); }
-        .status-leer::before { background-color: var(--danger); }
-        .status-rueckgang { background-color: rgba(245, 158, 11, 0.1); color: var(--warning); }
-        .status-rueckgang::before { background-color: var(--warning); }
-        .status-neu { background-color: rgba(59, 130, 246, 0.1); color: var(--info); }
-        .status-neu::before { background-color: var(--info); }
-        .status-veraltet { background-color: rgba(107, 114, 128, 0.1); color: var(--gray); }
-        .status-veraltet::before { background-color: var(--gray); }
-
+        
         /* Transaction Type Badge */
         .type-badge {
             padding: 4px 8px;
@@ -1148,7 +1037,7 @@
 
         /* Charts */
         .chart-container {
-            height: 400px;
+            height: 450px;
             background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%);
             border-radius: 16px;
             padding: 24px;
@@ -1244,12 +1133,46 @@
             border-top: 1px solid var(--border);
         }
         
-        /* Multi-column layouts */
+        /* --- Dashboard Layout & Kennzahlen-Box --- */
         .two-column-layout {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 30px;
         }
+        
+        .metrics-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
 
         /* Save notification */
         .notification {
@@ -1513,6 +1436,14 @@
                 padding: 10px;
             }
         }
+        
+        @media (max-width: 480px) {
+            .metric-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+        }
 
         /* Animations */
         @keyframes slideDown { 
@@ -1661,21 +1592,64 @@
                 </div>
             </div>
 
+            <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                    <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
+                </div>
+                <div class="chart-container" id="portfolioChartContainer">
+                    <canvas id="portfolioChart"></canvas>
+                </div>
+            </div>
+            
             <div class="two-column-layout">
                 <div class="section">
                     <div class="section-header">
-                        <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
-                        <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChart')" title="Ctrl+E">📷 Export</button>
+                        <div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div>
                     </div>
-                    <div class="chart-container" id="portfolioChartContainer">
-                        <canvas id="portfolioChart"></canvas>
+                    <div id="keyMetrics" class="metrics-grid">
+                        <div class="metric-item">
+                            <span class="metric-label">Start</span>
+                            <span class="metric-value" id="metricStartDate">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Laufzeit</span>
+                            <span class="metric-value" id="metricDuration">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Startkapital</span>
+                            <span class="metric-value" id="metricStartCapital">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Rendite (Gesamt)</span>
+                            <span class="metric-value" id="metricTotalReturnPercent">-</span>
+                        </div>
+                         <div class="metric-item">
+                            <span class="metric-label">Rendite Summe</span>
+                            <span class="metric-value" id="metricTotalReturnSum">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Rendite Ø (Monat)</span>
+                            <span class="metric-value" id="metricAvgMonthlyReturn">-</span>
+                        </div>
+                         <div class="metric-item">
+                            <span class="metric-label">Rendite Prognose (Jahr)</span>
+                            <span class="metric-value" id="metricAnnualForecast">-</span>
+                        </div>
+                         <div class="metric-item">
+                            <span class="metric-label">Max. Drawdown</span>
+                            <span class="metric-value" id="metricMaxDrawdown">-</span>
+                        </div>
+                         <div class="metric-item">
+                            <span class="metric-label">Portfolio Prognose (Jahr)</span>
+                            <span class="metric-value" id="metricPortfolioForecast">-</span>
+                        </div>
                     </div>
                 </div>
-
-                <div class="section">
+                 <div class="section">
                     <div class="section-header">
                         <div class="section-title"><span>🍰</span><span>Portfolio-Verteilung</span></div>
-                         <button class="btn btn-primary btn-small" onclick="exportChart('allocationChart')" title="Ctrl+E">📷 Export</button>
+                         <button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button>
                     </div>
                     <div class="chart-container" id="allocationChartContainer">
                         <canvas id="allocationChart"></canvas>
@@ -1683,41 +1657,6 @@
                 </div>
             </div>
 
-            <div class="section">
-                <div class="section-header">
-    <div class="section-title"><span>⚡</span><span>Plattform Performance</span></div>
-                    <div style="display: flex; align-items: center; gap: 20px;">
-                        <div class="apr-toggle-container">
-                            <span class="toggle-label">Linear</span>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="aprToggle" onchange="updateAPRCalculation()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                            <span class="toggle-label">Compound</span>
-                        </div>
-
-                        <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
-                            <input type="checkbox" id="hideZeroBalance" onchange="updatePlatformSummary()">
-                            <span>Nur aktive Positionen</span>
-                        </label>
-                    </div>
-                </div>
-                <div class="data-table-wrapper">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th class="sortable" data-sort="platform">Plattform <span class="sort-arrow"></span></th>
-                                <th class="sortable" data-sort="balance">Letzter Wert <span class="sort-arrow"></span></th>
-                                <th class="sortable" data-sort="change">% Änderung <span class="sort-arrow"></span></th>
-                                <th class="sortable" data-sort="apr">APR <span class="sort-arrow"></span></th>
-                                <th>Status</th>
-                                <th>Notiz</th>
-                            </tr>
-                        </thead>
-                        <tbody id="platformSummaryBody"></tbody>
-                    </table>
-                </div>
-            </div>
         </div>
 
         <div id="entry" class="tab-content">
@@ -2117,7 +2056,6 @@
         let lastSelectedHistoryRow = null;
         let favorites = [];
         let portfolioChart, allocationChart;
-        let summarySort = { key: 'balance', order: 'desc' };
         let historySort = { key: 'date', order: 'desc' };
         let cashflowSort = { key: 'date', order: 'desc' };
         let platformDetailsSort = { key: 'platform', order: 'asc' };
@@ -2126,7 +2064,6 @@
         let activeCategory = 'all';
         let currentTab = 'dashboard';
         let searchTerm = '';
-        let useCompoundAPR = false;
         let isCompactMode = false;
         let touchStartX = 0;
         let touchStartY = 0;
@@ -2189,7 +2126,7 @@
                 // Diese Logik steuert die blaue Hervorhebung der Karten manuell
                 inputsContainer.addEventListener('focusin', (e) => {
                     if (e.target.classList.contains('input-field') || e.target.classList.contains('note-input')) {
-                        inputsContainer.classList.add('is-focused'); // NEU: Klasse am Container setzen
+                        inputsContainer.classList.add('is-focused');
                         document.querySelectorAll('.input-card.card-focused').forEach(card => {
                             card.classList.remove('card-focused');
                         });
@@ -2204,7 +2141,7 @@
                     const parentCard = e.target.closest('.input-card');
                     if (parentCard && !parentCard.contains(e.relatedTarget)) {
                         parentCard.classList.remove('card-focused');
-                        inputsContainer.classList.remove('is-focused'); // NEU: Klasse am Container entfernen
+                        inputsContainer.classList.remove('is-focused');
                     }
                 });
             }
@@ -2262,7 +2199,7 @@
                 if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
                     e.preventDefault();
                     if (currentTab === 'dashboard') {
-                        exportChart('portfolioChart');
+                        exportChart('portfolioChartContainer');
                     } else if (currentTab === 'platforms') {
                         exportCSV();
                     } else {
@@ -2397,7 +2334,7 @@
             
             // Refresh charts for proper sizing
             if (portfolioChart) portfolioChart.resize();
-            if (allocationChart) allocationChart.resize();
+            if(allocationChart) allocationChart.resize();
         }
         
         // =================================================================================
@@ -3352,16 +3289,16 @@
         // =================================================================================
         function updateDisplay() {
             updateStats();
-            updatePlatformSummary();
             updateHistory();
             updateCharts();
             updateCashflowDisplay();
             updatePlatformDetails();
+            updateKeyMetrics();
         }
 
         function updateStats() {
             const { totalBalance, netInvested, totalDeposits, totalWithdrawals } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
-            document.getElementById('totalValue').textContent = `${totalBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('totalValue').textContent = `$${totalBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
             
             const sortedDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
             if (sortedDates.length > 1) {
@@ -3381,18 +3318,13 @@
                  document.getElementById('weeklyChangeText').textContent = '-';
             }
             
-            document.getElementById('netInvested').textContent = `${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-            document.getElementById('netInvestedChange').textContent = `Ein: ${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: ${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+            document.getElementById('netInvested').textContent = `$${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+            document.getElementById('netInvestedChange').textContent = `Ein: $${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
             
             const profit = totalBalance - netInvested;
             const profitPercent = netInvested !== 0 ? (profit / netInvested * 100) : 0;
-            document.getElementById('totalProfit').textContent = `${profit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+            document.getElementById('totalProfit').textContent = `$${profit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
             document.getElementById('profitPercent').textContent = `${profitPercent.toFixed(2)}% ROI`;
-        }
-
-        function updateAPRCalculation() {
-            useCompoundAPR = document.getElementById('aprToggle').checked;
-            updatePlatformSummary();
         }
 
         function calculateAdjustedBalances(currentEntries, currentCashflows) {
@@ -3403,148 +3335,72 @@
             const netInvested = totalDeposits - totalWithdrawals;
             return { totalBalance, totalDeposits, totalWithdrawals, netInvested };
         }
-
-        function calculateAPR(current, previous, daysDiff) {
-            if (!previous || previous === 0 || daysDiff <= 0) return 0;
-            
-            if (useCompoundAPR) {
-                const rate = current / previous;
-                if (rate <= 0) return 0;
-                const periods = 365 / daysDiff;
-                return (Math.pow(rate, periods) - 1) * 100;
-            } else {
-                const growth = (current - previous) / previous;
-                return (growth * 365 / daysDiff) * 100;
-            }
-        }
         
-        function getPlatformStatus(platformName, currentEntry) {
-            const allEntriesForPlatform = entries.filter(e => e.protocol === platformName).sort((a,b) => new Date(a.date) - new Date(b.date));
-            const currentIndex = allEntriesForPlatform.findIndex(e => e.id === currentEntry.id);
-            
-            const daysSinceUpdate = (new Date() - new Date(currentEntry.date)) / (1000 * 60 * 60 * 24);
+        // =================================================================================
+        // --- KENNZAHLEN BERECHNUNG ---
+        // =================================================================================
+        function updateKeyMetrics() {
+            if (entries.length === 0) return;
 
-            if (allEntriesForPlatform.length === 1 && currentEntry.balance > 0) return { text: 'NEU', class: 'neu' };
-            if (currentEntry.balance === 0) return { text: 'LEER', class: 'leer' };
-            if (daysSinceUpdate > 14) return { text: 'VERALTET', class: 'veraltet' };
-            if (currentIndex > 0) {
-                const previousBalance = allEntriesForPlatform[currentIndex - 1].balance;
-                if (currentEntry.balance < previousBalance) return { text: 'RÜCKGANG', class: 'rueckgang' };
-            }
-            return { text: 'AKTIV', class: 'aktiv' };
-        }
-
-        function updatePlatformSummary() {
-            const tbody = document.getElementById('platformSummaryBody');
-            const hideZeroBalance = document.getElementById('hideZeroBalance').checked;
-            const platformData = filteredEntries.reduce((acc, entry) => { (acc[entry.protocol] = acc[entry.protocol] || []).push(entry); return acc; }, {});
-            if (Object.keys(platformData).length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Keine Daten im Zeitraum</div></td></tr>`;
-                return;
-            }
+            // 1. Sort all entries and cashflows by date
+            const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
+            const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
             
-            let summaryData = [];
-            Object.keys(platformData).forEach(platform => {
-                const pEntries = platformData[platform].sort((a, b) => new Date(a.date) - new Date(b.date));
-                const current = pEntries[pEntries.length - 1];
-                if (hideZeroBalance && current.balance === 0) return;
-                const previous = pEntries.length > 1 ? pEntries[0] : null;
-                let change = 0, changePercent = 0, apr = 0;
-                if (previous) {
-                    change = current.balance - previous.balance;
-                    if (previous.balance !== 0) {
-                       changePercent = (change / previous.balance * 100);
-                       const daysDiff = (new Date(current.date) - new Date(previous.date)) / 86400000;
-                       apr = calculateAPR(current.balance, previous.balance, daysDiff);
-                    }
-                }
-                const status = getPlatformStatus(platform, current);
-                summaryData.push({ 
-                    platform, 
-                    balance: current.balance, 
-                    change: changePercent,
-                    apr, 
-                    status,
-                    note: current.note || '',
-                    entryId: current.id,
-                    history: pEntries.map(e => e.balance)
+            // 2. Start Date & Duration
+            const startDate = new Date(sortedEntries[0].date);
+            document.getElementById('metricStartDate').textContent = formatDate(startDate);
+            const durationMs = new Date() - startDate;
+            const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+            document.getElementById('metricDuration').textContent = `${durationDays} Tage`;
+
+            // 3. Start Capital
+            const startCapital = sortedCashflows
+                .filter(c => new Date(c.date) <= startDate && c.type === 'deposit')
+                .reduce((sum, c) => sum + c.amount, 0);
+            document.getElementById('metricStartCapital').textContent = `$${startCapital.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+
+            // 4. Current Values
+            const { totalBalance: currentPortfolioValue } = calculateAdjustedBalances(entries, cashflows);
+            const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+            const totalReturnSum = currentPortfolioValue - totalNetInvested;
+            const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
+            
+            document.getElementById('metricTotalReturnSum').textContent = `$${totalReturnSum.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+             document.getElementById('metricTotalReturnPercent').textContent = `${totalReturnPercent.toFixed(2)}%`;
+
+            // 5. Averages & Forecasts
+            const durationYears = durationDays / 365.25;
+            const durationMonths = durationDays / 30.44;
+            
+            // annualized return
+            const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
+            document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
+            
+            // avg monthly return (CMGR)
+            const monthlyReturn = durationMonths > 1 && startCapital > 0 ? Math.pow(currentPortfolioValue / startCapital, 1 / durationMonths) - 1 : 0;
+             document.getElementById('metricAvgMonthlyReturn').textContent = `${(monthlyReturn * 100).toFixed(2)}%`;
+
+            // Portfolio Forecast
+            const portfolioForecast = currentPortfolioValue * (1 + annualizedReturn);
+            document.getElementById('metricPortfolioForecast').textContent = `$${portfolioForecast.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+
+            // 6. Max Drawdown
+            let peak = 0;
+            let maxDrawdown = 0;
+            const portfolioHistory = [...new Set(sortedEntries.map(e => e.date))]
+                .sort((a,b) => new Date(a) - new Date(b))
+                .map(date => {
+                    return sortedEntries.filter(e => e.date === date).reduce((sum, e) => sum + e.balance, 0);
                 });
-            });
-            
-            summaryData.sort((a, b) => {
-                const aVal = a[summarySort.key] || 0;
-                const bVal = b[summarySort.key] || 0;
-                const order = summarySort.order === 'asc' ? 1 : -1;
-                if (typeof aVal === 'string') return aVal.localeCompare(bVal) * order;
-                return (aVal - bVal) * order;
-            });
 
-            tbody.innerHTML = '';
-            summaryData.forEach(data => {
-                const row = document.createElement('tr');
-                const aprBadge = data.apr > 50 ? 'apr-high' : data.apr > 15 ? 'apr-medium' : 'apr-low';
-                
-                const sparklineId = `spark-${data.platform.replace(/\s+/g, '-')}`;
-                
-                row.innerHTML = `
-                    <td style="font-weight: 600;">
-                        ${data.platform}
-                        <span class="sparkline-container">
-                            <canvas id="${sparklineId}" width="60" height="20"></canvas>
-                        </span>
-                    </td>
-                    <td>${data.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                    <td class="${data.change >= 0 ? 'positive' : 'negative'}">${data.change.toFixed(2)}%</td>
-                    <td><span class="apr-badge ${aprBadge}">${isFinite(data.apr) ? data.apr.toFixed(2) : '0.00'}%</span></td>
-                    <td><span class="status-badge status-${data.status.class}">${data.status.text}</span></td>
-                    <td class="editable" onclick="makeNoteEditable(this, ${data.entryId}, 'entry')">${data.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-                `;
-                tbody.appendChild(row);
-                
-                setTimeout(() => drawSparkline(sparklineId, data.history), 0);
+            portfolioHistory.forEach(value => {
+                if (value > peak) peak = value;
+                const drawdown = peak > 0 ? (value - peak) / peak : 0;
+                if (drawdown < maxDrawdown) maxDrawdown = drawdown;
             });
+            document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
         }
-        
-        function drawSparkline(canvasId, values) {
-            const canvas = document.getElementById(canvasId);
-            if (!canvas || !values || values.length < 2) return;
-            
-            const ctx = canvas.getContext('2d');
-            const width = canvas.width;
-            const height = canvas.height;
-            const padding = 2;
-            
-            ctx.clearRect(0, 0, width, height);
-            
-            const minVal = Math.min(...values);
-            const maxVal = Math.max(...values);
-            const range = maxVal - minVal || 1;
-            
-            ctx.strokeStyle = values[values.length - 1] >= values[0] ? '#10b981' : '#ef4444';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            
-            values.forEach((val, i) => {
-                const x = (i / (values.length - 1)) * (width - 2 * padding) + padding;
-                const y = height - ((val - minVal) / range) * (height - 2 * padding) - padding;
-                
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            });
-            
-            ctx.stroke();
-            
-            ctx.fillStyle = values[values.length - 1] >= values[0] 
-                ? 'rgba(16, 185, 129, 0.1)' 
-                : 'rgba(239, 68, 68, 0.1)';
-            ctx.lineTo(width - padding, height - padding);
-            ctx.lineTo(padding, height - padding);
-            ctx.closePath();
-            ctx.fill();
-        }
+
 
         function updateHistory() {
             const tbody = document.getElementById('historyTableBody');
@@ -3559,7 +3415,7 @@
                 const aVal = a[historySort.key] || 0;
                 const bVal = b[historySort.key] || 0;
                 const order = historySort.order === 'asc' ? 1 : -1;
-                if (historySort.key === 'date') return (new Date(aVal) - new Date(bVal)) * order;
+                if (historySort.key === 'date') return (new Date(bVal) - new Date(aVal)) * order; // Corrected date sort
                 if (typeof aVal === 'string') return aVal.localeCompare(bVal) * order;
                 return (aVal - bVal) * order;
             });
@@ -3661,21 +3517,13 @@
 
         function updateCashflowDisplay() {
             const tbody = document.getElementById('cashflowTableBody');
-            const { totalDeposits, totalWithdrawals, netInvested } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
-            document.getElementById('totalDeposits').textContent = `${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-            document.getElementById('totalWithdrawals').textContent = `${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-            document.getElementById('netCashflow').textContent = `${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
             
-            const totalValue = parseFloat(document.getElementById('totalValue').textContent.replace(/[^0-9,-]+/g,"").replace(',','.'));
-            const roi = netInvested !== 0 ? ((totalValue - netInvested) / netInvested * 100) : 0;
-            document.getElementById('roiPercent').textContent = `${roi.toFixed(2)}%`;
-
             let dataToDisplay = [...filteredCashflows];
             dataToDisplay.sort((a, b) => {
                 const aVal = a[cashflowSort.key] || 0;
                 const bVal = b[cashflowSort.key] || 0;
                 const order = cashflowSort.order === 'asc' ? 1 : -1;
-                if (cashflowSort.key === 'date') return (new Date(aVal) - new Date(bVal)) * order;
+                if (cashflowSort.key === 'date') return (new Date(bVal) - new Date(aVal)) * order; // Corrected date sort
                 if (typeof aVal === 'string') return aVal.localeCompare(bVal) * order;
                 return (aVal - bVal) * order;
             });
@@ -3729,7 +3577,7 @@
                 const aVal = a[platformDetailsSort.key] || 0;
                 const bVal = b[platformDetailsSort.key] || 0;
                 const order = platformDetailsSort.order === 'asc' ? 1 : -1;
-                if (['first', 'last'].includes(platformDetailsSort.key)) return (new Date(aVal) - new Date(bVal)) * order;
+                if (['first', 'last'].includes(platformDetailsSort.key)) return (new Date(bVal) - new Date(aVal)) * order; // Corrected date sort
                 if (typeof aVal === 'string') return aVal.localeCompare(bVal) * order;
                 return (aVal - bVal) * order;
             });
@@ -3805,8 +3653,8 @@
             }
         }
 
-        function exportChart(chartId) {
-            const chartContainer = document.getElementById(`${chartId}Container`);
+        function exportChart(containerId) {
+            const chartContainer = document.getElementById(containerId);
             if (!chartContainer) return;
             showNotification('Exportiere Chart...', 'warning');
             html2canvas(chartContainer, {
@@ -3814,7 +3662,7 @@
                 scale: 2
             }).then(canvas => {
                 const link = document.createElement('a');
-                link.download = `${chartId}_export_${new Date().toISOString().split('T')[0]}.png`;
+                link.download = `${containerId}_export_${new Date().toISOString().split('T')[0]}.png`;
                 link.href = canvas.toDataURL('image/png');
                 link.click();
                 showNotification('Chart exportiert!', 'success');
@@ -3828,28 +3676,14 @@
             showNotification('PDF-Export wird vorbereitet...', 'warning');
             
             // 1. Collect Data
-            const { totalBalance, netInvested } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
-            
-            const tableBody = document.getElementById('platformSummaryBody');
-            let tableRowsHtml = '';
-            if (tableBody) {
-                const rows = tableBody.querySelectorAll('tr');
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length > 0) {
-                        tableRowsHtml += `
-                            <tr>
-                                <td>${cells[0].innerText}</td>
-                                <td>${cells[1].innerText}</td>
-                                <td style="color: ${cells[2].classList.contains('positive') ? 'green' : 'red'};">${cells[2].innerText}</td>
-                            </tr>
-                        `;
-                    }
-                });
-            }
-
             const portfolioChartImg = portfolioChart.canvas.toDataURL('image/png');
-            const allocationChartImg = allocationChart.canvas.toDataURL('image/png');
+            let metricsHtml = '';
+            document.querySelectorAll('#keyMetrics .metric-item').forEach(item => {
+                const label = item.querySelector('.metric-label').innerText;
+                const value = item.querySelector('.metric-value').innerText;
+                metricsHtml += `<div class="summary-item"><span class="summary-label">${label}:</span> ${value}</div>`;
+            });
+
 
             // 2. Create printable HTML
             const printHtml = `
@@ -3860,14 +3694,10 @@
                         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; }
                         h1, h2 { color: #4f46e5; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 20px; }
                         p { margin-bottom: 10px; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-                        th { background-color: #f2f2f2; }
                         .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-                        .summary-item { font-size: 16px; }
+                        .summary-item { font-size: 16px; padding: 8px; border-bottom: 1px solid #eee; }
                         .summary-label { font-weight: 600; }
-                        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 30px; page-break-before: always; }
-                        .chart-container { text-align: center; }
+                        .chart-container { text-align: center; margin-top: 30px; }
                         img { max-width: 100%; height: auto; }
                     </style>
                 </head>
@@ -3877,35 +3707,12 @@
                     
                     <h2>Portfolio Übersicht</h2>
                     <div class="summary-grid">
-                        <div class="summary-item"><span class="summary-label">Gesamtwert:</span> ${document.getElementById('totalValue').innerText}</div>
-                        <div class="summary-item"><span class="summary-label">Netto Investiert:</span> ${document.getElementById('netInvested').innerText}</div>
-                        <div class="summary-item"><span class="summary-label">Profit:</span> ${document.getElementById('totalProfit').innerText}</div>
-                        <div class="summary-item"><span class="summary-label">ROI:</span> ${document.getElementById('profitPercent').innerText}</div>
+                        ${metricsHtml}
                     </div>
 
-                    <h2>Platform Performance</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Plattform</th>
-                                <th>Balance</th>
-                                <th>Letzte Änderung</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${tableRowsHtml}
-                        </tbody>
-                    </table>
-
-                    <div class="charts">
-                        <div class="chart-container">
-                            <h3>Portfolio Entwicklung</h3>
-                            <img src="${portfolioChartImg}" alt="Portfolio Entwicklung Chart">
-                        </div>
-                        <div class="chart-container">
-                            <h3>Portfolio-Verteilung</h3>
-                            <img src="${allocationChartImg}" alt="Portfolio Verteilung Chart">
-                        </div>
+                    <div class="chart-container">
+                        <h3>Portfolio Entwicklung</h3>
+                        <img src="${portfolioChartImg}" alt="Portfolio Entwicklung Chart">
                     </div>
                 </body>
                 </html>
@@ -4119,10 +3926,29 @@
             const th = e.currentTarget;
             const key = th.dataset.sort;
             const table = th.closest('table');
-            const sortState = table.id.includes('history') ? historySort : 
-                              table.id.includes('cashflow') ? cashflowSort : 
-                              table.id.includes('platformDetails') ? platformDetailsSort : summarySort;
-                              
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return;
+
+            let sortState;
+            let updateFunction;
+
+            switch(tbody.id) {
+                case 'historyTableBody':
+                    sortState = historySort;
+                    updateFunction = updateHistory;
+                    break;
+                case 'cashflowTableBody':
+                    sortState = cashflowSort;
+                    updateFunction = updateCashflowDisplay;
+                    break;
+                case 'platformDetailsBody':
+                    sortState = platformDetailsSort;
+                    updateFunction = updatePlatformDetails;
+                    break;
+                default:
+                    return;
+            }
+            
             if (sortState.key === key) {
                 sortState.order = sortState.order === 'asc' ? 'desc' : 'asc';
             } else {
@@ -4133,10 +3959,7 @@
             table.querySelectorAll('.sort-arrow').forEach(arrow => arrow.textContent = '');
             th.querySelector('.sort-arrow').textContent = sortState.order === 'asc' ? '▲' : '▼';
             
-            if (table.id.includes('history')) updateHistory();
-            else if (table.id.includes('cashflow')) updateCashflowDisplay();
-            else if (table.id.includes('platformDetails')) updatePlatformDetails();
-            else updatePlatformSummary();
+            updateFunction();
         }
 
         function showNotification(text, type = 'success') {
