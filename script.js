@@ -97,21 +97,27 @@ document.addEventListener('DOMContentLoaded', () => {
     registerServiceWorker();
 });
 
+// NEU: Funktion zur Erkennung von Mobilgeräten
 function isMobileDevice() {
+    // Prüft den User-Agent des Browsers auf typische mobile Schlüsselwörter
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 // =================================================================================
 // BIOMETRIC AUTHENTICATION
 // =================================================================================
+// AKTUELLES PROBLEM: App öffnet trotzdem
+// LÖSUNG: Content blocking, nicht nur Overlay
+
 async function checkBiometricAuth() {
     if (localStorage.getItem('biometricEnabled') !== 'true') {
-        return;
+        return; // Wenn Auth aus ist, passiert nichts und die Seite ist sichtbar.
     }
 
     const overlay = document.getElementById('biometricOverlay');
     const appContainer = document.getElementById('appContainer');
 
+    // NEU: Inhalt sperren, BEVOR die Abfrage kommt
     appContainer.classList.add('content-locked');
     overlay.classList.add('visible');
 
@@ -129,24 +135,29 @@ async function checkBiometricAuth() {
             });
             
             if (isAvailable) {
+                // Bei Erfolg: Overlay ausblenden und Inhalt einblenden
                 overlay.classList.remove('visible');
-                appContainer.classList.remove('content-locked');
+                appContainer.classList.remove('content-locked'); // NEU
                 showNotification('Biometric Authentication erfolgreich! 🔐');
             }
         } else {
+            // Wenn Biometrie nicht verfügbar ist, trotzdem entsperren
             overlay.classList.remove('visible');
-            appContainer.classList.remove('content-locked');
+            appContainer.classList.remove('content-locked'); // NEU
             showNotification('Biometric Auth nicht verfügbar - übersprungen', 'warning');
         }
     } catch (error) {
+        // NEU: Bei Abbruch/Fehler den Overlay anzeigen lassen und Text ändern
         console.log('Biometric auth cancelled or failed:', error);
         document.querySelector('#biometricOverlay .biometric-text').textContent = 'Authentifizierung fehlgeschlagen';
         document.querySelector('#biometricOverlay .biometric-subtitle').textContent = 'Bitte laden Sie die Seite neu, um es erneut zu versuchen.';
-        document.querySelector('#biometricOverlay .biometric-fallback').style.display = 'none';
+        document.querySelector('#biometricOverlay .biometric-fallback').style.display = 'none'; // Bypass-Button ausblenden
     }
 }
 
+// Bessere Biometric Implementation
 async function authenticateWithBiometric() {
+    // Für Mobile: Web Authentication API
     if ('credentials' in navigator && window.PublicKeyCredential) {
         try {
             const credential = await navigator.credentials.get({
@@ -162,6 +173,8 @@ async function authenticateWithBiometric() {
             return false;
         }
     }
+    
+    // Fallback für ältere Geräte
     return false;
 }
 
@@ -185,6 +198,7 @@ function setupAutocomplete() {
     const dropdown = document.getElementById('autocompleteDropdown');
     
     searchInput.addEventListener('blur', (e) => {
+        // Delay hiding to allow click on dropdown items
         setTimeout(() => {
             dropdown.style.display = 'none';
             autocompleteIndex = -1;
@@ -295,6 +309,7 @@ function selectAutocompleteItem(platform) {
 // ENHANCED CONFIRMATION SYSTEM
 // =================================================================================
 function showEnhancedConfirmation(element, message, details, onConfirm) {
+    // Remove any existing tooltips
     document.querySelectorAll('.confirmation-tooltip').forEach(t => t.remove());
     
     const tooltip = document.createElement('div');
@@ -303,24 +318,33 @@ function showEnhancedConfirmation(element, message, details, onConfirm) {
         <div>${message}</div>
         ${details ? `<div style="font-size: 11px; margin-top: 8px; opacity: 0.9;">${details}</div>` : ''}
         <div class="confirmation-actions">
-            <button class="confirm-btn confirm-yes">Ja</button>
-            <button class="confirm-btn confirm-no">Nein</button>
+            <button class="confirm-btn confirm-yes" onclick="confirmAction(true)">Ja</button>
+            <button class="confirm-btn confirm-no" onclick="confirmAction(false)">Nein</button>
         </div>
     `;
     
-    element.style.position = 'relative';
+    element.style.position = 'relative'; // Ensure the element can anchor the tooltip
     element.appendChild(tooltip);
     
+    // Trigger animation
     setTimeout(() => tooltip.classList.add('visible'), 50);
     
-    const handleConfirmation = (confirmed) => {
+    let resolved = false;
+    window.confirmAction = (confirmed) => {
+        if (resolved) return;
+        resolved = true;
         tooltip.classList.remove('visible');
         setTimeout(() => tooltip.remove(), 300);
         if (confirmed) onConfirm();
+        delete window.confirmAction;
     };
-
-    tooltip.querySelector('.confirm-yes').onclick = () => handleConfirmation(true);
-    tooltip.querySelector('.confirm-no').onclick = () => handleConfirmation(false);
+    
+    // Auto-close after 10 seconds
+    setTimeout(() => {
+        if (!resolved) {
+            window.confirmAction(false);
+        }
+    }, 10000);
 }
 
 function showDeleteConfirmation(element, identifier, type = 'platform') {
@@ -386,9 +410,15 @@ function quickSync() {
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         const swCode = `
-            self.addEventListener('install', e => { self.skipWaiting(); });
-            self.addEventListener('activate', e => { e.waitUntil(clients.claim()); });
-            self.addEventListener('fetch', e => { e.respondWith(fetch(e.request)); });
+            self.addEventListener('install', e => {
+                self.skipWaiting();
+            });
+            self.addEventListener('activate', e => {
+                e.waitUntil(clients.claim());
+            });
+            self.addEventListener('fetch', e => {
+                e.respondWith(fetch(e.request));
+            });
         `;
         const blob = new Blob([swCode], { type: 'application/javascript' });
         const swUrl = URL.createObjectURL(blob);
@@ -440,6 +470,7 @@ function addEventListeners() {
     });
     document.getElementById('selectAllHistory').addEventListener('change', toggleSelectAllHistory);
 
+    // Biometric toggle listener
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
         biometricToggle.checked = localStorage.getItem('biometricEnabled') === 'true';
@@ -484,18 +515,21 @@ function setupKeyboardShortcuts() {
             }
         }
 
+        // Alt + B for biometric toggle
         if (e.altKey && e.key === 'b') {
             e.preventDefault();
             toggleBiometric();
         }
         
+        // Alt + Q for quick actions
         if (e.altKey && e.key === 'q') {
             e.preventDefault();
             toggleQuickActions();
         }
         
         if (e.key === 'Escape') {
-            closeMainModal();
+            closeGitHubModal();
+            closeGistModal();
             if (promptResolve) {
                 document.getElementById('promptModal').classList.remove('visible');
                 promptResolve(null);
@@ -567,6 +601,7 @@ function setupTouchGestures() {
         handleSwipeGesture(touchStartX, touchEndX, touchStartY, touchEndY);
     }, { passive: true });
 
+    // Long press for quick actions (mobile)
     let longPressTimer;
     document.addEventListener('touchstart', (e) => {
         longPressTimer = setTimeout(() => {
@@ -575,8 +610,13 @@ function setupTouchGestures() {
         }, 800);
     });
     
-    document.addEventListener('touchend', () => { clearTimeout(longPressTimer); });
-    document.addEventListener('touchmove', () => { clearTimeout(longPressTimer); });
+    document.addEventListener('touchend', () => {
+        clearTimeout(longPressTimer);
+    });
+    
+    document.addEventListener('touchmove', () => {
+        clearTimeout(longPressTimer);
+    });
 }
 
 function handleSwipeGesture(startX, endX, startY, endY) {
@@ -663,7 +703,6 @@ async function syncNow() {
     
     syncInProgress = true;
     updateSyncUI('syncing');
-    showSkeletons();
     
     try {
         const cloudData = await fetchGistData();
@@ -691,7 +730,6 @@ async function syncNow() {
         updateSyncUI('error');
     } finally {
         syncInProgress = false;
-        hideSkeletons();
     }
 }
 
@@ -728,8 +766,25 @@ function mergeData(localData, cloudData) {
 }
 
 function openCloudSettings() { switchTab('settings'); }
-function setupGitHubToken() { openMainModal('token'); }
-function setupGistId() { openMainModal('gist'); }
+function setupGitHubToken() { document.getElementById('githubSetupModal').classList.add('visible'); document.getElementById('githubTokenInput').focus(); }
+function setupGistId() { document.getElementById('gistSetupModal').classList.add('visible'); document.getElementById('gistIdInput').focus(); }
+function closeGitHubModal() { document.getElementById('githubSetupModal').classList.remove('visible'); }
+function closeGistModal() { document.getElementById('gistSetupModal').classList.remove('visible'); }
+
+function saveGitHubToken() {
+    const token = document.getElementById('githubTokenInput').value.trim();
+    if (!token) return showNotification('Bitte Token eingeben', 'error');
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
+    githubToken = token;
+    localStorage.setItem('githubToken', token);
+    document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
+    document.getElementById('githubTokenInput').value = '';
+    closeGitHubModal();
+    showNotification('Token gespeichert!');
+    updateSyncStatus();
+    updateSyncBarVisibility();
+    testConnection();
+}
 
 function clearGitHubToken() {
     if (confirm('Wirklich den GitHub Token löschen?')) {
@@ -751,6 +806,20 @@ function clearGistId() {
         updateSyncBarVisibility();
         showNotification('Gist ID gelöscht');
     }
+}
+
+function saveGistId() {
+    const id = document.getElementById('gistIdInput').value.trim();
+    if (!id) return showNotification('Bitte Gist ID eingeben', 'error');
+    gistId = id;
+    localStorage.setItem('gistId', id);
+    document.getElementById('gistDisplay').textContent = id.slice(0, 8) + '...';
+    document.getElementById('gistIdInput').value = '';
+    closeGistModal();
+    showNotification('Gist ID gespeichert!');
+    updateSyncStatus();
+    updateSyncBarVisibility();
+    testConnection();
 }
 
 async function createNewGist() {
@@ -1024,8 +1093,11 @@ function renderPlatformButtons() {
         if (favorites.includes(p.name)) tile.classList.add('favorite');
         if (platformsWithLastBalance.has(p.name)) tile.classList.add('has-balance');
         
+        // Enhanced click with haptic feedback
         tile.onclick = (e) => {
-            if (navigator.vibrate) navigator.vibrate(50);
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
             
             if (e.ctrlKey || e.metaKey) {
                 togglePlatform(tile, p.name);
@@ -1073,10 +1145,7 @@ function renderPlatformButtons() {
         tile.innerHTML = `
             <span class="favorite-star">⭐</span>
             <span class="has-balance-icon">💰</span>
-            <div class="tile-actions">
-                <div class="tile-action-btn" title="Plattform bearbeiten" onclick="event.stopPropagation(); openMainModal('editPlatform', '${p.name}')">✎</div>
-                <div class="tile-action-btn" title="Plattform entfernen" onclick="event.stopPropagation(); showDeleteConfirmation(this.parentElement.parentElement, '${p.name}', 'platform')">×</div>
-            </div>
+            <div class="remove-tile" title="Plattform entfernen" onclick="event.stopPropagation(); showDeleteConfirmation(this, '${p.name}', 'platform')">×</div>
             <div class="icon">${p.icon}</div>
             <div class="name">${p.name}</div>
             <div class="type">${p.type}</div>
@@ -1086,7 +1155,7 @@ function renderPlatformButtons() {
 
     const addTile = document.createElement('div');
     addTile.className = 'platform-btn';
-    addTile.onclick = () => openMainModal('addPlatform');
+    addTile.onclick = addCustomPlatform;
     addTile.innerHTML = `<div class="icon">➕</div><div class="name">Andere</div><div class="type">Hinzufügen</div>`;
     grid.appendChild(addTile);
 }
@@ -1160,6 +1229,30 @@ function togglePlatform(element, platformName) {
         removePlatformInput(platformName);
     }
     updateAutoZeroHint();
+}
+
+async function addCustomPlatform() {
+    const name = await showCustomPrompt({ title: 'Neue Plattform', text: 'Name der Plattform:', showInput: true });
+    if (!name || !name.trim()) return;
+    if (platforms.some(p => p.name.toLowerCase() === name.trim().toLowerCase())) return showNotification('Plattform existiert bereits!', 'error');
+
+    const type = await showCustomPrompt({ title: 'Plattform Typ', text: `Typ für "${name.trim()}"? (z.B. DEX, Lending)`, showInput: true });
+    const category = await showCustomPrompt({ title: 'Kategorie', text: 'Exchange, DeFi, Lending, Wallet oder Custom?', showInput: true });
+    const tagsInput = await showCustomPrompt({ title: 'Tags', text: 'Tags (kommagetrennt, z.B. high-risk, staking, defi):', showInput: true });
+    
+    const tags = tagsInput ? tagsInput.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
+
+    platforms.push({ 
+        name: name.trim(), 
+        type: type ? type.trim() : 'Custom',
+        category: category ? category.trim() : 'Custom',
+        icon: '💎',
+        tags: tags
+    });
+    saveData();
+    renderPlatformButtons();
+    updateCashflowTargets();
+    showNotification(`${name.trim()} hinzugefügt!`);
 }
 
 function addPlatformInput(platformName) {
@@ -1482,11 +1575,48 @@ async function clearAllData() {
     }
 }
 
+function makeNoteEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry || cell.querySelector('input')) return;
+    
+    const currentNote = entry.note || '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'input-field';
+    input.value = currentNote;
+    input.style.width = '100%';
+    
+    const originalContent = cell.innerHTML;
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+    
+    const save = () => {
+        entry.note = input.value;
+        saveData();
+        cell.innerHTML = entry.note || `<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>`;
+        cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        showNotification('Notiz aktualisiert!');
+    };
+    
+    input.onblur = save;
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            save();
+        } else if (e.key === 'Escape') {
+            cell.innerHTML = originalContent;
+            cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        }
+    };
+}
+
 // =================================================================================
-// DISPLAY UPDATES & UI/UX ENHANCEMENTS
+// DISPLAY UPDATES
 // =================================================================================
 function updateDisplay() {
-    checkOnboarding();
     updateStats();
     updateHistory();
     updateCharts();
@@ -1495,82 +1625,10 @@ function updateDisplay() {
     updateKeyMetrics();
 }
 
-function checkOnboarding() {
-    const dashboardContent = document.getElementById('dashboard-content');
-    if (entries.length === 0 && cashflows.length === 0) {
-        dashboardContent.innerHTML = `
-            <div class="onboarding-card">
-                <div class="onboarding-icon">👋</div>
-                <h3>Willkommen beim Portfolio Tracker!</h3>
-                <p>Es sieht so aus, als hätten Sie noch keine Daten. Beginnen Sie, indem Sie Ihren ersten Eintrag hinzufügen oder Ihre Daten importieren.</p>
-                <button class="btn btn-primary" onclick="switchTab('entry')">➕ Erster Eintrag</button>
-            </div>
-        `;
-    } else {
-        if (!dashboardContent.querySelector('.stats-grid')) {
-            dashboardContent.innerHTML = `
-                <div class="stats-grid">
-                    <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-label">Portfolio Gesamtwert</div><div class="stat-value" id="totalValue">$0</div><div class="stat-change" id="totalChange"><span>📊</span><span id="totalChangeText">Keine Daten</span></div></div>
-                    <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-label">Performance (Zeitraum)</div><div class="stat-value" id="weeklyGrowth">-</div><div class="stat-change" id="weeklyGrowthAmount"><span>💵</span><span id="weeklyChangeText">-</span></div></div>
-                    <div class="stat-card"><div class="stat-icon">💎</div><div class="stat-label">Netto Investiert (Zeitraum)</div><div class="stat-value" id="netInvested">$0</div><div class="stat-change"><span>💳</span><span id="netInvestedChange">Ein: $0 | Aus: $0</span></div></div>
-                    <div class="stat-card"><div class="stat-icon">🏆</div><div class="stat-label">Reale Performance (Zeitraum)</div><div class="stat-value" id="totalProfit">$0</div><div class="stat-change"><span>📊</span><span id="profitPercent">0%</span></div></div>
-                </div>
-                <div class="section"><div class="section-header"><div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div><button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button></div><div class="chart-container" id="portfolioChartContainer"><canvas id="portfolioChart"></canvas></div></div>
-                <div class="two-column-layout">
-                    <div class="section"><div class="section-header"><div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div></div><div id="keyMetrics" class="metrics-grid"></div></div>
-                    <div class="section"><div class="section-header"><div class="section-title"><span>🏰</span><span>Portfolio-Verteilung</span></div><button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button></div><div class="chart-container" id="allocationChartContainer"><canvas id="allocationChart"></canvas></div></div>
-                </div>
-            `;
-            initializeCharts();
-        }
-    }
-}
-
-function showSkeletons() {
-    document.querySelectorAll('.stat-value, .metric-value').forEach(el => {
-        el.innerHTML = '<div class="skeleton" style="width: 120px; height: 28px;"></div>';
-    });
-    document.getElementById('portfolioChartContainer').innerHTML = '<div class="skeleton" style="width: 100%; height: 100%;"></div>';
-    document.getElementById('allocationChartContainer').innerHTML = '<div class="skeleton" style="width: 100%; height: 100%;"></div>';
-}
-
-function hideSkeletons() {
-    document.getElementById('portfolioChartContainer').innerHTML = '<canvas id="portfolioChart"></canvas>';
-    document.getElementById('allocationChartContainer').innerHTML = '<canvas id="allocationChart"></canvas>';
-    initializeCharts();
-    updateDisplay();
-}
-
-function animateValue(element, start, end, duration) {
-    if (start === end) {
-        element.textContent = `$${end.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        return;
-    }
-    const range = end - start;
-    let current = start;
-    const increment = end > start ? 1 : -1;
-    const stepTime = Math.abs(Math.floor(duration / range));
-    const timer = setInterval(() => {
-        current += increment * Math.max(1, Math.abs(Math.floor(range / 100)));
-        if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-            current = end;
-            clearInterval(timer);
-        }
-        element.textContent = `$${current.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    }, stepTime);
-}
-
 function updateStats() {
     const { totalBalance, netInvested, totalDeposits, totalWithdrawals } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
+    document.getElementById('totalValue').textContent = `$${totalBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     
-    const totalValueEl = document.getElementById('totalValue');
-    const currentDisplayValue = parseFloat(totalValueEl.textContent.replace(/[$.]/g, '').replace(',', '.'));
-    if (!isNaN(currentDisplayValue)) {
-        animateValue(totalValueEl, currentDisplayValue, totalBalance, 1000);
-    } else {
-        totalValueEl.textContent = `$${totalBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    }
-
     const sortedDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
     if (sortedDates.length > 1) {
         const currentTotal = filteredEntries.filter(e => e.date === sortedDates[sortedDates.length-1]).reduce((sum, e) => sum + e.balance, 0);
@@ -1579,7 +1637,7 @@ function updateStats() {
         const changePercent = (previousTotal !== 0) ? (change / previousTotal * 100) : 0;
         const changeTextEl = document.getElementById('totalChangeText');
         changeTextEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})} (${changePercent.toFixed(2)}%)`;
-        changeTextEl.parentElement.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
+        changeTextEl.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
         document.getElementById('weeklyGrowth').textContent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
         document.getElementById('weeklyGrowthAmount').className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
         document.getElementById('weeklyChangeText').textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
@@ -1596,8 +1654,11 @@ function updateStats() {
     const profitPercent = netInvested !== 0 ? (profit / netInvested * 100) : 0;
     document.getElementById('totalProfit').textContent = `$${profit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     
+    // NEU: Das Element in einer Variable speichern
     const profitPercentEl = document.getElementById('profitPercent');
     profitPercentEl.textContent = `${profitPercent.toFixed(2)}% ROI`;
+    // NEU: Die CSS-Klasse basierend auf dem Gewinn setzen
+    // .parentElement zielt auf das übergeordnete <div> mit der Klasse "stat-change"
     profitPercentEl.parentElement.className = `stat-change ${profit >= 0 ? 'positive' : 'negative'}`;
 }
 
@@ -1610,11 +1671,11 @@ function calculateAdjustedBalances(currentEntries, currentCashflows) {
     return { totalBalance, totalDeposits, totalWithdrawals, netInvested };
 }
 
+// =================================================================================
+// KEY METRICS CALCULATION
+// =================================================================================
 function updateKeyMetrics() {
-    if (entries.length === 0) {
-        document.querySelectorAll('#keyMetrics .metric-value').forEach(el => el.textContent = '-');
-        return;
-    }
+    if (entries.length === 0) return;
 
     const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
     const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
@@ -1702,23 +1763,18 @@ function updateHistory() {
 
         row.innerHTML = `
             <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
-            <td class="editable" data-field="date" data-id="${entry.id}" data-type="entry">${formatDate(entry.date)}</td>
+            <td>${formatDate(entry.date)}</td>
             <td style="font-weight: 600;">${entry.protocol}</td>
-            <td class="editable" data-field="balance" data-id="${entry.id}" data-type="entry">$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            <td class="editable" data-field="note" data-id="${entry.id}" data-type="entry">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+            <td>$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); showDeleteConfirmation(this, ${entry.id}, 'entry')">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
     updateSelectAllCheckbox();
-    updateBulkActionsFooter();
 }
 
 function handleHistoryRowClick(e, row, entryId, index) {
-    if (e.target.classList.contains('editable')) {
-        makeEditable(e.target);
-        return;
-    }
     if (e.target.type === 'checkbox') {
         toggleHistorySelection(entryId, row.querySelector('input[type="checkbox"]').checked);
         lastSelectedHistoryRow = index;
@@ -1756,7 +1812,6 @@ function toggleHistorySelection(entryId, isSelected) {
         checkbox.checked = false;
     }
     updateSelectAllCheckbox();
-    updateBulkActionsFooter();
 }
 
 function toggleSelectAllHistory(e) {
@@ -1807,11 +1862,11 @@ function updateCashflowDisplay() {
     dataToDisplay.forEach(cf => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td class="editable" data-field="date" data-id="${cf.id}" data-type="cashflow">${formatDate(cf.date)}</td>
+            <td>${formatDate(cf.date)}</td>
             <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td class="editable ${cf.type === 'deposit' ? 'positive' : 'negative'}" data-field="amount" data-id="${cf.id}" data-type="cashflow">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
+            <td class="${cf.type === 'deposit' ? 'positive' : 'negative'}">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
             <td>${cf.platform || '-'}</td>
-            <td class="editable" data-field="note" data-id="${cf.id}" data-type="cashflow">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+            <td class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="showDeleteConfirmation(this, ${cf.id}, 'cashflow')">Löschen</button></td>
         `;
         tbody.appendChild(row);
@@ -1880,37 +1935,7 @@ function initializeCharts() {
             y: { beginAtZero: false, ticks: { color: textColor }, grid: { color: gridColor } },
             x: { ticks: { color: textColor }, grid: { color: gridColor } }
         },
-        plugins: { 
-            legend: { labels: { color: textColor } },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        let label = context.dataset.label || '';
-                        if (label) {
-                            label += ': ';
-                        }
-                        if (context.parsed.y !== null) {
-                            label += new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
-                        }
-                        return label;
-                    },
-                    afterLabel: function(context) {
-                        if (context.chart.id === 'portfolioChart' && context.dataIndex > 0) {
-                            const currentValue = context.dataset.data[context.dataIndex];
-                            const prevValue = context.dataset.data[context.dataIndex - 1];
-                            const change = currentValue - prevValue;
-                            const percentChange = (change / prevValue * 100).toFixed(2);
-                            return `Änderung: ${change.toLocaleString('de-DE', { style: 'currency', currency: 'USD' })} (${percentChange}%)`;
-                        }
-                        if (context.chart.id === 'allocationChart') {
-                            const total = context.chart.getDatasetMeta(0).total;
-                            const percent = (context.parsed / total * 100).toFixed(2);
-                            return `Anteil: ${percent}%`;
-                        }
-                    }
-                }
-            }
-        }
+        plugins: { legend: { labels: { color: textColor } } }
     };
 
     const portfolioCtx = document.getElementById('portfolioChart')?.getContext('2d');
@@ -1918,7 +1943,7 @@ function initializeCharts() {
         portfolioChart = new Chart(portfolioCtx, {
             type: 'line',
             data: { labels: [], datasets: [{ label: 'Portfolio Wert', data: [], backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', borderWidth: 3, tension: 0.4, fill: true }] },
-            options: { ...chartOptions, plugins: { ...chartOptions.plugins, legend: { display: false } } }
+            options: { ...chartOptions, plugins: { legend: { display: false } } }
         });
     }
 
@@ -2186,7 +2211,7 @@ function handleJsonImport(event) {
 }
 
 // =================================================================================
-// UTILITY, MODALS & HELPER FUNCTIONS
+// UTILITY & HELPER FUNCTIONS
 // =================================================================================
 function formatDate(dateStr) {
     if (!dateStr) return '';
@@ -2311,223 +2336,4 @@ function showCustomPrompt({title, text, showInput = false, listHtml = ''}) {
         document.getElementById('promptModal').classList.add('visible');
         if (showInput) input.focus();
     });
-}
-
-function openMainModal(type, data = null) {
-    const modal = document.getElementById('githubSetupModal');
-    const titleEl = document.getElementById('mainModalTitle');
-    const bodyEl = document.getElementById('mainModalBody');
-    const saveBtn = document.getElementById('mainModalSaveBtn');
-    
-    bodyEl.innerHTML = ''; 
-
-    switch(type) {
-        case 'token':
-            titleEl.textContent = '📝 GitHub Token Setup';
-            bodyEl.innerHTML = `
-                <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">Gib dein Personal Access Token ein, um Cloud Sync zu aktivieren.</p>
-                <div class="github-input-group">
-                    <label>Personal Access Token</label>
-                    <input type="password" id="githubTokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-                    <div class="github-input-help"><a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" style="color: var(--primary);">→ Token auf GitHub erstellen (mit 'gist' Berechtigung)</a></div>
-                </div>`;
-            saveBtn.onclick = saveGitHubToken;
-            break;
-        case 'gist':
-            titleEl.textContent = '📋 Gist ID Setup';
-            bodyEl.innerHTML = `
-                <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">Gib die ID deines privaten Gists ein oder erstelle einen neuen.</p>
-                <div class="github-input-group">
-                    <label>Gist ID</label>
-                    <input type="text" id="gistIdInput" placeholder="z.B. a1b2c3d4e5f6g7h8i9j0">
-                    <div class="github-input-help">Die ID findest du in der URL deines Gists: gist.github.com/username/[DIESE_ID]</div>
-                </div>`;
-            saveBtn.onclick = saveGistId;
-            break;
-        case 'addPlatform':
-            titleEl.textContent = '➕ Neue Plattform hinzufügen';
-            bodyEl.innerHTML = `
-                <div class="github-input-group"><label>Name</label><input type="text" id="platformNameInput" required></div>
-                <div class="github-input-group"><label>Typ (z.B. Exchange)</label><input type="text" id="platformTypeInput"></div>
-                <div class="github-input-group"><label>Kategorie</label><input type="text" id="platformCategoryInput"></div>
-                <div class="github-input-group"><label>Tags (kommagetrennt)</label><textarea id="platformTagsInput" rows="2"></textarea></div>`;
-            saveBtn.onclick = savePlatform;
-            break;
-        case 'editPlatform':
-            const platform = platforms.find(p => p.name === data);
-            if (!platform) return;
-            titleEl.textContent = `✎ Plattform bearbeiten: ${platform.name}`;
-            bodyEl.innerHTML = `
-                <input type="hidden" id="originalPlatformName" value="${platform.name}">
-                <div class="github-input-group"><label>Name</label><input type="text" id="platformNameInput" value="${platform.name}" required></div>
-                <div class="github-input-group"><label>Typ (z.B. Exchange)</label><input type="text" id="platformTypeInput" value="${platform.type || ''}"></div>
-                <div class="github-input-group"><label>Kategorie</label><input type="text" id="platformCategoryInput" value="${platform.category || ''}"></div>
-                <div class="github-input-group"><label>Tags (kommagetrennt)</label><textarea id="platformTagsInput" rows="2">${(platform.tags || []).join(', ')}</textarea></div>`;
-            saveBtn.onclick = savePlatform;
-            break;
-    }
-    modal.classList.add('visible');
-}
-
-function closeMainModal() {
-    document.getElementById('githubSetupModal').classList.remove('visible');
-}
-
-function saveGitHubToken() {
-    const token = document.getElementById('githubTokenInput').value.trim();
-    if (!token) return showNotification('Bitte Token eingeben', 'error');
-    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
-    githubToken = token;
-    localStorage.setItem('githubToken', token);
-    document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
-    closeMainModal();
-    showNotification('Token gespeichert!');
-    updateSyncStatus();
-    updateSyncBarVisibility();
-    testConnection();
-}
-
-function saveGistId() {
-    const id = document.getElementById('gistIdInput').value.trim();
-    if (!id) return showNotification('Bitte Gist ID eingeben', 'error');
-    gistId = id;
-    localStorage.setItem('gistId', id);
-    document.getElementById('gistDisplay').textContent = id.slice(0, 8) + '...';
-    closeMainModal();
-    showNotification('Gist ID gespeichert!');
-    updateSyncStatus();
-    updateSyncBarVisibility();
-    testConnection();
-}
-
-function savePlatform() {
-    const originalName = document.getElementById('originalPlatformName')?.value;
-    const name = document.getElementById('platformNameInput').value.trim();
-    const type = document.getElementById('platformTypeInput').value.trim();
-    const category = document.getElementById('platformCategoryInput').value.trim();
-    const tags = document.getElementById('platformTagsInput').value.split(',').map(t => t.trim()).filter(Boolean);
-
-    if (!name) return showNotification('Name ist ein Pflichtfeld!', 'error');
-
-    if (originalName) { // Editing
-        const platformIndex = platforms.findIndex(p => p.name === originalName);
-        if (platformIndex > -1) {
-            platforms[platformIndex] = { ...platforms[platformIndex], name, type, category, tags };
-            if (originalName !== name) {
-                entries.forEach(e => { if (e.protocol === originalName) e.protocol = name; });
-                cashflows.forEach(c => { if (c.platform === originalName) c.platform = name; });
-            }
-            showNotification('Plattform aktualisiert!');
-        }
-    } else { // Adding
-        if (platforms.some(p => p.name.toLowerCase() === name.toLowerCase())) return showNotification('Plattform existiert bereits!', 'error');
-        platforms.push({ name, type, category, tags, icon: '💎' });
-        showNotification('Plattform hinzugefügt!');
-    }
-    
-    saveData();
-    renderPlatformButtons();
-    updateCashflowTargets();
-    closeMainModal();
-}
-
-function makeEditable(cell) {
-    if (cell.querySelector('input')) return;
-
-    const id = cell.dataset.id;
-    const type = cell.dataset.type;
-    const field = cell.dataset.field;
-    const dataArray = type === 'entry' ? entries : cashflows;
-    const item = dataArray.find(i => i.id == id);
-
-    if (!item) return;
-
-    const originalValue = item[field];
-    const originalContent = cell.innerHTML;
-    
-    const input = document.createElement('input');
-    input.className = 'input-field';
-    input.style.width = '100%';
-    
-    if (field === 'date') {
-        input.type = 'date';
-        input.value = new Date(originalValue).toISOString().split('T')[0];
-    } else {
-        input.type = 'text';
-        input.value = originalValue;
-    }
-    
-    cell.innerHTML = '';
-    cell.appendChild(input);
-    input.focus();
-    input.select();
-
-    const save = () => {
-        let newValue = input.value;
-        if (field === 'balance' || field === 'amount') {
-            newValue = parseFloat(newValue.replace(',', '.'));
-            if (isNaN(newValue)) {
-                cell.innerHTML = originalContent;
-                return;
-            }
-        }
-        item[field] = newValue;
-        saveData();
-        applyDateFilter();
-        showNotification('Eintrag aktualisiert!');
-    };
-
-    input.onblur = save;
-    input.onkeydown = (e) => {
-        if (e.key === 'Enter') save();
-        if (e.key === 'Escape') {
-            cell.innerHTML = originalContent;
-        }
-    };
-}
-
-function updateBulkActionsFooter() {
-    const footer = document.getElementById('bulk-actions-footer');
-    const countEl = document.getElementById('bulk-actions-count');
-    const count = selectedHistoryEntries.size;
-
-    if (count > 0) {
-        footer.style.display = 'flex';
-        countEl.textContent = `${count} Eintrag${count > 1 ? 'e' : ''} ausgewählt`;
-    } else {
-        footer.style.display = 'none';
-    }
-}
-
-async function bulkEditDate() {
-    const newDate = await showCustomPrompt({
-        title: 'Datum für Auswahl ändern',
-        text: `Wähle ein neues Datum für die ${selectedHistoryEntries.size} ausgewählten Einträge.`,
-        showInput: true
-    });
-    
-    const input = document.getElementById('promptModalInput');
-    input.type = 'date';
-    input.value = new Date().toISOString().split('T')[0];
-    
-    // Override the OK button to wait for date selection
-    const okBtn = document.getElementById('promptModalOk');
-    okBtn.onclick = () => {
-        const finalDate = input.value;
-        if (finalDate) {
-            entries.forEach(entry => {
-                if (selectedHistoryEntries.has(entry.id)) {
-                    entry.date = finalDate;
-                }
-            });
-            saveData();
-            applyDateFilter();
-            selectedHistoryEntries.clear();
-            updateBulkActionsFooter();
-            showNotification('Datum für ausgewählte Einträge aktualisiert!');
-            document.getElementById('promptModal').classList.remove('visible');
-            // Restore original OK button functionality
-            setupPromptModal();
-        }
-    };
 }

@@ -8,6 +8,7 @@
     --primary: #6366f1;
     --primary-dark: #4f46e5;
     --success: #10b981;
+    /* NEU: Eigene Variable für grünen Text für besseren Kontrast */
     --success-text: #58ffcb; 
     --danger: #ef4444;
     --warning: #f59e0b;
@@ -36,6 +37,7 @@ body.dark-mode {
     --card-bg: rgba(31, 41, 55, 0.95);
     --text-primary: #f9fafb;
     --text-secondary: #d1d5db;
+     /* NEU: Hellere grüne Textfarbe für Dark Mode */
     --success-text: #34d399;
 }
 
@@ -213,14 +215,20 @@ body.has-sync-bar .tab-navigation {
     background: linear-gradient(135deg,#2744c6 0%,#764ba2 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+    /* GEÄNDERT: Subtiler Schatten zur Abhebung */
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
   .dark-mode .header h1 {
+    /* NEU: Farbverlauf entfernen, um eine Volltonfarbe zu ermöglichen */
     background: none;
-    -webkit-background-clip: initial;
-    -webkit-text-fill-color: initial;
-    color: var(--text-primary);
+    -webkit-background-clip: initial; /* Setzt das Clipping zurück */
+    -webkit-text-fill-color: initial;  /* Setzt die Füllfarbe zurück */
+    
+    /* NEU: Helle Textfarbe für den dunklen Hintergrund setzen */
+    color: var(--text-primary); /* Verwendet die primäre Textfarbe des Dark-Modes (fast weiß) */
+
+    /* Bestehende Regel: Im Dark Mode ist kein Schatten nötig */
     text-shadow: none;
 }
 
@@ -474,11 +482,12 @@ body.has-sync-bar .tab-navigation {
     font-weight: 700;
     color: var(--text-primary);
     margin-bottom: 8px;
+    /* GEÄNDERT: Subtiler Schatten zur Abhebung */
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-    transition: color 0.3s;
 }
 
 .dark-mode .stat-value {
+     /* GEÄNDERT: Subtiler "Glow" für dunklen Hintergrund */
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
@@ -491,16 +500,20 @@ body.has-sync-bar .tab-navigation {
 }
 
 .positive { 
+    /* GEÄNDERT: Neue Variable für besseren Kontrast */
     color: var(--success-text);
+    /* NEU: Text-Schatten für bessere Lesbarkeit */
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .dark-mode .positive {
+    /* NEU: Leichter "Glow" für Text im Dark Mode */
     text-shadow: 0 0 4px rgba(52, 211, 153, 0.25);
 }
 
 .negative { 
     color: var(--danger); 
+    /* NEU: Text-Schatten auch für negative Werte */
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
@@ -659,10 +672,6 @@ body.has-sync-bar .tab-navigation {
     overflow: hidden;
 }
 
-.btn:active {
-    transform: scale(0.97);
-}
-
 .btn::before {
     content: '';
     position: absolute;
@@ -805,16 +814,6 @@ body.has-sync-bar .tab-navigation {
     transform-origin: center;
 }
 
-.platform-btn.selected {
-    animation: pop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes pop {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-    100% { transform: scale(1.05); }
-}
-
 .dark-mode .platform-btn {
     background: rgba(31, 41, 55, 0.15);
 }
@@ -871,35 +870,29 @@ body.has-sync-bar .tab-navigation {
 .platform-btn .name { font-size: 13px; font-weight: 600; }
 .platform-btn .type { font-size: 10px; opacity: 0.7; margin-top: 4px; }
 
-.platform-btn .tile-actions {
+.platform-btn .remove-tile {
     position: absolute;
     top: 4px;
     right: 4px;
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    transform: scale(0.8);
-    transition: opacity 0.2s, transform 0.2s;
-}
-
-.platform-btn:hover .tile-actions {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.tile-action-btn {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: rgba(0,0,0,0.4);
+    background: var(--danger);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1;
     cursor: pointer;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.2s, transform 0.2s;
+}
+.platform-btn:hover .remove-tile {
+    opacity: 1;
+    transform: scale(1);
 }
 
 /* Tags System */
@@ -963,6 +956,7 @@ body.has-sync-bar .tab-navigation {
     transform: translateY(-4px) scale(1.02);
 }
 
+/* Hover-Effekt deaktivieren, wenn irgendein Feld aktiv ist */
 #platformInputs.is-focused .input-card:hover {
     border-color: transparent;
 }
@@ -1227,26 +1221,15 @@ body.has-sync-bar .tab-navigation {
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }
 
-.empty-state, .onboarding-card { 
+.empty-state { 
     text-align: center; 
     padding: 40px; 
     color: var(--text-secondary); 
-    background: var(--card-bg);
-    border-radius: 16px;
-    border: 2px dashed var(--border);
 }
-.empty-state-icon, .onboarding-icon { 
+.empty-state-icon { 
     font-size: 48px; 
     margin-bottom: 16px; 
     opacity: 0.5; 
-}
-.onboarding-card h3 {
-    color: var(--text-primary);
-    margin-bottom: 10px;
-}
-.onboarding-card p {
-    line-height: 1.6;
-    margin-bottom: 20px;
 }
 
 /* Enhanced Confirmation Tooltips */
@@ -1726,7 +1709,7 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     font-size: 14px;
 }
 
-.github-input-group input, .github-input-group textarea {
+.github-input-group input {
     width: 100%;
     padding: 12px 16px;
     border: 2px solid var(--border);
@@ -1738,7 +1721,7 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.github-input-group input:focus, .github-input-group textarea:focus {
+.github-input-group input:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
@@ -1841,7 +1824,7 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     line-height: 1.5;
 }
 
-/* Loading Spinner & Skeletons */
+/* Loading Spinner */
 .spinner {
     border: 3px solid var(--border);
     border-top: 3px solid var(--primary);
@@ -1850,16 +1833,6 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     height: 20px;
     animation: spin 1s linear infinite;
     display: inline-block;
-}
-
-.skeleton {
-    background-color: var(--border);
-    border-radius: 8px;
-    animation: pulse-skeleton 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse-skeleton {
-    50% { opacity: .5; }
 }
 
 @keyframes spin {
@@ -1949,6 +1922,23 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
+/* Responsive */
+@media (max-width: 1400px) {
+    .defi-scanner-container {
+        grid-template-columns: 250px 1fr 300px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .defi-scanner-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .defi-filters-sidebar,
+    .defi-strategy-sidebar {
+        display: none;
+    }
+}
 .content-locked {
     opacity: 0;
     pointer-events: none;
