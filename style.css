@@ -921,14 +921,14 @@ body.has-sync-bar .tab-navigation {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     column-gap: 20px;
-    row-gap: 24px; 
+    row-gap: 24px;
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
     margin-bottom: 30px;
-}
+}}
 
 .dark-mode .cashflow-form {
     background: rgba(30, 41, 59, 0.3);
