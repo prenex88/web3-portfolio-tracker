@@ -381,8 +381,8 @@ body.has-sync-bar .tab-navigation {
 }
 
 .dark-mode .tab-btn:hover {
-    background: rgba(31, 41, 55, 0.2);
-}
+    background: rgba(255, 255, 255, 0.15);
+}}
 
 .tab-btn.active {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
@@ -922,6 +922,7 @@ body.has-sync-bar .tab-navigation {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     column-gap: 20px;
     row-gap: 24px;
+    align-items: start;
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
