@@ -2189,3 +2189,31 @@ function showCustomPrompt({title, text, showInput = false, listHtml = ''}) {
         if (showInput) input.focus();
     });
 }
+
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        const swCode = `
+            self.addEventListener('install', e => {
+                self.skipWaiting();
+            });
+            self.addEventListener('activate', e => {
+                e.waitUntil(clients.claim());
+            });
+            self.addEventListener('fetch', e => {
+                // Anfragen an die GitHub API sollen NICHT vom Service Worker behandelt werden.
+                // Dadurch wird sichergestellt, dass Auth-Header etc. korrekt vom Browser gesendet werden.
+                if (e.request.url.includes('api.github.com')) {
+                    return; // Lässt die Anfrage normal durch, ohne sie abzufangen.
+                }
+                
+                // Alle anderen Anfragen werden weiterhin normal verarbeitet.
+                e.respondWith(fetch(e.request));
+            });
+        `;
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl).then(() => {
+            console.log('PWA Service Worker registered (corrected version)');
+        }).catch(err => console.log('SW registration failed:', err));
+    }
+}
