@@ -361,6 +361,7 @@ body.has-sync-bar .tab-navigation {
     background: rgba(31, 41, 55, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
 .tab-btn {
     padding: 12px 24px;
     background: transparent;
@@ -374,18 +375,15 @@ body.has-sync-bar .tab-navigation {
     position: relative;
 }
 
-/* Hover-Effekt NUR für Buttons, die NICHT aktiv sind */
-.tab-btn:not(.active):hover {
+.tab-btn:hover {
     background: rgba(255, 255, 255, 0.2);
     transform: translateY(-2px);
 }
 
-/* Hover-Effekt im Dark Mode (hell für Kontrast) */
-.dark-mode .tab-btn:not(.active):hover {
-    background: rgba(255, 255, 255, 0.15);
+.dark-mode .tab-btn:hover {
+    background: rgba(31, 41, 55, 0.2);
 }
 
-/* Aktiver Button-Zustand (blauer Hintergrund) */
 .tab-btn.active {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
@@ -394,13 +392,8 @@ body.has-sync-bar .tab-navigation {
     transform: scale(1.05);
 }
 
-.tab-content {
-    display: none;
-}
-
-.tab-content.active {
-    display: block;
-}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
 /* Stats Grid */
 .stats-grid {
@@ -781,7 +774,8 @@ body.has-sync-bar .tab-navigation {
     cursor: pointer;
 }
 .tile-action-btn.edit { background: var(--info); }
-.tile-action-btn.remove { background: var(--danger); font-size: 14px; }
+.tile-action-btn.remove { background: var(--danger); font-size: 14px; 
+}
 
 /* Tags System */
 .platform-tags {
@@ -923,21 +917,17 @@ body.has-sync-bar .tab-navigation {
     transform: scale(1.1);
 }
 
+/* Cashflow */
 .cashflow-form {
-    display: flex; /
-    flex-wrap: wrap; 
-    gap: 20px; 
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
     margin-bottom: 30px;
-}
-
-.cashflow-form > div {
-    flex: 1 1 200px;
 }
 
 .dark-mode .cashflow-form {
