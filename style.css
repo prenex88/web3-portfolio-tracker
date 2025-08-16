@@ -361,7 +361,6 @@ body.has-sync-bar .tab-navigation {
     background: rgba(31, 41, 55, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
-
 .tab-btn {
     padding: 12px 24px;
     background: transparent;
@@ -375,15 +374,18 @@ body.has-sync-bar .tab-navigation {
     position: relative;
 }
 
-.tab-btn:hover {
+/* Hover-Effekt NUR für Buttons, die NICHT aktiv sind */
+.tab-btn:not(.active):hover {
     background: rgba(255, 255, 255, 0.2);
     transform: translateY(-2px);
 }
 
-.dark-mode .tab-btn:hover {
+/* Hover-Effekt im Dark Mode (hell für Kontrast) */
+.dark-mode .tab-btn:not(.active):hover {
     background: rgba(255, 255, 255, 0.15);
-}}
+}
 
+/* Aktiver Button-Zustand (blauer Hintergrund) */
 .tab-btn.active {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
@@ -391,9 +393,6 @@ body.has-sync-bar .tab-navigation {
     box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
     transform: scale(1.05);
 }
-
-.tab-content { display: none; }
-.tab-content.active { display: block; }
 
 /* Stats Grid */
 .stats-grid {
@@ -916,20 +915,22 @@ body.has-sync-bar .tab-navigation {
     transform: scale(1.1);
 }
 
-/* Cashflow */
 .cashflow-form {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    column-gap: 20px;
-    row-gap: 24px;
-    align-items: start;
+    display: flex; /* GEÄNDERT zu Flexbox */
+    flex-wrap: wrap; /* HINZUGEFÜGT für den Zeilenumbruch */
+    gap: 20px; /* Behält den Abstand bei */
+    align-items: flex-start; /* Sorgt für saubere Ausrichtung oben */
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
     margin-bottom: 30px;
-}}
+}
+
+.cashflow-form > div {
+    flex: 1 1 200px;
+}
 
 .dark-mode .cashflow-form {
     background: rgba(30, 41, 59, 0.3);
