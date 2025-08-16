@@ -20,6 +20,18 @@
             box-sizing: border-box;
         }
 
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
         :root {
             --primary: #6366f1;
             --primary-dark: #4f46e5;
@@ -2635,6 +2647,7 @@
                     <h3 style="margin-bottom: 16px; color: var(--text-primary);">🦄 Plattformen wählen:</h3>
                     
                     <div class="platform-search-container">
+                        <label for="platformSearch" class="sr-only">Plattform suchen</label>
                         <input type="text" id="platformSearch" class="platform-search" placeholder="Plattform suchen... (Ctrl+F)" oninput="filterPlatforms()" onkeydown="handleSearchKeydown(event)">
                         <span class="search-icon">🔍</span>
                         <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
@@ -2789,6 +2802,7 @@
                 <div class="section-header">
                     <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
                     <div>
+                        <label for="historySearch" class="sr-only">Historie durchsuchen</label>
                         <input type="text" id="historySearch" class="input-field" placeholder="Suchen..." style="width: 200px;">
                         <button class="btn btn-danger btn-small" onclick="clearAllData()">
                             <span>🗑️</span> Alle Löschen
