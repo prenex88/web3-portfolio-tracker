@@ -920,7 +920,8 @@ body.has-sync-bar .tab-navigation {
 .cashflow-form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px;
+    column-gap: 20px;
+    row-gap: 24px; 
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
