@@ -394,6 +394,14 @@ body.has-sync-bar .tab-navigation {
     transform: scale(1.05);
 }
 
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
 /* Stats Grid */
 .stats-grid {
     display: grid;
@@ -916,10 +924,10 @@ body.has-sync-bar .tab-navigation {
 }
 
 .cashflow-form {
-    display: flex; /* GEÄNDERT zu Flexbox */
-    flex-wrap: wrap; /* HINZUGEFÜGT für den Zeilenumbruch */
-    gap: 20px; /* Behält den Abstand bei */
-    align-items: flex-start; /* Sorgt für saubere Ausrichtung oben */
+    display: flex; /
+    flex-wrap: wrap; 
+    gap: 20px; 
+    align-items: flex-start;
     padding: 24px;
     background: rgba(240, 249, 255, 0.3);
     backdrop-filter: blur(10px);
