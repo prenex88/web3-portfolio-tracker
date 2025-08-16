@@ -97,27 +97,21 @@ document.addEventListener('DOMContentLoaded', () => {
     registerServiceWorker();
 });
 
-// NEU: Funktion zur Erkennung von Mobilgeräten
 function isMobileDevice() {
-    // Prüft den User-Agent des Browsers auf typische mobile Schlüsselwörter
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 // =================================================================================
 // BIOMETRIC AUTHENTICATION
 // =================================================================================
-// AKTUELLES PROBLEM: App öffnet trotzdem
-// LÖSUNG: Content blocking, nicht nur Overlay
-
 async function checkBiometricAuth() {
     if (localStorage.getItem('biometricEnabled') !== 'true') {
-        return; // Wenn Auth aus ist, passiert nichts und die Seite ist sichtbar.
+        return;
     }
 
     const overlay = document.getElementById('biometricOverlay');
     const appContainer = document.getElementById('appContainer');
 
-    // NEU: Inhalt sperren, BEVOR die Abfrage kommt
     appContainer.classList.add('content-locked');
     overlay.classList.add('visible');
 
@@ -135,51 +129,26 @@ async function checkBiometricAuth() {
             });
             
             if (isAvailable) {
-                // Bei Erfolg: Overlay ausblenden und Inhalt einblenden
                 overlay.classList.remove('visible');
-                appContainer.classList.remove('content-locked'); // NEU
+                appContainer.classList.remove('content-locked');
                 showNotification('Biometric Authentication erfolgreich! 🔐');
             }
         } else {
-            // Wenn Biometrie nicht verfügbar ist, trotzdem entsperren
             overlay.classList.remove('visible');
-            appContainer.classList.remove('content-locked'); // NEU
+            appContainer.classList.remove('content-locked');
             showNotification('Biometric Auth nicht verfügbar - übersprungen', 'warning');
         }
     } catch (error) {
-        // NEU: Bei Abbruch/Fehler den Overlay anzeigen lassen und Text ändern
         console.log('Biometric auth cancelled or failed:', error);
         document.querySelector('#biometricOverlay .biometric-text').textContent = 'Authentifizierung fehlgeschlagen';
         document.querySelector('#biometricOverlay .biometric-subtitle').textContent = 'Bitte laden Sie die Seite neu, um es erneut zu versuchen.';
-        document.querySelector('#biometricOverlay .biometric-fallback').style.display = 'none'; // Bypass-Button ausblenden
+        document.querySelector('#biometricOverlay .biometric-fallback').style.display = 'none';
     }
-}
-
-// Bessere Biometric Implementation
-async function authenticateWithBiometric() {
-    // Für Mobile: Web Authentication API
-    if ('credentials' in navigator && window.PublicKeyCredential) {
-        try {
-            const credential = await navigator.credentials.get({
-                publicKey: {
-                    challenge: new Uint8Array(32),
-                    timeout: 60000,
-                    userVerification: "required",
-                    rpId: window.location.hostname
-                }
-            });
-            return !!credential;
-        } catch(e) {
-            return false;
-        }
-    }
-    
-    // Fallback für ältere Geräte
-    return false;
 }
 
 function bypassBiometric() {
     document.getElementById('biometricOverlay').classList.remove('visible');
+    document.getElementById('appContainer').classList.remove('content-locked');
     showNotification('Ohne Authentifizierung fortgefahren', 'warning');
 }
 
@@ -198,7 +167,6 @@ function setupAutocomplete() {
     const dropdown = document.getElementById('autocompleteDropdown');
     
     searchInput.addEventListener('blur', (e) => {
-        // Delay hiding to allow click on dropdown items
         setTimeout(() => {
             dropdown.style.display = 'none';
             autocompleteIndex = -1;
@@ -306,128 +274,8 @@ function selectAutocompleteItem(platform) {
 }
 
 // =================================================================================
-// ENHANCED CONFIRMATION SYSTEM
+// EVENT LISTENERS & SHORTCUTS
 // =================================================================================
-function showEnhancedConfirmation(element, message, details, onConfirm) {
-    // Remove any existing tooltips
-    document.querySelectorAll('.confirmation-tooltip').forEach(t => t.remove());
-    
-    const tooltip = document.createElement('div');
-    tooltip.className = 'confirmation-tooltip';
-    tooltip.innerHTML = `
-        <div>${message}</div>
-        ${details ? `<div style="font-size: 11px; margin-top: 8px; opacity: 0.9;">${details}</div>` : ''}
-        <div class="confirmation-actions">
-            <button class="confirm-btn confirm-yes" onclick="confirmAction(true)">Ja</button>
-            <button class="confirm-btn confirm-no" onclick="confirmAction(false)">Nein</button>
-        </div>
-    `;
-    
-    element.style.position = 'relative'; // Ensure the element can anchor the tooltip
-    element.appendChild(tooltip);
-    
-    // Trigger animation
-    setTimeout(() => tooltip.classList.add('visible'), 50);
-    
-    let resolved = false;
-    window.confirmAction = (confirmed) => {
-        if (resolved) return;
-        resolved = true;
-        tooltip.classList.remove('visible');
-        setTimeout(() => tooltip.remove(), 300);
-        if (confirmed) onConfirm();
-        delete window.confirmAction;
-    };
-    
-    // Auto-close after 10 seconds
-    setTimeout(() => {
-        if (!resolved) {
-            window.confirmAction(false);
-        }
-    }, 10000);
-}
-
-function showDeleteConfirmation(element, identifier, type = 'platform') {
-    let message, details, onConfirm;
-    
-    switch(type) {
-        case 'platform':
-            const platformEntries = entries.filter(e => e.protocol === identifier).length;
-            message = `${identifier} löschen?`;
-            details = `${platformEntries} Einträge werden ebenfalls entfernt`;
-            onConfirm = () => deletePlatform(identifier);
-            break;
-        case 'entry':
-            const entry = entries.find(e => e.id == identifier);
-            message = `Eintrag löschen?`;
-            details = entry ? `${entry.protocol} - ${entry.balance.toFixed(2)} vom ${formatDate(entry.date)}` : '';
-            onConfirm = () => deleteEntry(identifier);
-            break;
-        case 'cashflow':
-            const cf = cashflows.find(c => c.id == identifier);
-            message = `Cashflow löschen?`;
-            details = cf ? `${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'} - ${cf.amount.toFixed(2)}` : '';
-            onConfirm = () => deleteCashflow(identifier);
-            break;
-    }
-    
-    showEnhancedConfirmation(element, message, details, onConfirm);
-}
-
-// =================================================================================
-// QUICK ACTIONS SYSTEM
-// =================================================================================
-function setupQuickActions() {
-    if (window.innerWidth <= 768) {
-        setTimeout(() => {
-            document.getElementById('quickActionsBar').classList.add('visible');
-            quickActionsVisible = true;
-        }, 2000);
-    }
-}
-
-function toggleQuickActions() {
-    const bar = document.getElementById('quickActionsBar');
-    quickActionsVisible = !quickActionsVisible;
-    bar.classList.toggle('visible', quickActionsVisible);
-}
-
-function quickSave() {
-    if (currentTab === 'entry') {
-        saveAllEntries();
-    } else if (currentTab === 'cashflow') {
-        saveCashflow();
-    } else {
-        showNotification('Nichts zu speichern auf dieser Seite', 'warning');
-    }
-}
-
-function quickSync() {
-    syncNow();
-}
-
-// PWA Service Worker Registration
-function registerServiceWorker() {
-    if ('serviceWorker' in navigator) {
-        const swCode = `
-            self.addEventListener('install', e => {
-                self.skipWaiting();
-            });
-            self.addEventListener('activate', e => {
-                e.waitUntil(clients.claim());
-            });
-            self.addEventListener('fetch', e => {
-                e.respondWith(fetch(e.request));
-            });
-        `;
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        navigator.serviceWorker.register(swUrl).then(() => {
-            console.log('PWA Service Worker registered');
-        }).catch(err => console.log('SW registration failed:', err));
-    }
-}
-
 function addEventListeners() {
     const inputsContainer = document.getElementById('platformInputs');
     if (inputsContainer) {
@@ -470,7 +318,6 @@ function addEventListeners() {
     });
     document.getElementById('selectAllHistory').addEventListener('change', toggleSelectAllHistory);
 
-    // Biometric toggle listener
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
         biometricToggle.checked = localStorage.getItem('biometricEnabled') === 'true';
@@ -515,13 +362,11 @@ function setupKeyboardShortcuts() {
             }
         }
 
-        // Alt + B for biometric toggle
         if (e.altKey && e.key === 'b') {
             e.preventDefault();
             toggleBiometric();
         }
         
-        // Alt + Q for quick actions
         if (e.altKey && e.key === 'q') {
             e.preventDefault();
             toggleQuickActions();
@@ -530,6 +375,7 @@ function setupKeyboardShortcuts() {
         if (e.key === 'Escape') {
             closeGitHubModal();
             closeGistModal();
+            closeEditPlatformModal();
             if (promptResolve) {
                 document.getElementById('promptModal').classList.remove('visible');
                 promptResolve(null);
@@ -540,14 +386,10 @@ function setupKeyboardShortcuts() {
 }
 
 // =================================================================================
-// ENHANCED MOBILE & TOUCH FEATURES
+// MOBILE & TOUCH FEATURES
 // =================================================================================
 function setupTouchGestures() {
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let touchEndX = 0;
-    let touchEndY = 0;
-    let pullDistance = 0;
+    let touchStartX = 0, touchStartY = 0, touchEndX = 0, touchEndY = 0, pullDistance = 0;
     const pullToRefreshEl = document.getElementById('pullToRefresh');
     
     document.addEventListener('touchstart', (e) => {
@@ -565,14 +407,8 @@ function setupTouchGestures() {
             if (pullDistance > 0 && pullDistance < 150) {
                 pullToRefreshEl.style.top = `${Math.min(pullDistance - 60, 20)}px`;
                 pullToRefreshEl.classList.add('pulling');
-                
-                if (pullDistance > 80 && navigator.vibrate) {
-                    navigator.vibrate(30);
-                }
-                
-                if (pullDistance > 80) {
-                    pullToRefreshEl.innerHTML = '↻';
-                }
+                if (pullDistance > 80 && navigator.vibrate) navigator.vibrate(30);
+                if (pullDistance > 80) pullToRefreshEl.innerHTML = '↻';
             }
         }
     }, { passive: true });
@@ -601,7 +437,6 @@ function setupTouchGestures() {
         handleSwipeGesture(touchStartX, touchEndX, touchStartY, touchEndY);
     }, { passive: true });
 
-    // Long press for quick actions (mobile)
     let longPressTimer;
     document.addEventListener('touchstart', (e) => {
         longPressTimer = setTimeout(() => {
@@ -610,24 +445,16 @@ function setupTouchGestures() {
         }, 800);
     });
     
-    document.addEventListener('touchend', () => {
-        clearTimeout(longPressTimer);
-    });
-    
-    document.addEventListener('touchmove', () => {
-        clearTimeout(longPressTimer);
-    });
+    document.addEventListener('touchend', () => clearTimeout(longPressTimer));
+    document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
 }
 
 function handleSwipeGesture(startX, endX, startY, endY) {
-    const diffX = endX - startX;
-    const diffY = endY - startY;
-    const minSwipeDistance = 50;
+    const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
     
     if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
         const tabs = ['dashboard', 'entry', 'cashflow', 'platforms', 'history', 'settings'];
         const currentIndex = tabs.indexOf(currentTab);
-        
         if (navigator.vibrate) navigator.vibrate(30);
         
         if (diffX > 0 && currentIndex > 0) {
@@ -645,36 +472,59 @@ function handleSwipeGesture(startX, endX, startY, endY) {
 function showSwipeIndicator(tabName) {
     const indicator = document.getElementById('swipeIndicator');
     const swipeText = document.getElementById('swipeText');
-    const tabNames = {
-        'dashboard': '📊 Dashboard',
-        'entry': '📝 Neuer Eintrag',
-        'cashflow': '💸 Cashflow',
-        'platforms': '💼 Plattformen',
-        'history': '📜 Historie',
-        'settings': '⚙️ Einstellungen',
-    };
+    const tabNames = {'dashboard': '📊 Dashboard','entry': '📝 Neuer Eintrag','cashflow': '💸 Cashflow','platforms': '💼 Plattformen','history': '📜 Historie','settings': '⚙️ Einstellungen'};
     
     swipeText.textContent = tabNames[tabName];
     indicator.classList.add('show');
-    
-    setTimeout(() => {
-        indicator.classList.remove('show');
-    }, 1500);
+    setTimeout(() => indicator.classList.remove('show'), 1500);
 }
+
+// =================================================================================
+// QUICK ACTIONS & UI TOGGLES
+// =================================================================================
+function setupQuickActions() {
+    if (window.innerWidth <= 768) {
+        setTimeout(() => {
+            document.getElementById('quickActionsBar').classList.add('visible');
+            quickActionsVisible = true;
+        }, 2000);
+    }
+}
+
+function toggleQuickActions() {
+    const bar = document.getElementById('quickActionsBar');
+    quickActionsVisible = !quickActionsVisible;
+    bar.classList.toggle('visible', quickActionsVisible);
+}
+
+function quickSave() {
+    if (currentTab === 'entry') saveAllEntries();
+    else if (currentTab === 'cashflow') saveCashflow();
+    else showNotification('Nichts zu speichern auf dieser Seite', 'warning');
+}
+
+function quickSync() { syncNow(); }
 
 function toggleCompactMode() {
     isCompactMode = !isCompactMode;
     document.body.classList.toggle('compact-mode');
     localStorage.setItem('compactMode', isCompactMode);
     showNotification(isCompactMode ? 'Kompakte Ansicht aktiviert' : 'Normale Ansicht');
-    
     if (portfolioChart) portfolioChart.resize();
-    if(allocationChart) allocationChart.resize();
+    if (allocationChart) allocationChart.resize();
 }
 
 // =================================================================================
-// GITHUB CONFIGURATION & SYNC
+// GITHUB SYNC & SKELETONS
 // =================================================================================
+function showSkeletons() {
+    document.getElementById('dashboardContent').classList.add('is-loading');
+}
+
+function hideSkeletons() {
+    document.getElementById('dashboardContent').classList.remove('is-loading');
+}
+
 function loadGitHubConfig() {
     githubToken = localStorage.getItem('githubToken');
     gistId = localStorage.getItem('gistId');
@@ -697,12 +547,13 @@ async function syncNow() {
         return;
     }
     if (syncInProgress) {
-        showNotification('Sync läuft bereits...', 'error');
+        showNotification('Sync läuft bereits...', 'warning');
         return;
     }
     
     syncInProgress = true;
     updateSyncUI('syncing');
+    showSkeletons();
     
     try {
         const cloudData = await fetchGistData();
@@ -730,6 +581,7 @@ async function syncNow() {
         updateSyncUI('error');
     } finally {
         syncInProgress = false;
+        setTimeout(hideSkeletons, 300);
     }
 }
 

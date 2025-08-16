@@ -107,116 +107,104 @@
             <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+4">💼 Plattformen</button>
             <button class="tab-btn" onclick="switchTab('history')" title="Alt+5">📜 Historie</button>
             <button class="tab-btn" onclick="switchTab('settings')" title="Alt+6">⚙️ Einstellungen</button>
-            </div>
+        </div>
 
         <div id="dashboard" class="tab-content active">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">💰</div>
-                    <div class="stat-label">Portfolio Gesamtwert</div>
-                    <div class="stat-value" id="totalValue">$0</div>
-                    <div class="stat-change" id="totalChange">
-                        <span>📊</span>
-                        <span id="totalChangeText">Keine Daten</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">📈</div>
-                    <div class="stat-label">Performance (Zeitraum)</div>
-                    <div class="stat-value" id="weeklyGrowth">-</div>
-                    <div class="stat-change" id="weeklyGrowthAmount">
-                        <span>💵</span>
-                        <span id="weeklyChangeText">-</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">💎</div>
-                    <div class="stat-label">Netto Investiert (Zeitraum)</div>
-                    <div class="stat-value" id="netInvested">$0</div>
-                    <div class="stat-change">
-                        <span>💳</span>
-                        <span id="netInvestedChange">Ein: $0 | Aus: $0</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🏆</div>
-                    <div class="stat-label">Reale Performance (Zeitraum)</div>
-                    <div class="stat-value" id="totalProfit">$0</div>
-                    <div class="stat-change">
-                        <span>📊</span>
-                        <span id="profitPercent">0%</span>
-                    </div>
-                </div>
+            <div id="welcomeCard" class="section" style="display: none; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 16px;">👋</div>
+                <h2 class="section-title" style="justify-content: center; margin-bottom: 16px;">Willkommen beim Portfolio Tracker!</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 24px;">Es sieht so aus, als hättest du noch keine Daten eingegeben. Starte jetzt mit deinem ersten Eintrag!</p>
+                <button class="btn btn-success" onclick="switchTab('entry')">
+                    <span>📝</span><span>Ersten Eintrag erstellen</span>
+                </button>
             </div>
 
-            <div class="section">
-                <div class="section-header">
-                    <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
-                    <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
+            <div id="dashboardContent">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">💰</div>
+                            <div class="stat-label">Portfolio Gesamtwert</div>
+                            <div class="stat-value" id="totalValue">$0</div>
+                            <div class="stat-change" id="totalChange">
+                                <span>📊</span>
+                                <span id="totalChangeText">Keine Daten</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                         <div class="stat-card-skeleton"></div>
+                         <div class="stat-content">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-label">Performance (Zeitraum)</div>
+                            <div class="stat-value" id="weeklyGrowth">-</div>
+                            <div class="stat-change" id="weeklyGrowthAmount">
+                                <span>💵</span>
+                                <span id="weeklyChangeText">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">💎</div>
+                            <div class="stat-label">Netto Investiert (Zeitraum)</div>
+                            <div class="stat-value" id="netInvested">$0</div>
+                            <div class="stat-change">
+                                <span>💳</span>
+                                <span id="netInvestedChange">Ein: $0 | Aus: $0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">🏆</div>
+                            <div class="stat-label">Reale Performance (Zeitraum)</div>
+                            <div class="stat-value" id="totalProfit">$0</div>
+                            <div class="stat-change">
+                                <span>📊</span>
+                                <span id="profitPercent">0%</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="chart-container" id="portfolioChartContainer">
-                    <canvas id="portfolioChart"></canvas>
-                </div>
-            </div>
-            
-            <div class="two-column-layout">
+
                 <div class="section">
                     <div class="section-header">
-                        <div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div>
+                        <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                        <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
                     </div>
-                    <div id="keyMetrics" class="metrics-grid">
-                        <div class="metric-item">
-                            <span class="metric-label">Start</span>
-                            <span class="metric-value" id="metricStartDate">-</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Laufzeit</span>
-                            <span class="metric-value" id="metricDuration">-</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Startkapital</span>
-                            <span class="metric-value" id="metricStartCapital">-</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Rendite (Gesamt)</span>
-                            <span class="metric-value" id="metricTotalReturnPercent">-</span>
-                        </div>
-                         <div class="metric-item">
-                            <span class="metric-label">Rendite Summe</span>
-                            <span class="metric-value" id="metricTotalReturnSum">-</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Rendite Ø (Monat)</span>
-                            <span class="metric-value" id="metricAvgMonthlyReturn">-</span>
-                        </div>
-                         <div class="metric-item">
-                            <span class="metric-label">Rendite Prognose (Jahr)</span>
-                            <span class="metric-value" id="metricAnnualForecast">-</span>
-                        </div>
-                         <div class="metric-item">
-                            <span class="metric-label">Max. Drawdown</span>
-                            <span class="metric-value" id="metricMaxDrawdown">-</span>
-                        </div>
-                         <div class="metric-item">
-                            <span class="metric-label">Portfolio Prognose (Jahr)</span>
-                            <span class="metric-value" id="metricPortfolioForecast">-</span>
-                        </div>
+                    <div class="chart-container" id="portfolioChartContainer">
+                         <div class="chart-skeleton"></div>
+                        <canvas id="portfolioChart"></canvas>
                     </div>
                 </div>
-                 <div class="section">
-                    <div class="section-header">
-                        <div class="section-title"><span>🏰</span><span>Portfolio-Verteilung</span></div>
-                         <button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button>
+                
+                <div class="two-column-layout">
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div>
+                        </div>
+                        <div id="keyMetrics" class="metrics-grid"></div>
                     </div>
-                    <div class="chart-container" id="allocationChartContainer">
-                        <canvas id="allocationChart"></canvas>
+                     <div class="section">
+                        <div class="section-header">
+                            <div class="section-title"><span>🏰</span><span>Portfolio-Verteilung</span></div>
+                             <button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button>
+                        </div>
+                        <div class="chart-container" id="allocationChartContainer">
+                            <div class="chart-skeleton"></div>
+                            <canvas id="allocationChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div id="entry" class="tab-content">
-            <div class="section">
+             <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>📝</span><span>Neuer Eintrag</span></div>
                     <div>
@@ -350,7 +338,7 @@
         </div>
 
         <div id="platforms" class="tab-content">
-            <div class="section">
+             <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>💼</span><span>Platform Details</span></div>
                     <div>
@@ -414,11 +402,16 @@
                         <tbody id="historyTableBody"></tbody>
                     </table>
                 </div>
-                 <div class="section-header" style="margin-top: 20px; border-top: 2px solid var(--border); padding-top: 20px;">
-                    <div class="section-title"><span>🛠️</span><span>Massenaktionen</span></div>
-                    <button class="btn btn-danger" onclick="deleteSelectedEntries()">
-                        <span>🗑️</span><span>Auswahl löschen</span>
-                    </button>
+                <div id="historyBulkActions" class="bulk-actions-bar">
+                    <span id="bulkSelectedCount">0 Einträge ausgewählt</span>
+                    <div class="bulk-actions-buttons">
+                        <button class="btn btn-primary btn-small" onclick="bulkChangeDate()">
+                            <span>🗓️</span> Datum ändern
+                        </button>
+                        <button class="btn btn-danger btn-small" onclick="deleteSelectedEntries()">
+                            <span>🗑️</span> Auswahl löschen
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -496,8 +489,7 @@
                 </div>
             </div>
         </div>
-        
-        </div>
+    </div>
     
     <div id="promptModal" class="modal-overlay">
         <div class="modal-content">
@@ -508,10 +500,42 @@
                 <p id="promptModalText"></p>
                 <div id="promptModalListContainer"></div>
                 <input type="text" id="promptModalInput" class="input-field" style="width: 100%; margin-top: 15px; display: none;">
+                <input type="date" id="promptModalDateInput" class="date-input" style="width: 100%; margin-top: 15px; display: none;">
             </div>
             <div class="modal-footer">
                 <button id="promptModalCancel" class="btn btn-danger">Abbrechen</button>
                 <button id="promptModalOk" class="btn btn-success" style="margin-left: 10px;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="editPlatformModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Plattform bearbeiten</h2>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editPlatformOldName">
+                <div class="github-input-group">
+                    <label>Name</label>
+                    <input type="text" id="editPlatformName" class="input-field">
+                </div>
+                <div class="github-input-group">
+                    <label>Typ (z.B. Exchange, DEX)</label>
+                    <input type="text" id="editPlatformType" class="input-field">
+                </div>
+                 <div class="github-input-group">
+                    <label>Kategorie (z.B. Exchange, DeFi)</label>
+                    <input type="text" id="editPlatformCategory" class="input-field">
+                </div>
+                 <div class="github-input-group">
+                    <label>Tags (kommagetrennt)</label>
+                    <input type="text" id="editPlatformTags" class="input-field">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" onclick="closeEditPlatformModal()">Abbrechen</button>
+                <button class="btn btn-success" onclick="savePlatformEdit()" style="margin-left: 10px;">Speichern</button>
             </div>
         </div>
     </div>
@@ -561,6 +585,7 @@
             </div>
         </div>
     </div>
+
     <div id="notification" class="notification">
         <span id="notificationIcon">✅</span>
         <span id="notificationText">Gespeichert!</span>
@@ -574,6 +599,6 @@
         <span id="swipeText">Dashboard</span>
     </div>
 
-    <script src="script.js" defer></script>
+    <script src="script.js"></script>
 </body>
 </html>
