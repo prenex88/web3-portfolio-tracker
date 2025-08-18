@@ -65,7 +65,7 @@ let quickActionsVisible = false;
 
 // GITHUB SYNC VARIABLES
 let githubToken = null;
-let gistId = null;
+let gistId = 73f61002574be57ec1dacb473046ae48;
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
@@ -527,7 +527,7 @@ function hideSkeletons() {
 
 function loadGitHubConfig() {
     githubToken = localStorage.getItem('githubToken');
-    gistId = localStorage.getItem('gistId');
+    // gistId = localStorage.getItem('gistId');
     lastSyncTime = localStorage.getItem('lastSyncTime');
     const autoSync = localStorage.getItem('autoSync') === 'true';
     
