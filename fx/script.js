@@ -65,7 +65,7 @@ let quickActionsVisible = false;
 
 // GITHUB SYNC VARIABLES
 let githubToken = null;
-let gistId = 753ec1f447c375c9a96c05feb66c05a6;
+let gistId = '753ec1f447c375c9a96c05feb66c05a6';
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
