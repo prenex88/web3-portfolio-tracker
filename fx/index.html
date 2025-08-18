@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
+    
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU9JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%23764ba2'/></linearGradient></defs><circle cx='50' cy='50' r='45' fill='url(%23g)'/><text x='50' y='65' text-anchor='middle' font-size='40' fill='white'>🚀</text></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="biometricOverlay" class="biometric-overlay">
+        <div class="biometric-content">
+            <div class="biometric-icon">🔐</div>
+            <div class="biometric-text">Portfolio Tracker entsperren</div>
+            <div class="biometric-subtitle">Verwenden Sie Ihren Fingerabdruck oder Face ID</div>
+            <button class="biometric-fallback" onclick="bypassBiometric()">
+                Ohne Authentifizierung fortfahren
+            </button>
+        </div>
+    </div>
+
+    <div id="quickActionsBar" class="quick-actions-bar">
+        <button class="quick-action-btn" onclick="quickSave()" title="Quick Save (Ctrl+S)">💾</button>
+        <button class="quick-action-btn" onclick="quickSync()" title="Quick Sync">☁️</button>
+        <button class="quick-action-btn" onclick="switchTab('entry')" title="New Entry">📝</button>
+        <button class="quick-action-btn" onclick="toggleQuickActions()" title="Hide">✕</button>
+    </div>
+
+    <div id="syncStatusBar" class="sync-status-bar">
+        <div class="sync-status">
+            <div id="syncIndicator" class="sync-indicator offline"></div>
+            <span id="syncStatusText">Offline Modus</span>
+            <span id="lastSyncTime" style="color: var(--text-secondary); font-size: 12px;"></span>
+        </div>
+        <div class="sync-actions">
+            <button id="syncNowBtn" class="btn btn-primary btn-small" onclick="syncNow()">
+                <span id="syncBtnIcon">☁️</span>
+                <span id="syncBtnText">Sync</span>
+            </button>
+            <button class="btn btn-small" onclick="toggleSyncBar()">✕</button>
+        </div>
+    </div>
+
+    <div class="container" id="appContainer">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-title-group">
+                    <h1>🚀 Web3 Portfolio Tracker Pro</h1>
+                    <div class="subtitle">Advanced Portfolio Management mit Cloud Sync</div>
+                </div>
+                <div class="header-controls">
+                    <div id="cloudStatusBadge" class="cloud-status-badge disconnected" onclick="openCloudSettings()">
+                        <span id="cloudIcon">☁️</span>
+                        <span id="cloudText">Offline</span>
+                    </div>
+                    <button class="theme-toggle" onclick="toggleTheme()" title="Theme wechseln (Ctrl+D)">🌙</button>
+                    <button class="btn btn-primary btn-small" onclick="toggleCompactMode()" title="Kompakte Ansicht">📱</button>
+                    <button class="btn btn-primary btn-small" onclick="toggleBiometric()" title="Alt+B">🔐 Bio Auth</button>
+                    <button class="btn btn-danger btn-small" onclick="resetPlatforms()"><span>🔄</span> Reset</button>
+                    <button class="btn btn-primary btn-small" onclick="exportPDF()"><span>📄</span> PDF Export</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="dateFilterBar" class="date-filter-bar">
+            <div class="date-filter-header" onclick="toggleFilter()">
+                <span class="filter-label">🗓️ Zeitraum: <span id="activeFilterDisplay" style="color: var(--primary);">Alles</span></span>
+                <span id="filterToggleArrow">▼</span>
+            </div>
+            <div class="date-filter-content">
+                <div class="filter-presets">
+                    <button class="filter-btn" onclick="setDateFilter('all')">Alles</button>
+                    <button class="filter-btn" onclick="setDateFilter('7d')">7 Tage</button>
+                    <button class="filter-btn" onclick="setDateFilter('30d')">30 Tage</button>
+                    <button class="filter-btn" onclick="setDateFilter('90d')">90 Tage</button>
+                    <button class="filter-btn" onclick="setDateFilter('ytd')">YTD</button>
+                    <button class="filter-btn" onclick="setDateFilter('1y')">1 Jahr</button>
+                </div>
+                <div class="custom-date-range">
+                    <div class="date-input-group">
+                        <label for="filterStartDate">Von:</label>
+                        <input type="date" id="filterStartDate" class="date-input-small">
+                    </div>
+                    <div class="date-input-group">
+                        <label for="filterEndDate">Bis:</label>
+                        <input type="date" id="filterEndDate" class="date-input-small">
+                    </div>
+                    <button class="btn btn-primary btn-small" onclick="applyAndSetCustomDateFilter()">Anwenden</button>
+                    <button class="btn btn-danger btn-small" onclick="resetDateFilter()">Zurücksetzen</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-navigation">
+            <button class="tab-btn active" onclick="switchTab('dashboard')" title="Alt+1">📊 Dashboard</button>
+            <button class="tab-btn" onclick="switchTab('entry')" title="Alt+2">📝 Neuer Eintrag</button>
+            <button class="tab-btn" onclick="switchTab('cashflow')" title="Alt+3">💸 Cashflow</button>
+            <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+4">💼 Plattformen</button>
+            <button class="tab-btn" onclick="switchTab('history')" title="Alt+5">📜 Historie</button>
+            <button class="tab-btn" onclick="switchTab('settings')" title="Alt+6">⚙️ Einstellungen</button>
+        </div>
+
+        <div id="dashboard" class="tab-content active">
+            <div id="welcomeCard" class="section" style="display: none; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 16px;">👋</div>
+                <h2 class="section-title" style="justify-content: center; margin-bottom: 16px;">Willkommen beim Portfolio Tracker!</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 24px;">Es sieht so aus, als hättest du noch keine Daten eingegeben. Starte jetzt mit deinem ersten Eintrag!</p>
+                <button class="btn btn-success" onclick="switchTab('entry')">
+                    <span>📝</span><span>Ersten Eintrag erstellen</span>
+                </button>
+            </div>
+
+            <div id="dashboardContent">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">💰</div>
+                            <div class="stat-label">Portfolio Gesamtwert</div>
+                            <div class="stat-value" id="totalValue">$0</div>
+                            <div class="stat-change" id="totalChange">
+                                <span>📊</span>
+                                <span id="totalChangeText">Keine Daten</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                         <div class="stat-card-skeleton"></div>
+                         <div class="stat-content">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-label">Performance (Zeitraum)</div>
+                            <div class="stat-value" id="weeklyGrowth">-</div>
+                            <div class="stat-change" id="weeklyGrowthAmount">
+                                <span>💵</span>
+                                <span id="weeklyChangeText">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">💎</div>
+                            <div class="stat-label">Netto Investiert (Zeitraum)</div>
+                            <div class="stat-value" id="netInvested">$0</div>
+                            <div class="stat-change">
+                                <span>💳</span>
+                                <span id="netInvestedChange">Ein: $0 | Aus: $0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">🏆</div>
+                            <div class="stat-label">Reale Performance (Zeitraum)</div>
+                            <div class="stat-value" id="totalProfit">$0</div>
+                            <div class="stat-change">
+                                <span>📊</span>
+                                <span id="profitPercent">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                        <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
+                    </div>
+                    <div class="chart-container" id="portfolioChartContainer">
+                         <div class="chart-skeleton"></div>
+                        <canvas id="portfolioChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="two-column-layout">
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div>
+                        </div>
+                        <div id="keyMetrics" class="metrics-grid">
+                            <div id="keyMetrics" class="metrics-grid">
+                                <div class="metric-item">
+                                    <span class="metric-label">Start</span>
+                                    <span class="metric-value" id="metricStartDate">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Laufzeit</span>
+                                    <span class="metric-value" id="metricDuration">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Startkapital</span>
+                                    <span class="metric-value" id="metricStartCapital">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Rendite (Gesamt)</span>
+                                    <span class="metric-value" id="metricTotalReturnPercent">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Rendite Summe</span>
+                                    <span class="metric-value" id="metricTotalReturnSum">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Rendite Ø (Monat)</span>
+                                    <span class="metric-value" id="metricAvgMonthlyReturn">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Rendite Prognose (Jahr)</span>
+                                    <span class="metric-value" id="metricAnnualForecast">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Max. Drawdown</span>
+                                    <span class="metric-value" id="metricMaxDrawdown">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Portfolio Prognose (Jahr)</span>
+                                    <span class="metric-value" id="metricPortfolioForecast">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                     <div class="section">
+                        <div class="section-header">
+                            <div class="section-title"><span>🏰</span><span>Portfolio-Verteilung</span></div>
+                             <button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button>
+                        </div>
+                        <div class="chart-container" id="allocationChartContainer">
+                            <div class="chart-skeleton"></div>
+                            <canvas id="allocationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="entry" class="tab-content">
+             <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>📝</span><span>Neuer Eintrag</span></div>
+                    <div>
+                        <button class="btn btn-success pulse" onclick="saveAllEntries()" title="Ctrl+S">
+                            <span>💾</span><span>Alle Speichern</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="date-range-selector">
+                    <label style="font-weight: 600;">📅 Datum:</label>
+                    <input type="date" id="entryDate" class="date-input">
+                    <button class="btn btn-primary btn-small" onclick="setToToday()">Heute</button>
+                    <button class="btn btn-primary btn-small" onclick="setToYesterday()">Gestern</button>
+                    <button class="btn btn-primary btn-small" onclick="setToLastSunday()">Letzter So</button>
+                    <button class="btn btn-primary btn-small" onclick="loadLastEntries()">Letzte Einträge laden</button>
+                </div>
+
+                <div style="margin-bottom: 24px;">
+                    <h3 style="margin-bottom: 16px; color: var(--text-primary);">🦄 Plattformen wählen:</h3>
+                    
+                    <div class="platform-search-container">
+                        <input type="text" id="platformSearch" class="platform-search" placeholder="Plattform suchen... (Ctrl+F)" oninput="filterPlatforms()" onkeydown="handleSearchKeydown(event)">
+                        <span class="search-icon">🔍</span>
+                        <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
+                    </div>
+                    
+                    <div class="category-filter">
+                        <button class="category-btn active" onclick="filterCategory(this, 'all')">Alle</button>
+                        <button class="category-btn" onclick="filterCategory(this, 'favorites')">⭐ Favoriten</button>
+                        <button class="category-btn" onclick="filterCategory(this, 'Exchange')">Exchanges</button>
+                        <button class="category-btn" onclick="filterCategory(this, 'DeFi')">DeFi</button>
+                        <button class="category-btn" onclick="filterCategory(this, 'Lending')">Lending</button>
+                        <button class="category-btn" onclick="filterCategory(this, 'Wallet')">Wallets</button>
+                    </div>
+                    
+                    <div class="platform-grid" id="platformGrid"></div>
+                </div>
+                
+                <div id="autoZeroHint" class="auto-zero-hint">
+                    💡 <b>Tipp:</b> Wenn du jetzt speicherst, kannst du nicht ausgewählte Plattformen, die vorher Kapital hatten, automatisch auf 0 setzen.
+                </div>
+
+                <div id="platformInputs" class="input-grid"></div>
+            </div>
+        </div>
+
+        <div id="cashflow" class="tab-content">
+            <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>💸</span><span>Cashflow Management</span></div>
+                </div>
+                
+                <div class="cashflow-stats">
+                    <div class="cashflow-stat">
+                        <div class="cashflow-stat-label">➕ Total Eingezahlt</div>
+                        <div class="cashflow-stat-value positive" id="totalDeposits">$0</div>
+                    </div>
+                    <div class="cashflow-stat">
+                        <div class="cashflow-stat-label">➖ Total Ausgezahlt</div>
+                        <div class="cashflow-stat-value negative" id="totalWithdrawals">$0</div>
+                    </div>
+                    <div class="cashflow-stat">
+                        <div class="cashflow-stat-label">💎 Netto Investiert</div>
+                        <div class="cashflow-stat-value" id="netCashflow">$0</div>
+                    </div>
+                    <div class="cashflow-stat">
+                        <div class="cashflow-stat-label">📊 ROI</div>
+                        <div class="cashflow-stat-value" id="roiPercent">0%</div>
+                    </div>
+                </div>
+
+                <div class="cashflow-form">
+                    <div>
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Typ:</label>
+                        <div class="cashflow-type">
+                            <label class="radio-option">
+                                <input type="radio" name="cashflowType" value="deposit" checked>
+                                <span>➕ Einzahlung</span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="cashflowType" value="withdraw">
+                                <span>➖ Auszahlung</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Betrag (USD):</label>
+                        <input type="text" id="cashflowAmount" class="input-field" placeholder="1000" inputmode="decimal">
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Datum:</label>
+                        <input type="date" id="cashflowDate" class="date-input">
+                    </div>
+                    <div id="cashflowTargetDiv">
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Ziel-Plattform:</label>
+                        <select id="cashflowTarget" class="input-field"></select>
+                    </div>
+                    <div>
+                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Notiz:</label>
+                        <input type="text" id="cashflowNote" class="input-field" placeholder="Optional...">
+                    </div>
+                    <div style="display: flex; align-items: flex-end;">
+                        <button class="btn btn-success" onclick="saveCashflow()" title="Ctrl+S">
+                            <span>💾</span><span>Speichern</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>📜</span><span>Cashflow Historie</span></div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="date">Datum <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="type">Typ <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="amount">Betrag <span class="sort-arrow"></span></th>
+                                <th>Plattform</th>
+                                <th>Notiz</th>
+                                <th>Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cashflowTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="platforms" class="tab-content">
+             <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>💼</span><span>Platform Details</span></div>
+                    <div>
+                        <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
+                        <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                        <button class="btn btn-primary btn-small" onclick="document.getElementById('jsonFileInput').click()">
+                            <span>📥</span> Import JSON
+                        </button>
+                        <button class="btn btn-primary btn-small" onclick="document.getElementById('csvFileInput').click()">
+                            <span>📤</span> Import CSV
+                        </button>
+                        <button class="btn btn-primary btn-small" onclick="exportCSV()" title="Ctrl+E">
+                            <span>📥</span> Export CSV
+                        </button>
+                         <button class="btn btn-primary btn-small" onclick="exportJSON()">
+                            <span>💾</span> Export JSON
+                        </button>
+                    </div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="platform">Plattform <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="entries">Einträge <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="first">Erster Eintrag <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="last">Letzter Eintrag <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="avg">Avg Balance <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="total">Total Return <span class="sort-arrow"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="platformDetailsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="history" class="tab-content">
+            <div class="section">
+                <div class="section-header">
+                    <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
+                    <div>
+                        <input type="text" id="historySearch" class="input-field" placeholder="Suchen..." style="width: 200px;">
+                        <button class="btn btn-danger btn-small" onclick="clearAllData()">
+                            <span>🗑️</span> Alle Löschen
+                        </button>
+                    </div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="selectAllHistory" title="Alle auswählen"></th>
+                                <th class="sortable" data-sort="date">Datum <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="protocol">Plattform <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="balance">Balance <span class="sort-arrow"></span></th>
+                                <th>Notiz</th>
+                                <th>Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="historyBulkActions" class="bulk-actions-bar">
+                    <span id="bulkSelectedCount">0 Einträge ausgewählt</span>
+                    <div class="bulk-actions-buttons">
+                        <button class="btn btn-primary btn-small" onclick="bulkChangeDate()">
+                            <span>🗓️</span> Datum ändern
+                        </button>
+                        <button class="btn btn-danger btn-small" onclick="deleteSelectedEntries()">
+                            <span>🗑️</span> Auswahl löschen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <div class="section">
+                <h2 style="margin-bottom: 20px;">☁️ Cloud Sync Einstellungen</h2>
+                
+                <div id="connectionStatus" class="connection-status disconnected">
+                    <span>⚠️</span>
+                    <span>Nicht verbunden - Konfiguriere GitHub für Cloud Sync</span>
+                </div>
+
+                <div class="info-box">
+                    <h3>📝 Wie funktioniert der Cloud Sync?</h3>
+                    <p>
+                        Deine Daten werden in einem privaten GitHub Gist gespeichert. 
+                        Nur du hast Zugriff darauf. Du benötigst einen GitHub Account und ein Personal Access Token.
+                    </p>
+                </div>
+
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <div class="setting-label">GitHub Token</div>
+                        <div class="setting-value" id="tokenDisplay">Nicht konfiguriert</div>
+                        <div class="setting-actions">
+                            <button class="btn btn-primary btn-small" onclick="setupGitHubToken()">Token setzen</button>
+                            <button class="btn btn-danger btn-small" onclick="clearGitHubToken()">Löschen</button>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-label">Gist ID</div>
+                        <div class="setting-value" id="gistDisplay">Nicht konfiguriert</div>
+                        <div class="setting-actions">
+                            <button class="btn btn-primary btn-small" onclick="setupGistId()">Gist ID setzen</button>
+                            <button class="btn btn-success btn-small" onclick="createNewGist()">Neu erstellen</button>
+                             <button class="btn btn-danger btn-small" onclick="clearGistId()">Löschen</button>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-label">Auto-Sync</div>
+                        <div class="setting-value">
+                            <label style="display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" id="autoSyncToggle" onchange="toggleAutoSync()">
+                                <span>Bei jeder Änderung automatisch synchronisieren</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-label">Biometric Authentication</div>
+                        <div class="setting-value">
+                            <label style="display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" id="biometricToggle" onchange="toggleBiometric()">
+                                <span>Fingerprint/Face ID beim Start aktivieren</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-label">Letzter Sync</div>
+                        <div class="setting-value" id="lastSyncDisplay">Noch nie synchronisiert</div>
+                        <div class="setting-actions">
+                            <button class="btn btn-success btn-small" onclick="syncNow()">Jetzt synchronisieren</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="testConnection()">
+                        <span>🔌</span><span>Verbindung testen</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="promptModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="promptModalTitle" class="modal-title">Titel</h2>
+            </div>
+            <div class="modal-body">
+                <p id="promptModalText"></p>
+                <div id="promptModalListContainer"></div>
+                <input type="text" id="promptModalInput" class="input-field" style="width: 100%; margin-top: 15px; display: none;">
+                <input type="date" id="promptModalDateInput" class="date-input" style="width: 100%; margin-top: 15px; display: none;">
+            </div>
+            <div class="modal-footer">
+                <button id="promptModalCancel" class="btn btn-danger">Abbrechen</button>
+                <button id="promptModalOk" class="btn btn-success" style="margin-left: 10px;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="editPlatformModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Plattform bearbeiten</h2>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editPlatformOldName">
+                <div class="github-input-group">
+                    <label>Name</label>
+                    <input type="text" id="editPlatformName" class="input-field">
+                </div>
+                <div class="github-input-group">
+                    <label>Typ (z.B. Exchange, DEX)</label>
+                    <input type="text" id="editPlatformType" class="input-field">
+                </div>
+                 <div class="github-input-group">
+                    <label>Kategorie (z.B. Exchange, DeFi)</label>
+                    <input type="text" id="editPlatformCategory" class="input-field">
+                </div>
+                 <div class="github-input-group">
+                    <label>Tags (kommagetrennt)</label>
+                    <input type="text" id="editPlatformTags" class="input-field">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" onclick="closeEditPlatformModal()">Abbrechen</button>
+                <button class="btn btn-success" onclick="savePlatformEdit()" style="margin-left: 10px;">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="githubSetupModal" class="github-setup-modal">
+        <div class="github-setup-content">
+            <div class="github-setup-header">
+                <div class="github-setup-title">📝 GitHub Token Setup</div>
+                <p style="color: var(--text-secondary); font-size: 14px;">
+                    Gib dein Personal Access Token ein, um Cloud Sync zu aktivieren
+                </p>
+            </div>
+            <div class="github-input-group">
+                <label>Personal Access Token</label>
+                <input type="password" id="githubTokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                <div class="github-input-help">
+                    <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" style="color: var(--primary);">
+                        → Token auf GitHub erstellen (mit 'gist' Berechtigung)
+                    </a>
+                </div>
+            </div>
+            <div class="github-setup-actions">
+                <button class="btn btn-danger" onclick="closeGitHubModal()">Abbrechen</button>
+                <button class="btn btn-success" onclick="saveGitHubToken()">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gistSetupModal" class="github-setup-modal">
+        <div class="github-setup-content">
+            <div class="github-setup-header">
+                <div class="github-setup-title">📋 Gist ID Setup</div>
+                <p style="color: var(--text-secondary); font-size: 14px;">
+                    Gib die ID deines privaten Gists ein oder erstelle einen neuen
+                </p>
+            </div>
+            <div class="github-input-group">
+                <label>Gist ID</label>
+                <input type="text" id="gistIdInput" placeholder="z.B. a1b2c3d4e5f6g7h8i9j0">
+                <div class="github-input-help">
+                    Die ID findest du in der URL deines Gists: gist.github.com/username/[DIESE_ID]
+                </div>
+            </div>
+            <div class="github-setup-actions">
+                <button class="btn btn-danger" onclick="closeGistModal()">Abbrechen</button>
+                <button class="btn btn-success" onclick="saveGistId()">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification">
+        <span id="notificationIcon">✅</span>
+        <span id="notificationText">Gespeichert!</span>
+    </div>
+    
+    <div id="pullToRefresh" class="pull-to-refresh">
+        <span>↻</span>
+    </div>
+    
+    <div id="swipeIndicator" class="swipe-indicator">
+        <span id="swipeText">Dashboard</span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
