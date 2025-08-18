@@ -50,7 +50,7 @@ body {
 }
 
 body.has-sync-bar .header, body.has-sync-bar .tab-navigation {
-    margin-top: 50px;
+    margin-top: 20px;
 }
 
 body.has-sync-bar .tab-navigation {
@@ -354,7 +354,7 @@ body.has-sync-bar .tab-navigation {
     transition: all 0.3s ease;
     display: flex;
     gap: 10px;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
 }
 
 .dark-mode .tab-navigation {
@@ -996,8 +996,9 @@ body.has-sync-bar .tab-navigation {
 .data-table-wrapper {
     max-height: 500px;
     overflow-y: auto;
-    overflow-x: auto;
+    overflow-x: hidden;
 }
+
 
 .data-table {
     width: 100%;
