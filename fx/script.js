@@ -1,6 +1,7 @@
 // =================================================================================
 // CONFIGURATION & INITIAL DATA
 // =================================================================================
+const STORAGE_PREFIX = 'fx_'; 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
     { name: 'Coinbase', icon: '🪙', type: 'Exchange', category: 'Exchange', tags: ['regulated', 'beginner'] },
@@ -65,7 +66,7 @@ let quickActionsVisible = false;
 
 // GITHUB SYNC VARIABLES
 let githubToken = null;
-let gistId = '753ec1f447c375c9a96c05feb66c05a6';
+let gistId = '753ec1f447c375c9a96c05feb66c05a6'; // This can be your default/fallback Gist ID
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
@@ -105,7 +106,7 @@ function isMobileDevice() {
 // BIOMETRIC AUTHENTICATION
 // =================================================================================
 async function checkBiometricAuth() {
-    if (localStorage.getItem('biometricEnabled') !== 'true') {
+    if (localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) !== 'true') {
         return;
     }
 
@@ -153,8 +154,8 @@ function bypassBiometric() {
 }
 
 function toggleBiometric() {
-    const enabled = localStorage.getItem('biometricEnabled') === 'true';
-    localStorage.setItem('biometricEnabled', !enabled);
+    const enabled = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
+    localStorage.setItem(`${STORAGE_PREFIX}biometricEnabled`, !enabled);
     document.getElementById('biometricToggle').checked = !enabled;
     showNotification(enabled ? 'Biometric Auth deaktiviert' : 'Biometric Auth aktiviert beim nächsten Start');
 }
@@ -320,7 +321,7 @@ function addEventListeners() {
 
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
-        biometricToggle.checked = localStorage.getItem('biometricEnabled') === 'true';
+        biometricToggle.checked = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
     }
 }
 
@@ -508,7 +509,7 @@ function quickSync() { syncNow(); }
 function toggleCompactMode() {
     isCompactMode = !isCompactMode;
     document.body.classList.toggle('compact-mode');
-    localStorage.setItem('compactMode', isCompactMode);
+    localStorage.setItem(`${STORAGE_PREFIX}compactMode`, isCompactMode);
     showNotification(isCompactMode ? 'Kompakte Ansicht aktiviert' : 'Normale Ansicht');
     if (portfolioChart) portfolioChart.resize();
     if (allocationChart) allocationChart.resize();
@@ -526,10 +527,12 @@ function hideSkeletons() {
 }
 
 function loadGitHubConfig() {
-    githubToken = localStorage.getItem('githubToken');
-    // gistId = localStorage.getItem('gistId');
-    lastSyncTime = localStorage.getItem('lastSyncTime');
-    const autoSync = localStorage.getItem('autoSync') === 'true';
+    githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
+    // The line below is commented out because the Gist ID is hardcoded above.
+    // If you want the Gist ID to be configurable from the UI again, uncomment the next line.
+    // gistId = localStorage.getItem(`${STORAGE_PREFIX}gistId`) || gistId; 
+    lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
+    const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
     
     if (githubToken) document.getElementById('tokenDisplay').textContent = 'ghp_****' + githubToken.slice(-4);
     if (gistId) document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
@@ -568,7 +571,7 @@ async function syncNow() {
         saveData(false); 
         
         lastSyncTime = new Date().toISOString();
-        localStorage.setItem('lastSyncTime', lastSyncTime);
+        localStorage.setItem(`${STORAGE_PREFIX}lastSyncTime`, lastSyncTime);
         updateLastSyncDisplay();
         
         applyDateFilter(); 
@@ -607,7 +610,7 @@ async function saveToGist(data) {
 
 function mergeData(localData, cloudData) {
     if (!cloudData || !cloudData.lastSync) return localData;
-    const localTime = new Date(localStorage.getItem('lastModified') || 0);
+    const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
     
     if (cloudTime > localTime) {
@@ -628,7 +631,7 @@ function saveGitHubToken() {
     if (!token) return showNotification('Bitte Token eingeben', 'error');
     if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
     githubToken = token;
-    localStorage.setItem('githubToken', token);
+    localStorage.setItem(`${STORAGE_PREFIX}githubToken`, token);
     document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
     document.getElementById('githubTokenInput').value = '';
     closeGitHubModal();
@@ -640,7 +643,7 @@ function saveGitHubToken() {
 
 function clearGitHubToken() {
     if (confirm('Wirklich den GitHub Token löschen?')) {
-        localStorage.removeItem('githubToken');
+        localStorage.removeItem(`${STORAGE_PREFIX}githubToken`);
         githubToken = null;
         document.getElementById('tokenDisplay').textContent = 'Nicht konfiguriert';
         updateSyncStatus();
@@ -651,8 +654,11 @@ function clearGitHubToken() {
 
 function clearGistId() {
     if (confirm('Wirklich die Gist ID löschen?')) {
-        localStorage.removeItem('gistId');
-        gistId = null;
+        localStorage.removeItem(`${STORAGE_PREFIX}gistId`);
+        // If you clear the Gist ID, you might want to reset to a default or null
+        // Since it's hardcoded, this function will only clear the localStorage value
+        // but the variable `gistId` will retain its hardcoded value until the page reloads.
+        gistId = null; // Or some default
         document.getElementById('gistDisplay').textContent = 'Nicht konfiguriert';
         updateSyncStatus();
         updateSyncBarVisibility();
@@ -664,7 +670,7 @@ function saveGistId() {
     const id = document.getElementById('gistIdInput').value.trim();
     if (!id) return showNotification('Bitte Gist ID eingeben', 'error');
     gistId = id;
-    localStorage.setItem('gistId', id);
+    localStorage.setItem(`${STORAGE_PREFIX}gistId`, id);
     document.getElementById('gistDisplay').textContent = id.slice(0, 8) + '...';
     document.getElementById('gistIdInput').value = '';
     closeGistModal();
@@ -690,7 +696,7 @@ async function createNewGist() {
         if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
         const newGist = await response.json();
         gistId = newGist.id;
-        localStorage.setItem('gistId', gistId);
+        localStorage.setItem(`${STORAGE_PREFIX}gistId`, gistId);
         document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
         showNotification('Neuer Gist erstellt! 🎉');
         updateSyncStatus();
@@ -726,7 +732,7 @@ async function checkConnectionOnStartup() {
 
 function toggleAutoSync() {
     const enabled = document.getElementById('autoSyncToggle').checked;
-    localStorage.setItem('autoSync', enabled);
+    localStorage.setItem(`${STORAGE_PREFIX}autoSync`, enabled);
     showNotification(enabled ? 'Auto-Sync aktiviert' : 'Auto-Sync deaktiviert');
 }
 
@@ -860,18 +866,18 @@ function toggleTheme() {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     document.body.classList.toggle('dark-mode');
     document.querySelector('.theme-toggle').textContent = currentTheme === 'light' ? '🌙' : '☀️';
-    localStorage.setItem('theme', currentTheme);
+    localStorage.setItem(`${STORAGE_PREFIX}theme`, currentTheme);
     updateChartTheme();
 }
 
 function loadTheme() {
-    currentTheme = localStorage.getItem('theme') || 'light';
+    currentTheme = localStorage.getItem(`${STORAGE_PREFIX}theme`) || 'light';
     if (currentTheme === 'dark') {
         document.body.classList.add('dark-mode');
         document.querySelector('.theme-toggle').textContent = '☀️';
     }
     
-    isCompactMode = localStorage.getItem('compactMode') === 'true';
+    isCompactMode = localStorage.getItem(`${STORAGE_PREFIX}compactMode`) === 'true';
     if (isCompactMode) {
         document.body.classList.add('compact-mode');
     }
@@ -1167,27 +1173,21 @@ function loadLastEntries() {
 // DATA HANDLING & FILTERING
 // =================================================================================
 function loadData() {
-    platforms = JSON.parse(localStorage.getItem('portfolioPlatforms_v10')) || [...DEFAULT_PLATFORMS];
-    
-    platforms = platforms.map(p => ({
-        ...p,
-        tags: p.tags || []
-    }));
-    
-    entries = JSON.parse(localStorage.getItem('portfolioEntries_v10')) || [];
-    cashflows = JSON.parse(localStorage.getItem('portfolioCashflows_v10')) || [];
-    favorites = JSON.parse(localStorage.getItem('portfolioFavorites_v10')) || [];
+    platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`)) || [...DEFAULT_PLATFORMS];
+    entries = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries_v10`)) || [];
+    cashflows = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows_v10`)) || [];
+    favorites = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites_v10`)) || [];
     applyDateFilter();
 }
 
 function saveData(triggerSync = true) {
-    localStorage.setItem('portfolioPlatforms_v10', JSON.stringify(platforms));
-    localStorage.setItem('portfolioEntries_v10', JSON.stringify(entries));
-    localStorage.setItem('portfolioCashflows_v10', JSON.stringify(cashflows));
-    localStorage.setItem('portfolioFavorites_v10', JSON.stringify(favorites));
-    localStorage.setItem('lastModified', new Date().toISOString());
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`, JSON.stringify(platforms));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries_v10`, JSON.stringify(entries));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows_v10`, JSON.stringify(cashflows));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites_v10`, JSON.stringify(favorites));
+    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
     
-    if (triggerSync && githubToken && gistId && localStorage.getItem('autoSync') === 'true') {
+    if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
         autoSyncTimeout = setTimeout(() => syncNow(), 2000);
     }
@@ -1527,7 +1527,13 @@ function calculateAdjustedBalances(currentEntries, currentCashflows) {
 // KEY METRICS CALCULATION
 // =================================================================================
 function updateKeyMetrics() {
-    if (entries.length === 0) return;
+    if (entries.length === 0) {
+        document.getElementById('welcomeCard').style.display = 'block';
+        document.getElementById('dashboardContent').style.display = 'none';
+        return;
+    }
+    document.getElementById('welcomeCard').style.display = 'none';
+    document.getElementById('dashboardContent').style.display = 'block';
 
     const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
     const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
@@ -1624,6 +1630,38 @@ function updateHistory() {
         tbody.appendChild(row);
     });
     updateSelectAllCheckbox();
+    updateBulkActionsBar();
+}
+
+function updateBulkActionsBar() {
+    const bar = document.getElementById('historyBulkActions');
+    const countEl = document.getElementById('bulkSelectedCount');
+    if (selectedHistoryEntries.size > 0) {
+        bar.classList.add('visible');
+        countEl.textContent = `${selectedHistoryEntries.size} Eintrag${selectedHistoryEntries.size > 1 ? 'e' : ''} ausgewählt`;
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+async function bulkChangeDate() {
+    const newDate = await showCustomPrompt({
+        title: 'Datum für Auswahl ändern',
+        text: `Wähle ein neues Datum für die ${selectedHistoryEntries.size} ausgewählten Einträge.`,
+        showInput: false,
+        showDateInput: true
+    });
+    if (newDate) {
+        entries.forEach(entry => {
+            if (selectedHistoryEntries.has(entry.id)) {
+                entry.date = newDate;
+            }
+        });
+        selectedHistoryEntries.clear();
+        saveData();
+        applyDateFilter();
+        showNotification('Datum für ausgewählte Einträge geändert.');
+    }
 }
 
 function handleHistoryRowClick(e, row, entryId, index) {
@@ -1664,6 +1702,7 @@ function toggleHistorySelection(entryId, isSelected) {
         checkbox.checked = false;
     }
     updateSelectAllCheckbox();
+    updateBulkActionsBar();
 }
 
 function toggleSelectAllHistory(e) {
@@ -2159,6 +2198,7 @@ function setupPromptModal() {
     const cancelBtn = document.getElementById('promptModalCancel');
     const okBtn = document.getElementById('promptModalOk');
     const input = document.getElementById('promptModalInput');
+    const dateInput = document.getElementById('promptModalDateInput');
 
     cancelBtn.onclick = () => {
         modal.classList.remove('visible');
@@ -2166,7 +2206,15 @@ function setupPromptModal() {
     };
     okBtn.onclick = () => {
         modal.classList.remove('visible');
-        if (promptResolve) promptResolve(input.style.display === 'none' ? true : input.value);
+        if (promptResolve) {
+            if (input.style.display !== 'none') {
+                promptResolve(input.value);
+            } else if (dateInput.style.display !== 'none') {
+                promptResolve(dateInput.value);
+            } else {
+                promptResolve(true);
+            }
+        }
     };
     input.onkeydown = (e) => {
         if (e.key === 'Enter') okBtn.click();
@@ -2174,7 +2222,7 @@ function setupPromptModal() {
     };
 }
 
-function showCustomPrompt({title, text, showInput = false, listHtml = ''}) {
+function showCustomPrompt({title, text, showInput = false, showDateInput = false, listHtml = ''}) {
     return new Promise(resolve => {
         promptResolve = resolve;
         document.getElementById('promptModalTitle').textContent = title;
@@ -2185,9 +2233,101 @@ function showCustomPrompt({title, text, showInput = false, listHtml = ''}) {
         const input = document.getElementById('promptModalInput');
         input.style.display = showInput ? 'block' : 'none';
         input.value = '';
+        
+        const dateInput = document.getElementById('promptModalDateInput');
+        dateInput.style.display = showDateInput ? 'block' : 'none';
+        dateInput.value = new Date().toISOString().split('T')[0];
+
         document.getElementById('promptModal').classList.add('visible');
         if (showInput) input.focus();
+        if (showDateInput) dateInput.focus();
     });
+}
+
+function showDeleteConfirmation(element, id, type) {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'confirmation-tooltip';
+    tooltip.innerHTML = `
+        Sicher löschen?
+        <div class="confirmation-actions">
+            <button class="confirm-btn confirm-yes">Ja</button>
+            <button class="confirm-btn confirm-no">Nein</button>
+        </div>
+    `;
+
+    document.body.appendChild(tooltip);
+    const rect = element.getBoundingClientRect();
+    tooltip.style.top = `${rect.top - tooltip.offsetHeight - 10}px`;
+    tooltip.style.left = `${rect.left + rect.width / 2}px`;
+
+    setTimeout(() => tooltip.classList.add('visible'), 10);
+    
+    const removeTooltip = () => {
+        tooltip.classList.remove('visible');
+        setTimeout(() => tooltip.remove(), 300);
+    };
+
+    tooltip.querySelector('.confirm-yes').onclick = () => {
+        if (type === 'entry') deleteEntry(id);
+        if (type === 'cashflow') deleteCashflow(id);
+        if (type === 'platform') deletePlatform(id);
+        removeTooltip();
+    };
+    tooltip.querySelector('.confirm-no').onclick = removeTooltip;
+    
+    setTimeout(() => {
+        document.addEventListener('click', (e) => {
+            if (!tooltip.contains(e.target)) {
+                removeTooltip();
+            }
+        }, { once: true });
+    }, 100);
+}
+
+function openEditPlatformModal(platformName) {
+    const platform = platforms.find(p => p.name === platformName);
+    if (!platform) return;
+
+    document.getElementById('editPlatformOldName').value = platform.name;
+    document.getElementById('editPlatformName').value = platform.name;
+    document.getElementById('editPlatformType').value = platform.type || '';
+    document.getElementById('editPlatformCategory').value = platform.category || '';
+    document.getElementById('editPlatformTags').value = (platform.tags || []).join(', ');
+
+    document.getElementById('editPlatformModal').classList.add('visible');
+}
+function closeEditPlatformModal() { document.getElementById('editPlatformModal').classList.remove('visible'); }
+
+function savePlatformEdit() {
+    const oldName = document.getElementById('editPlatformOldName').value;
+    const newName = document.getElementById('editPlatformName').value.trim();
+    const type = document.getElementById('editPlatformType').value.trim();
+    const category = document.getElementById('editPlatformCategory').value.trim();
+    const tags = document.getElementById('editPlatformTags').value.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+    
+    if (!newName) return showNotification('Name darf nicht leer sein', 'error');
+
+    const platform = platforms.find(p => p.name === oldName);
+    if (platform) {
+        platform.name = newName;
+        platform.type = type;
+        platform.category = category;
+        platform.tags = tags;
+        
+        // Update all related data
+        entries.forEach(e => { if (e.protocol === oldName) e.protocol = newName; });
+        cashflows.forEach(c => { if (c.platform === oldName) c.platform = newName; });
+        if (favorites.includes(oldName)) {
+            favorites = favorites.map(f => f === oldName ? newName : f);
+        }
+
+        saveData();
+        applyDateFilter();
+        renderPlatformButtons();
+        updateCashflowTargets();
+        showNotification('Plattform aktualisiert!');
+        closeEditPlatformModal();
+    }
 }
 
 function registerServiceWorker() {
