@@ -1869,3 +1869,13 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     pointer-events: none;
     transition: opacity 0.5s ease;
 }
+
+/* NEU: Privatsphäre-Modus */
+.dollar-value {
+    transition: filter 0.3s ease;
+}
+
+body.privacy-mode .dollar-value {
+    filter: blur(6px);
+    pointer-events: none; /* Verhindert, dass man den Wert beim Hovern sieht */
+}

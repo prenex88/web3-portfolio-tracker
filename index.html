@@ -63,6 +63,7 @@
                         <span id="cloudIcon">☁️</span>
                         <span id="cloudText">Offline</span>
                     </div>
+                    <button id="privacyToggle" class="btn btn-primary btn-small" title="Privatsphäre-Modus">👁️</button>
                     <button class="theme-toggle" onclick="toggleTheme()" title="Theme wechseln (Ctrl+D)">🌙</button>
                     <button class="btn btn-primary btn-small" onclick="toggleCompactMode()" title="Kompakte Ansicht">📱</button>
                     <button class="btn btn-primary btn-small" onclick="toggleBiometric()" title="Alt+B">🔐 Bio Auth</button>
@@ -127,22 +128,23 @@
                         <div class="stat-content">
                             <div class="stat-icon">💰</div>
                             <div class="stat-label">Portfolio Gesamtwert</div>
-                            <div class="stat-value" id="totalValue">$0</div>
+                            <div class="stat-value dollar-value" id="totalValue">$0</div>
                             <div class="stat-change" id="totalChange">
                                 <span>📊</span>
-                                <span id="totalChangeText">Keine Daten</span>
+                                <span id="totalChangeValue" class="dollar-value"></span>
+                                <span id="totalChangePercent"></span>
                             </div>
                         </div>
                     </div>
                     <div class="stat-card">
-                         <div class="stat-card-skeleton"></div>
-                         <div class="stat-content">
-                            <div class="stat-icon">📈</div>
-                            <div class="stat-label">Performance (Zeitraum)</div>
-                            <div class="stat-value" id="weeklyGrowth">-</div>
-                            <div class="stat-change" id="weeklyGrowthAmount">
+                        <div class="stat-card-skeleton"></div>
+                        <div class="stat-content">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-label">LETZTE VERÄNDERUNG</div>
+                            <div class="stat-value" id="dailyChangePercent">-</div>
+                            <div class="stat-change" id="dailyChangeAmount">
                                 <span>💵</span>
-                                <span id="weeklyChangeText">-</span>
+                                <span id="dailyChangeValue" class="dollar-value">-</span>
                             </div>
                         </div>
                     </div>
@@ -151,10 +153,10 @@
                         <div class="stat-content">
                             <div class="stat-icon">💎</div>
                             <div class="stat-label">Netto Investiert (Zeitraum)</div>
-                            <div class="stat-value" id="netInvested">$0</div>
+                            <div class="stat-value dollar-value" id="netInvested">$0</div>
                             <div class="stat-change">
                                 <span>💳</span>
-                                <span id="netInvestedChange">Ein: $0 | Aus: $0</span>
+                                <span id="netInvestedChange" class="dollar-value">Ein: $0 | Aus: $0</span>
                             </div>
                         </div>
                     </div>
@@ -163,7 +165,7 @@
                         <div class="stat-content">
                             <div class="stat-icon">🏆</div>
                             <div class="stat-label">Reale Performance (Zeitraum)</div>
-                            <div class="stat-value" id="totalProfit">$0</div>
+                            <div class="stat-value dollar-value" id="totalProfit">$0</div>
                             <div class="stat-change">
                                 <span>📊</span>
                                 <span id="profitPercent">0%</span>
@@ -200,7 +202,7 @@
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">Startkapital</span>
-                                    <span class="metric-value" id="metricStartCapital">-</span>
+                                    <span class="metric-value dollar-value" id="metricStartCapital">-</span>
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">Rendite (Gesamt)</span>
@@ -208,7 +210,7 @@
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">Rendite Summe</span>
-                                    <span class="metric-value" id="metricTotalReturnSum">-</span>
+                                    <span class="metric-value dollar-value" id="metricTotalReturnSum">-</span>
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">Rendite Ø (Monat)</span>
@@ -224,7 +226,7 @@
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">Portfolio Prognose (Jahr)</span>
-                                    <span class="metric-value" id="metricPortfolioForecast">-</span>
+                                    <span class="metric-value dollar-value" id="metricPortfolioForecast">-</span>
                                 </div>
                             </div>
                         </div>
@@ -301,15 +303,15 @@
                 <div class="cashflow-stats">
                     <div class="cashflow-stat">
                         <div class="cashflow-stat-label">➕ Total Eingezahlt</div>
-                        <div class="cashflow-stat-value positive" id="totalDeposits">$0</div>
+                        <div class="cashflow-stat-value positive dollar-value" id="totalDeposits">$0</div>
                     </div>
                     <div class="cashflow-stat">
                         <div class="cashflow-stat-label">➖ Total Ausgezahlt</div>
-                        <div class="cashflow-stat-value negative" id="totalWithdrawals">$0</div>
+                        <div class="cashflow-stat-value negative dollar-value" id="totalWithdrawals">$0</div>
                     </div>
                     <div class="cashflow-stat">
                         <div class="cashflow-stat-label">💎 Netto Investiert</div>
-                        <div class="cashflow-stat-value" id="netCashflow">$0</div>
+                        <div class="cashflow-stat-value dollar-value" id="netCashflow">$0</div>
                     </div>
                     <div class="cashflow-stat">
                         <div class="cashflow-stat-label">📊 ROI</div>

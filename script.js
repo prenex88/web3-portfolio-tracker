@@ -290,6 +290,7 @@ function selectAutocompleteItem(platform) {
 // EVENT LISTENERS & SHORTCUTS
 // =================================================================================
 function addEventListeners() {
+    document.getElementById('privacyToggle').addEventListener('click', togglePrivacyMode);
     const inputsContainer = document.getElementById('platformInputs');
     if (inputsContainer) {
         inputsContainer.addEventListener('focusin', (e) => {
@@ -525,6 +526,14 @@ function toggleCompactMode() {
     showNotification(isCompactMode ? 'Kompakte Ansicht aktiviert' : 'Normale Ansicht');
     if (portfolioChart) portfolioChart.resize();
     if (allocationChart) allocationChart.resize();
+}
+
+function togglePrivacyMode() {
+    document.body.classList.toggle('privacy-mode');
+    
+    // Charts neu rendern, damit die Tooltips und Achsenbeschriftungen aktualisiert werden
+    if (portfolioChart) portfolioChart.update();
+    if (allocationChart) allocationChart.update();
 }
 
 // =================================================================================
@@ -1461,16 +1470,52 @@ function updateStats() {
         const previousTotal = filteredEntries.filter(e => e.date === sortedDates[0]).reduce((sum, e) => sum + e.balance, 0);
         const change = currentTotal - previousTotal;
         const changePercent = (previousTotal !== 0) ? (change / previousTotal * 100) : 0;
-        const changeTextEl = document.getElementById('totalChangeText');
-        changeTextEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})} (${changePercent.toFixed(2)}%)`;
-        changeTextEl.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('weeklyGrowth').textContent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
-        document.getElementById('weeklyGrowthAmount').className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('weeklyChangeText').textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+        
+        const totalChangeValueEl = document.getElementById('totalChangeValue');
+        const totalChangePercentEl = document.getElementById('totalChangePercent');
+        const totalChangeDiv = document.getElementById('totalChange');
+
+        totalChangeValueEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+        totalChangePercentEl.textContent = ` (${changePercent.toFixed(2)}%)`;
+        totalChangeDiv.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
+
     } else {
-         document.getElementById('totalChangeText').textContent = 'Keine Daten';
-         document.getElementById('weeklyGrowth').textContent = '-';
-         document.getElementById('weeklyChangeText').textContent = '-';
+         const totalChangeValueEl = document.getElementById('totalChangeValue');
+         const totalChangePercentEl = document.getElementById('totalChangePercent');
+         if(totalChangeValueEl) totalChangeValueEl.textContent = 'Keine Daten';
+         if(totalChangePercentEl) totalChangePercentEl.textContent = '';
+    }
+    
+    // --- NEU: Berechnung für die 24h Veränderung ---
+    const dailyChangePercentEl = document.getElementById('dailyChangePercent');
+    const dailyChangeValueEl = document.getElementById('dailyChangeValue');
+    const dailyChangeAmountEl = document.getElementById('dailyChangeAmount');
+
+    // Finde alle einzigartigen Daten aus der gesamten Historie und sortiere sie
+    const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+
+    if (allUniqueDates.length >= 2 && dailyChangePercentEl) {
+        const latestDate = allUniqueDates[0];
+        const previousDate = allUniqueDates[1];
+
+        const latestTotal = entries
+            .filter(e => e.date === latestDate)
+            .reduce((sum, e) => sum + e.balance, 0);
+
+        const previousTotal = entries
+            .filter(e => e.date === previousDate)
+            .reduce((sum, e) => sum + e.balance, 0);
+
+        const absChange = latestTotal - previousTotal;
+        const pctChange = previousTotal !== 0 ? (absChange / previousTotal) * 100 : 0;
+
+        dailyChangePercentEl.textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+        dailyChangeValueEl.textContent = `${absChange >= 0 ? '+' : ''}${absChange.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        dailyChangeAmountEl.className = `stat-change ${absChange >= 0 ? 'positive' : 'negative'}`;
+    } else if (dailyChangePercentEl) {
+        dailyChangePercentEl.textContent = '-';
+        dailyChangeValueEl.textContent = '-';
+        dailyChangeAmountEl.className = 'stat-change';
     }
     
     document.getElementById('netInvested').textContent = `$${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
@@ -1603,7 +1648,7 @@ function updateHistory() {
             <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
             <td>${formatDate(entry.date)}</td>
             <td style="font-weight: 600;">${entry.protocol}</td>
-            <td>$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td class="dollar-value">$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
         `;
@@ -1764,7 +1809,7 @@ function updateCashflowDisplay() {
         row.innerHTML = `
             <td>${formatDate(cf.date)}</td>
             <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td class="${cf.type === 'deposit' ? 'positive' : 'negative'}">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
+            <td class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
             <td>${cf.platform || '-'}</td>
             <td class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
@@ -1837,8 +1882,8 @@ function updatePlatformDetails() {
             <td>${data.entries}</td>
             <td>${formatDate(data.first)}</td>
             <td>${formatDate(data.last)}</td>
-            <td>$${data.avg.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
-            <td class="${data.total >= 0 ? 'positive' : 'negative'}">$${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
+            <td class="dollar-value">$${data.avg.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
+            <td class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">$${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
         `;
         tbody.appendChild(row);
     });
@@ -1850,15 +1895,45 @@ function updatePlatformDetails() {
 function initializeCharts() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
+
+    // Helper-Funktion für die Dollar-Formatierung
+    const formatDollar = (value) => {
+        if (document.body.classList.contains('privacy-mode')) {
+            return '$***';
+        }
+        return '$' + value.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    };
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-            y: { beginAtZero: false, ticks: { color: textColor }, grid: { color: gridColor } },
+            y: { 
+                beginAtZero: false, 
+                ticks: { 
+                    color: textColor,
+                    callback: (value) => formatDollar(value)
+                }, 
+                grid: { color: gridColor } 
+            },
             x: { ticks: { color: textColor }, grid: { color: gridColor } }
         },
         plugins: { 
-            legend: { labels: { color: textColor } }
+            legend: { labels: { color: textColor } },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        let label = context.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (context.parsed.y !== null) {
+                            label += formatDollar(context.parsed.y);
+                        }
+                        return label;
+                    }
+                }
+            }
         }
     };
 
@@ -1867,7 +1942,7 @@ function initializeCharts() {
         portfolioChart = new Chart(portfolioCtx, {
             type: 'line',
             data: { labels: [], datasets: [{ label: 'Portfolio Wert', data: [], backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', borderWidth: 3, tension: 0.4, fill: true }] },
-            options: { ...chartOptions, plugins: { legend: { display: false }, datalabels: { display: false } } }
+            options: { ...chartOptions, plugins: { ...chartOptions.plugins, legend: { display: false }, datalabels: { display: false } } }
         });
     }
 
@@ -1877,30 +1952,37 @@ function initializeCharts() {
             type: 'doughnut',
             data: { labels: [], datasets: [{ data: [], backgroundColor: ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff', '#34d399', '#6ee7b7', '#a7f3d0', '#fBBf24', '#fb923c', '#f87171', '#fb7185'] }] },
             options: { 
-                ...chartOptions, 
-                scales: {},
+                responsive: true,
+                maintainAspectRatio: false,
                 onClick: handleChartClick,
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: {
-                            color: textColor
+                        labels: { color: textColor }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                    label += formatDollar(context.parsed);
+                                }
+                                return label;
+                            }
                         }
                     },
                     datalabels: {
                         formatter: (value, ctx) => {
                             const sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
                             const percentage = (value * 100 / sum);
-                            if (percentage < 3) { 
-                                return '';
-                            }
+                            if (percentage < 3) return '';
                             return percentage.toFixed(1) + '%';
                         },
                         color: '#fff',
-                        font: {
-                            weight: 'bold',
-                            size: 14,
-                        },
+                        font: { weight: 'bold', size: 14, },
                         textStrokeColor: 'rgba(0,0,0,0.5)',
                         textStrokeWidth: 2
                     }
@@ -1909,6 +1991,7 @@ function initializeCharts() {
         });
     }
 }
+
 
 function handleChartClick(event, elements) {
     if (elements.length > 0) {
