@@ -8,7 +8,6 @@
     --primary: #6366f1;
     --primary-dark: #4f46e5;
     --success: #10b981;
-    --success-text: #58ffcb; 
     --danger: #ef4444;
     --warning: #f59e0b;
     --info: #3b82f6;
@@ -25,6 +24,18 @@
     --text-secondary: #374151;
     --gold: #fbbf24;
     --skeleton-bg: #e5e7eb;
+
+    /* === ÄNDERUNG START: Angepasste Farben für Light & Dark Mode === */
+    /* Standardfarben für Light Mode (gut lesbar) */
+    --positive-text-color: #065f46;
+    --negative-text-color: #991b1b;
+    --positive-glow: none;
+    --negative-glow: none;
+    --deposit-bg: rgba(16, 185, 129, 0.1);
+    --deposit-border: rgba(16, 185, 129, 0.2);
+    --withdraw-bg: rgba(239, 68, 68, 0.1);
+    --withdraw-border: rgba(239, 68, 68, 0.2);
+     /* === ÄNDERUNG ENDE === */
 }
 
 body.dark-mode {
@@ -37,8 +48,18 @@ body.dark-mode {
     --card-bg: rgba(31, 41, 55, 0.95);
     --text-primary: #f9fafb;
     --text-secondary: #d1d5db;
-    --success-text: #34d399;
     --skeleton-bg: #374151;
+
+    /* === ÄNDERUNG START: Überschreiben der Farben für Dark Mode Glow === */
+    --positive-text-color: #66ffc4;
+    --negative-text-color: #ff788a;
+    --positive-glow: 0 0 4px #66ffc4, 0 0 12px rgba(102, 255, 196, 0.5);
+    --negative-glow: 0 0 4px #ff788a, 0 0 12px rgba(255, 120, 138, 0.5);
+    --deposit-bg: rgba(102, 255, 196, 0.1);
+    --deposit-border: rgba(102, 255, 196, 0.2);
+    --withdraw-bg: rgba(255, 120, 138, 0.1);
+    --withdraw-border: rgba(255, 120, 138, 0.2);
+    /* === ÄNDERUNG ENDE === */
 }
 
 body {
@@ -475,10 +496,18 @@ body.has-sync-bar .tab-navigation {
     gap: 6px;
 }
 
-.positive { color: var(--success-text); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
-.dark-mode .positive { text-shadow: 0 0 4px rgba(52, 211, 153, 0.25); }
-.negative { color: var(--danger); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
-.dark-mode .negative { text-shadow: none; }
+/* === ÄNDERUNG START: Nutzung der neuen Farbvariablen === */
+.positive {
+    color: var(--positive-text-color);
+    text-shadow: var(--positive-glow);
+}
+
+.negative {
+    color: var(--negative-text-color);
+    text-shadow: var(--negative-glow);
+}
+/* === ÄNDERUNG ENDE === */
+
 
 /* Sections */
 .section {
@@ -775,7 +804,7 @@ body.has-sync-bar .tab-navigation {
     cursor: pointer;
 }
 .tile-action-btn.edit { background: var(--info); }
-.tile-action-btn.remove { background: var(--danger); font-size: 14px; 
+.tile-action-btn.remove { background: var(--danger); font-size: 14px;
 }
 
 /* Tags System */
@@ -808,10 +837,10 @@ body.has-sync-bar .tab-navigation {
 .tag-layer2 { background: #f59e0b; }
 
 /* Input Cards */
-.input-grid { 
-    display: grid; 
-    gap: 16px; 
-    margin-bottom: 24px; 
+.input-grid {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 24px;
 }
 
 .input-card {
@@ -827,7 +856,7 @@ body.has-sync-bar .tab-navigation {
     background: rgba(31, 41, 55, 0.15);
 }
 
-.input-card:hover { 
+.input-card:hover {
     border-color: var(--primary);
     transform: translateY(-2px);
     box-shadow: 0 8px 25px rgba(99, 102, 241, 0.2);
@@ -856,10 +885,10 @@ body.has-sync-bar .tab-navigation {
     }
 }
 
-.platform-name { 
-    font-weight: 600; 
-    color: var(--text-primary); 
-    font-size: 15px; 
+.platform-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 15px;
 }
 
 .input-field {
@@ -895,8 +924,8 @@ body.has-sync-bar .tab-navigation {
     box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
 }
 
-.last-value { 
-    font-size: 12px; 
+.last-value {
+    font-size: 12px;
     color: var(--text-secondary);
     padding: 8px 12px;
     background: var(--light);
@@ -912,8 +941,8 @@ body.has-sync-bar .tab-navigation {
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.remove-btn:hover { 
-    background: var(--danger); 
+.remove-btn:hover {
+    background: var(--danger);
     color: white;
     transform: scale(1.1);
 }
@@ -1049,7 +1078,7 @@ body.has-sync-bar .tab-navigation {
     border-bottom: 1px solid var(--border);
     transition: all 0.2s ease;
 }
-/** GEÄNDERT: Cursor für bearbeitbare Zellen **/
+
 .data-table td.editable {
     cursor: pointer;
     transition: background-color 0.2s;
@@ -1057,15 +1086,15 @@ body.has-sync-bar .tab-navigation {
 .data-table td.editable:hover {
     background-color: var(--light);
 }
-.data-table td:first-child { 
-    border-left: 1px solid var(--border); 
-    border-radius: 12px 0 0 12px; 
+.data-table td:first-child {
+    border-left: 1px solid var(--border);
+    border-radius: 12px 0 0 12px;
 }
-.data-table td:last-child { 
-    border-right: 1px solid var(--border); 
-    border-radius: 0 12px 12px 0; 
+.data-table td:last-child {
+    border-right: 1px solid var(--border);
+    border-radius: 0 12px 12px 0;
 }
-.data-table tr:hover td { 
+.data-table tr:hover td {
     background: var(--light);
     transform: scale(1.01);
 }
@@ -1074,14 +1103,30 @@ body.has-sync-bar .tab-navigation {
 }
 
 .type-badge {
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
     display: inline-block;
+    letter-spacing: 0.5px;
 }
-.type-deposit { background: #d1fae5; color: #065f46; }
-.type-withdraw { background: #fee2e2; color: #991b1b; }
+
+/* === ÄNDERUNG START: Nutzung der neuen Farbvariablen === */
+.type-deposit {
+    background-color: var(--deposit-bg);
+    color: var(--positive-text-color);
+    border: 1px solid var(--deposit-border);
+    text-shadow: var(--positive-glow);
+}
+
+.type-withdraw {
+    background-color: var(--withdraw-bg);
+    color: var(--negative-text-color);
+    border: 1px solid var(--withdraw-border);
+    text-shadow: var(--negative-glow);
+}
+/* === ÄNDERUNG ENDE === */
+
 
 /* Chart Containers */
 .chart-container {
@@ -1105,89 +1150,15 @@ body.has-sync-bar .tab-navigation {
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }
 
-.empty-state { 
-    text-align: center; 
-    padding: 40px; 
-    color: var(--text-secondary); 
-}
-.empty-state-icon { 
-    font-size: 48px; 
-    margin-bottom: 16px; 
-    opacity: 0.5; 
-}
-
-/* Confirmation Tooltips */
-.confirmation-tooltip {
-    position: absolute;
-    top: -120px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(239, 68, 68, 0.95);
-    backdrop-filter: blur(20px);
-    color: white;
-    padding: 16px;
-    border-radius: 12px;
-    font-size: 13px;
-    font-weight: 600;
-    box-shadow: 0 8px 32px 0 rgba(239, 68, 68, 0.3);
-    z-index: 1000;
-    opacity: 0;
-    transform: translateX(-50%) translateY(10px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    pointer-events: none;
-    max-width: 250px;
+.empty-state {
     text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
 }
-
-.confirmation-tooltip.visible {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-    pointer-events: all;
-}
-
-.confirmation-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    margin-left: -8px;
-    border: 8px solid transparent;
-    border-top-color: rgba(239, 68, 68, 0.95);
-}
-
-.confirmation-actions {
-    margin-top: 12px;
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-}
-
-.confirm-btn {
-    padding: 6px 12px;
-    border: none;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.confirm-yes {
-    background: white;
-    color: #dc2626;
-}
-
-.confirm-yes:hover {
-    transform: scale(1.1);
-}
-
-.confirm-no {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-}
-
-.confirm-no:hover {
-    background: rgba(255, 255, 255, 0.3);
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
 }
 
 /* Biometric Auth Overlay */
@@ -1447,9 +1418,9 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     padding: 5px;
 }
 .modal-footer {
-    text-align: right; 
-    margin-top: 20px; 
-    padding-top: 20px; 
+    text-align: right;
+    margin-top: 20px;
+    padding-top: 20px;
     border-top: 1px solid var(--border);
 }
 
@@ -1724,7 +1695,6 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     100% { transform: rotate(360deg); }
 }
 
-/** NEU: Lade-Skelette **/
 @keyframes pulse-skeleton {
     0% { background-color: var(--skeleton-bg); }
     50% { background-color: color-mix(in srgb, var(--skeleton-bg) 80%, var(--white)); }
@@ -1761,7 +1731,6 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     visibility: hidden;
 }
 
-/** NEU: Massenaktions-Leiste **/
 .bulk-actions-bar {
     position: sticky;
     bottom: 20px;
@@ -1847,16 +1816,16 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
 }
 
 /* Animations */
-@keyframes slideDown { 
-    from { opacity: 0; transform: translateY(-20px); } 
-    to { opacity: 1; transform: translateY(0); } 
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
 }
-@keyframes fadeIn { 
-    from { opacity: 0; } 
-    to { opacity: 1; } 
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
-.pulse { 
-    animation: pulse-save 2s infinite; 
+.pulse {
+    animation: pulse-save 2s infinite;
 }
 @keyframes pulse-save {
     0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
@@ -1870,12 +1839,25 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     transition: opacity 0.5s ease;
 }
 
-/* NEU: Privatsphäre-Modus */
+
 .dollar-value {
-    transition: filter 0.3s ease;
+    transition: color 0.3s ease;
+    position: relative;
 }
 
 body.privacy-mode .dollar-value {
-    filter: blur(6px);
-    pointer-events: none; /* Verhindert, dass man den Wert beim Hovern sieht */
+    color: transparent !important; /* Originaltext ausblenden */
+    text-shadow: none !important; /* Glow-Effekt entfernen */
+    pointer-events: none;
+}
+
+body.privacy-mode .dollar-value::after {
+    content: '******'; /* Fester Platzhalter, der die Länge verbirgt */
+    color: var(--text-primary); /* Farbe des Platzhalters an Theme anpassen */
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    font-weight: normal;
+    letter-spacing: 1.5px;
 }
