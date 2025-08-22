@@ -117,15 +117,22 @@ function isMobileDevice() {
 }
 
 // =================================================================================
-// DRAG & DROP FUNKTIONEN
+// DRAG & DROP FUNKTIONEN (NEU)
 // =================================================================================
 function initializeDragAndDrop() {
+    // KORREKTUR: Optionen für besseres Mobile-Verhalten
+    const sortableOptions = {
+        animation: 200,
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        delay: 150, // Verzögerung in ms, nur auf Touch-Geräten
+        delayOnTouchOnly: true,
+    };
+
     const dashboardEl = document.getElementById('dashboardContent');
     if (dashboardEl) {
         new Sortable(dashboardEl, {
-            animation: 200,
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
+            ...sortableOptions,
             onEnd: (evt) => {
                 const newOrder = [...dashboardEl.children].map(el => el.id);
                 localStorage.setItem(`${STORAGE_PREFIX}dashboardWidgetOrder`, JSON.stringify(newOrder));
@@ -138,10 +145,8 @@ function initializeDragAndDrop() {
 
     if (favoritesGridEl && platformGridEl) {
         new Sortable(favoritesGridEl, {
+            ...sortableOptions,
             group: 'platforms',
-            animation: 200,
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
             onAdd: (evt) => {
                 const platformName = evt.item.dataset.platform;
                 if (!favorites.includes(platformName)) {
@@ -158,10 +163,8 @@ function initializeDragAndDrop() {
         });
 
         new Sortable(platformGridEl, {
+            ...sortableOptions,
             group: 'platforms',
-            animation: 200,
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
             onAdd: (evt) => {
                 const platformName = evt.item.dataset.platform;
                 favorites = favorites.filter(f => f !== platformName);
@@ -198,6 +201,7 @@ function applyDashboardWidgetOrder() {
         });
     }
 }
+
 
 // =================================================================================
 // BIOMETRISCHE AUTHENTIFIZIERUNG
@@ -1563,9 +1567,8 @@ function updateStats() {
     }
 
     const filterStartDateStr = document.getElementById('filterStartDate').value;
-    const isAllTime = !filterStartDateStr;
+    const isAllTime = !filterStartDateStr || document.querySelector('.filter-btn.active').textContent === 'Alles';
 
-    // KORREKTUR: Finde den letzten bekannten Kontostand VOR dem Start des Zeitraums
     let startBalance = 0;
     if (!isAllTime) {
         const priorEntryDates = [...new Set(entries.map(e => e.date))]
@@ -1590,8 +1593,6 @@ function updateStats() {
     
     const roiBase = startBalance + depositsInPeriod;
     const periodRoiPercent = roiBase !== 0 ? (periodProfit / roiBase) * 100 : 0;
-    
-    // --- Karten aktualisieren ---
     
     // 1. Karte: "Portfolio Gesamtwert"
     document.getElementById('totalValue').textContent = `$${endBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -1624,7 +1625,9 @@ function updateStats() {
     
     // 3. Karte: "Netto Investiert (Zeitraum)"
     document.getElementById('netInvested').textContent = `$${netCashflowInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${(depositsInPeriod - netCashflowInPeriod).toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+    const totalDeposits = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = filteredCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    document.getElementById('netInvestedChange').textContent = `Ein: $${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
     // 4. Karte: "Reale Performance (Zeitraum)"
     document.getElementById('totalProfit').textContent = `$${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
