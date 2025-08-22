@@ -624,6 +624,135 @@ function togglePrivacyMode() {
 }
 
 // =================================================================================
+// DATA HANDLING & FILTERING
+// =================================================================================
+function loadData() {
+    platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`)) || [...DEFAULT_PLATFORMS];
+    
+    platforms = platforms.map(p => ({
+        ...p,
+        tags: p.tags || []
+    }));
+    
+    entries = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries_v10`)) || [];
+    cashflows = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows_v10`)) || [];
+    favorites = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites_v10`)) || [];
+    applyDateFilter();
+}
+
+function saveData(triggerSync = true) {
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`, JSON.stringify(platforms));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries_v10`, JSON.stringify(entries));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows_v10`, JSON.stringify(cashflows));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites_v10`, JSON.stringify(favorites));
+    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
+    
+    if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
+        clearTimeout(autoSyncTimeout);
+        autoSyncTimeout = setTimeout(() => syncNow(), 2000);
+    }
+}
+
+function applyDateFilter() {
+    const startDateStr = document.getElementById('filterStartDate').value;
+    const endDateStr = document.getElementById('filterEndDate').value;
+
+    if (startDateStr || endDateStr) {
+        // Robuste Filterung durch direkten String-Vergleich (vermeidet Zeitzonenprobleme)
+        filteredEntries = entries.filter(e => {
+            const isAfterStart = startDateStr ? e.date >= startDateStr : true;
+            const isBeforeEnd = endDateStr ? e.date <= endDateStr : true;
+            return isAfterStart && isBeforeEnd;
+        });
+
+        filteredCashflows = cashflows.filter(c => {
+            const isAfterStart = startDateStr ? c.date >= startDateStr : true;
+            const isBeforeEnd = endDateStr ? c.date <= endDateStr : true;
+            return isAfterStart && isBeforeEnd;
+        });
+    } else {
+        // Wenn beide Felder leer sind, zeige alle Daten
+        filteredEntries = [...entries];
+        filteredCashflows = [...cashflows];
+    }
+    updateDisplay();
+}
+
+function toggleFilter() {
+    document.getElementById('dateFilterBar').classList.toggle('collapsed');
+}
+
+function setDateFilter(period) {
+    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
+    const clickedButton = document.querySelector(`.filter-btn[onclick="setDateFilter('${period}')"]`);
+    if (clickedButton) {
+        clickedButton.classList.add('active');
+        document.getElementById('activeFilterDisplay').textContent = clickedButton.textContent;
+    }
+
+    const endDate = new Date();
+    let startDate = new Date();
+
+    document.getElementById('filterEndDate').value = '';
+    document.getElementById('filterStartDate').value = '';
+
+    switch(period) {
+        case '7d': startDate.setDate(endDate.getDate() - 7); break;
+        case '30d': startDate.setDate(endDate.getDate() - 30); break;
+        case '90d': startDate.setDate(endDate.getDate() - 90); break;
+        case 'ytd': startDate = new Date(endDate.getFullYear(), 0, 1); break;
+        case '1y': startDate.setFullYear(endDate.getFullYear() - 1); break;
+        case 'all':
+            applyDateFilter();
+            return;
+    }
+    document.getElementById('filterStartDate').value = startDate.toISOString().split('T')[0];
+    document.getElementById('filterEndDate').value = endDate.toISOString().split('T')[0];
+    applyDateFilter();
+}
+
+function applyAndSetCustomDateFilter() {
+    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('activeFilterDisplay').textContent = 'Custom';
+    applyDateFilter();
+}
+
+function resetDateFilter() {
+    document.getElementById('filterStartDate').value = '';
+    document.getElementById('filterEndDate').value = '';
+    document.getElementById('activeFilterDisplay').textContent = 'Alles';
+    setDateFilter('all');
+}
+
+function saveSingleEntry(inputElement) {
+    const date = document.getElementById('entryDate').value;
+    if (!date) return showNotification('Bitte Datum wählen!', 'error');
+    
+    const platformName = inputElement.dataset.platform;
+    const balance = parseFloat(inputElement.value.replace(',', '.'));
+    const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
+    
+    if (!inputElement.value || isNaN(balance)) return;
+    
+    entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
+    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
+    saveData();
+    applyDateFilter();
+    
+    inputElement.value = '';
+    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    showNotification(`${platformName} gespeichert!`);
+
+    const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field[data-platform]'));
+    const currentIndex = allInputs.indexOf(inputElement);
+
+    if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
+        allInputs[currentIndex + 1].focus();
+    }
+}
+
+
+// =================================================================================
 // GITHUB SYNC & SKELETONS
 // =================================================================================
 function showSkeletons() {
@@ -1218,133 +1347,6 @@ function loadLastEntries() {
 }
 
 // =================================================================================
-// DATA HANDLING & FILTERING
-// =================================================================================
-function loadData() {
-    platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`)) || [...DEFAULT_PLATFORMS];
-    
-    platforms = platforms.map(p => ({
-        ...p,
-        tags: p.tags || []
-    }));
-    
-    entries = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries_v10`)) || [];
-    cashflows = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows_v10`)) || [];
-    favorites = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites_v10`)) || [];
-    applyDateFilter();
-}
-
-function saveData(triggerSync = true) {
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`, JSON.stringify(platforms));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries_v10`, JSON.stringify(entries));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows_v10`, JSON.stringify(cashflows));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites_v10`, JSON.stringify(favorites));
-    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
-    
-    if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
-        clearTimeout(autoSyncTimeout);
-        autoSyncTimeout = setTimeout(() => syncNow(), 2000);
-    }
-}
-
-function applyDateFilter() {
-    const startDate = document.getElementById('filterStartDate').value;
-    const endDate = document.getElementById('filterEndDate').value;
-
-    if (startDate && endDate) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-
-        filteredEntries = entries.filter(e => {
-            const entryDate = new Date(e.date);
-            return entryDate >= start && entryDate <= end;
-        });
-        filteredCashflows = cashflows.filter(c => {
-            const cashflowDate = new Date(c.date);
-            return cashflowDate >= start && cashflowDate <= end;
-        });
-    } else {
-        filteredEntries = [...entries];
-        filteredCashflows = [...cashflows];
-    }
-    updateDisplay();
-}
-
-function toggleFilter() {
-    document.getElementById('dateFilterBar').classList.toggle('collapsed');
-}
-
-function setDateFilter(period) {
-    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
-    const clickedButton = document.querySelector(`.filter-btn[onclick="setDateFilter('${period}')"]`);
-    if (clickedButton) {
-        clickedButton.classList.add('active');
-        document.getElementById('activeFilterDisplay').textContent = clickedButton.textContent;
-    }
-
-    const endDate = new Date();
-    let startDate = new Date();
-
-    document.getElementById('filterEndDate').value = '';
-    document.getElementById('filterStartDate').value = '';
-
-    switch(period) {
-        case '7d': startDate.setDate(endDate.getDate() - 7); break;
-        case '30d': startDate.setDate(endDate.getDate() - 30); break;
-        case '90d': startDate.setDate(endDate.getDate() - 90); break;
-        case 'ytd': startDate = new Date(endDate.getFullYear(), 0, 1); break;
-        case '1y': startDate.setFullYear(endDate.getFullYear() - 1); break;
-        case 'all':
-            applyDateFilter();
-            return;
-    }
-    document.getElementById('filterStartDate').value = startDate.toISOString().split('T')[0];
-    document.getElementById('filterEndDate').value = endDate.toISOString().split('T')[0];
-    applyDateFilter();
-}
-
-function applyAndSetCustomDateFilter() {
-    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('activeFilterDisplay').textContent = 'Custom';
-    applyDateFilter();
-}
-
-function resetDateFilter() {
-    document.getElementById('filterStartDate').value = '';
-    document.getElementById('filterEndDate').value = '';
-    document.getElementById('activeFilterDisplay').textContent = 'Alles';
-    setDateFilter('all');
-}
-
-function saveSingleEntry(inputElement) {
-    const date = document.getElementById('entryDate').value;
-    if (!date) return showNotification('Bitte Datum wählen!', 'error');
-    
-    const platformName = inputElement.dataset.platform;
-    const balance = parseFloat(inputElement.value.replace(',', '.'));
-    const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
-    
-    if (!inputElement.value || isNaN(balance)) return;
-    
-    entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
-    saveData();
-    applyDateFilter();
-    
-    inputElement.value = '';
-    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    showNotification(`${platformName} gespeichert!`);
-
-    const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field[data-platform]'));
-    const currentIndex = allInputs.indexOf(inputElement);
-
-    if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
-        allInputs[currentIndex + 1].focus();
-    }
-}
-
-// =================================================================================
 // AUTO-ZERO LOGIK
 // =================================================================================
 function updateAutoZeroHint() {
@@ -1554,12 +1556,15 @@ function updateDisplay() {
 }
 
 /**
- * BERECHNET UND AKTUALISIERT ALLE STATISTIK-KARTEN IM DASHBOARD
+ * BERECHNET UND AKTUALISIERT ALLE STATISTIK-KARTEN IM DASHBOARD (KORRIGIERTE VERSION)
  */
 function updateStats() {
-    const sortedDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    const sortedDatesInPeriod = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    const filterStartDateStr = document.getElementById('filterStartDate').value;
+    const isAllTime = !filterStartDateStr || document.querySelector('.filter-btn.active')?.textContent === 'Alles';
 
-    if (sortedDates.length === 0) {
+    // --- Schritt 1: Behandeln des "Keine Daten vorhanden"-Falls ---
+    if (entries.length === 0) {
         document.getElementById('totalValue').textContent = '$0.00';
         ['totalChangeValue', 'totalChangePercent', 'dailyChangePercent', 'dailyChangeValue', 'netInvested', 'netInvestedChange', 'totalProfit', 'profitPercent'].forEach(id => {
             const el = document.getElementById(id);
@@ -1572,40 +1577,53 @@ function updateStats() {
         return;
     }
 
-    const filterStartDateStr = document.getElementById('filterStartDate').value;
-    const isAllTime = !filterStartDateStr || document.querySelector('.filter-btn.active').textContent === 'Alles';
-
+    // --- Schritt 2: Den Kontostand zu Beginn des Zeitraums ermitteln ---
     let startBalance = 0;
-    if (!isAllTime) {
-        const priorEntryDates = [...new Set(entries.map(e => e.date))]
-            .filter(d => d < filterStartDateStr)
-            .sort((a, b) => new Date(b) - new Date(a));
+    // Finde das letzte Eintragsdatum, das strikt VOR dem Beginn unseres Filterzeitraums liegt.
+    const priorEntryDates = [...new Set(entries.map(e => e.date))]
+        .filter(d => filterStartDateStr && d < filterStartDateStr)
+        .sort((a, b) => new Date(b) - new Date(a));
 
-        if (priorEntryDates.length > 0) {
-            const lastDateBeforePeriod = priorEntryDates[0];
-            startBalance = entries
-                .filter(e => e.date === lastDateBeforePeriod)
-                .reduce((sum, e) => sum + e.balance, 0);
-        }
+    if (priorEntryDates.length > 0) {
+        const lastDateBeforePeriod = priorEntryDates[0];
+        startBalance = entries
+            .filter(e => e.date === lastDateBeforePeriod)
+            .reduce((sum, e) => sum + e.balance, 0);
     }
 
-    const endDate = sortedDates[sortedDates.length - 1];
-    const endBalance = filteredEntries.filter(e => e.date === endDate).reduce((sum, e) => sum + e.balance, 0);
+    // --- Schritt 3: Den Kontostand am Ende des Zeitraums ermitteln ---
+    let endBalance;
+    if (sortedDatesInPeriod.length > 0) {
+        // Wenn es Einträge IM Zeitraum gibt, ist der Endsaldo der Wert des letzten Eintrags.
+        const lastDateInPeriod = sortedDatesInPeriod[sortedDatesInPeriod.length - 1];
+        endBalance = filteredEntries.filter(e => e.date === lastDateInPeriod).reduce((sum, e) => sum + e.balance, 0);
+    } else {
+        // Wenn es KEINE Einträge im Zeitraum gibt, hat sich der Kontostand nicht geändert.
+        endBalance = startBalance;
+    }
+    
+    if (isAllTime && entries.length > 0) {
+        const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+        endBalance = entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0);
+        startBalance = 0; // Für "Alles" ist der Startsaldo immer 0.
+    }
 
+    // --- Schritt 4: Statistiken basierend auf den korrekten Start- und Endsalden berechnen ---
     const netCashflowInPeriod = filteredCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
     const depositsInPeriod = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = filteredCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
     
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    
     const roiBase = startBalance + depositsInPeriod;
     const periodRoiPercent = roiBase !== 0 ? (periodProfit / roiBase) * 100 : 0;
-    
+
+    // --- Schritt 5: Die Benutzeroberfläche aktualisieren ---
     // 1. Karte: "Portfolio Gesamtwert"
     document.getElementById('totalValue').textContent = `$${endBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     document.getElementById('totalChangeValue').textContent = `${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
     document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
-    
+
     // 2. Karte: "Letzte Veränderung"
     const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (allUniqueDates.length >= 2) {
@@ -1631,9 +1649,7 @@ function updateStats() {
     
     // 3. Karte: "Netto Investiert (Zeitraum)"
     document.getElementById('netInvested').textContent = `$${netCashflowInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    const totalDeposits = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = filteredCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
-    document.getElementById('netInvestedChange').textContent = `Ein: $${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
     // 4. Karte: "Reale Performance (Zeitraum)"
     document.getElementById('totalProfit').textContent = `$${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
