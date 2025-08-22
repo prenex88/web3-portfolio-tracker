@@ -85,7 +85,6 @@ let syncStatus = 'offline';
 // INITIALISIERUNG
 // =================================================================================
 document.addEventListener('DOMContentLoaded', () => {
-    // *** HIER IST DIE KORREKTUR: Plugin global registrieren ***
     Chart.register(ChartDataLabels);
 
     if (isMobileDevice()) {
@@ -100,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPlatformButtons();
     initializeCharts();
     addEventListeners();
-    setupPromptModal();
+    setupBottomSheet();
     setupKeyboardShortcuts();
     setupTouchGestures();
     setupAutocomplete();
@@ -108,10 +107,96 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker();
+    
+    applyDashboardWidgetOrder();
+    initializeDragAndDrop();
 });
 
 function isMobileDevice() {
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+// =================================================================================
+// DRAG & DROP FUNKTIONEN
+// =================================================================================
+function initializeDragAndDrop() {
+    const dashboardEl = document.getElementById('dashboardContent');
+    if (dashboardEl) {
+        new Sortable(dashboardEl, {
+            animation: 200,
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onEnd: (evt) => {
+                const newOrder = [...dashboardEl.children].map(el => el.id);
+                localStorage.setItem(`${STORAGE_PREFIX}dashboardWidgetOrder`, JSON.stringify(newOrder));
+            }
+        });
+    }
+
+    const favoritesGridEl = document.getElementById('favoritesGrid');
+    const platformGridEl = document.getElementById('platformGrid');
+
+    if (favoritesGridEl && platformGridEl) {
+        new Sortable(favoritesGridEl, {
+            group: 'platforms',
+            animation: 200,
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onAdd: (evt) => {
+                const platformName = evt.item.dataset.platform;
+                if (!favorites.includes(platformName)) {
+                    favorites.push(platformName);
+                    saveData();
+                    renderPlatformButtons();
+                }
+            },
+            onEnd: (evt) => {
+                const newFavoritesOrder = [...favoritesGridEl.children].map(el => el.dataset.platform);
+                favorites = newFavoritesOrder;
+                saveData();
+            }
+        });
+
+        new Sortable(platformGridEl, {
+            group: 'platforms',
+            animation: 200,
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            onAdd: (evt) => {
+                const platformName = evt.item.dataset.platform;
+                favorites = favorites.filter(f => f !== platformName);
+                saveData();
+                renderPlatformButtons();
+            },
+            onEnd: (evt) => {
+                const newPlatformOrder = [...platformGridEl.children].map(el => el.dataset.platform).filter(p => p);
+                
+                const favoritePlatforms = platforms.filter(p => favorites.includes(p.name));
+                const nonFavoritePlatforms = platforms.filter(p => !favorites.includes(p.name));
+
+                nonFavoritePlatforms.sort((a, b) => {
+                    return newPlatformOrder.indexOf(a.name) - newPlatformOrder.indexOf(b.name);
+                });
+
+                platforms = [...favoritePlatforms, ...nonFavoritePlatforms];
+                saveData();
+            }
+        });
+    }
+}
+
+function applyDashboardWidgetOrder() {
+    const dashboardEl = document.getElementById('dashboardContent');
+    const savedOrder = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}dashboardWidgetOrder`));
+    
+    if (savedOrder && dashboardEl) {
+        savedOrder.forEach(widgetId => {
+            const widget = document.getElementById(widgetId);
+            if (widget) {
+                dashboardEl.appendChild(widget);
+            }
+        });
+    }
 }
 
 // =================================================================================
@@ -387,14 +472,7 @@ function setupKeyboardShortcuts() {
         }
         
         if (e.key === 'Escape') {
-            closeGitHubModal();
-            closeGistModal();
-            closeEditPlatformModal();
-            if (promptResolve) {
-                document.getElementById('promptModal').classList.remove('visible');
-                promptResolve(null);
-                promptResolve = null;
-            }
+            closeBottomSheet();
         }
     });
 }
@@ -531,7 +609,6 @@ function toggleCompactMode() {
 function togglePrivacyMode() {
     document.body.classList.toggle('privacy-mode');
     
-    // Charts neu rendern, damit die Tooltips und Achsenbeschriftungen aktualisiert werden
     if (portfolioChart) portfolioChart.update();
     if (allocationChart) allocationChart.update();
 }
@@ -552,10 +629,7 @@ function loadGitHubConfig() {
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
     
-    // Gist ID wird nicht mehr aus dem Local Storage geladen, sondern ist fix.
-    // Wir zeigen sie aber trotzdem im UI an.
     document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
-    // Blendet den Gist-ID-Einstellungsbereich aus, da er jetzt fix ist.
     document.getElementById('gistDisplay').closest('.setting-item').style.display = 'none';
 
     if (githubToken) document.getElementById('tokenDisplay').textContent = 'ghp_****' + githubToken.slice(-4);
@@ -568,8 +642,18 @@ function loadGitHubConfig() {
 
 async function syncNow() {
     if (!githubToken || !gistId) {
-        showNotification('Bitte zuerst GitHub Token konfigurieren', 'error');
-        switchTab('settings');
+        showCustomPrompt({
+            title: 'GitHub Sync nicht konfiguriert',
+            text: 'Bitte konfiguriere zuerst deinen GitHub Token in den Einstellungen, um die Cloud-Synchronisierung zu nutzen.',
+            actions: [
+                { text: 'Abbrechen', class: 'btn-danger' },
+                { text: 'Zu den Einstellungen', class: 'btn-primary', value: 'settings' }
+            ]
+        }).then(result => {
+            if (result === 'settings') {
+                switchTab('settings');
+            }
+        });
         return;
     }
     if (syncInProgress) {
@@ -644,18 +728,39 @@ function mergeData(localData, cloudData) {
 }
 
 function openCloudSettings() { switchTab('settings'); }
-function setupGitHubToken() { document.getElementById('githubSetupModal').classList.add('visible'); document.getElementById('githubTokenInput').focus(); }
-function closeGitHubModal() { document.getElementById('githubSetupModal').classList.remove('visible'); }
+
+function setupGitHubToken() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">📝 GitHub Token Setup</h2></div>
+        <div class="modal-body">
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">Gib dein Personal Access Token ein, um Cloud Sync zu aktivieren.</p>
+            <div class="github-input-group">
+                <label>Personal Access Token</label>
+                <input type="password" id="githubTokenInput" class="input-field" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                <div class="github-input-help">
+                    <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" style="color: var(--primary);">→ Token auf GitHub erstellen (mit 'gist' Berechtigung)</a>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
+            <button class="btn btn-success" onclick="saveGitHubToken()">Speichern</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+    setTimeout(() => document.getElementById('githubTokenInput').focus(), 200);
+}
 
 function saveGitHubToken() {
-    const token = document.getElementById('githubTokenInput').value.trim();
+    const tokenInput = document.getElementById('githubTokenInput');
+    if (!tokenInput) return;
+    const token = tokenInput.value.trim();
     if (!token) return showNotification('Bitte Token eingeben', 'error');
     if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
     githubToken = token;
     localStorage.setItem(`${STORAGE_PREFIX}githubToken`, token);
     document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
-    document.getElementById('githubTokenInput').value = '';
-    closeGitHubModal();
+    closeBottomSheet();
     showNotification('Token gespeichert!');
     updateSyncStatus();
     updateSyncBarVisibility();
@@ -663,23 +768,24 @@ function saveGitHubToken() {
 }
 
 function clearGitHubToken() {
-    if (confirm('Wirklich den GitHub Token löschen?')) {
-        localStorage.removeItem(`${STORAGE_PREFIX}githubToken`);
-        githubToken = null;
-        document.getElementById('tokenDisplay').textContent = 'Nicht konfiguriert';
-        updateSyncStatus();
-        updateSyncBarVisibility();
-        showNotification('GitHub Token gelöscht');
-    }
+    showCustomPrompt({
+        title: 'GitHub Token löschen',
+        text: 'Möchtest du den GitHub Token wirklich löschen?',
+        actions: [
+            { text: 'Abbrechen', class: 'btn-primary' },
+            { text: 'Löschen', class: 'btn-danger', value: 'delete' }
+        ]
+    }).then(result => {
+        if (result === 'delete') {
+            localStorage.removeItem(`${STORAGE_PREFIX}githubToken`);
+            githubToken = null;
+            document.getElementById('tokenDisplay').textContent = 'Nicht konfiguriert';
+            updateSyncStatus();
+            updateSyncBarVisibility();
+            showNotification('GitHub Token gelöscht');
+        }
+    });
 }
-
-// Gist ID Funktionen sind nicht mehr nötig, da die ID fix ist.
-function setupGistId() {}
-function closeGistModal() {}
-function saveGistId() {}
-function clearGistId() {}
-async function createNewGist() {}
-
 
 async function testConnection() {
     if (!githubToken || !gistId) return showNotification('Bitte Token und Gist ID konfigurieren', 'error');
@@ -882,43 +988,37 @@ function updateChartTheme() {
 // PLATFORM MANAGEMENT
 // =================================================================================
 function renderPlatformButtons() {
-    const grid = document.getElementById('platformGrid');
-    if (!grid) return;
-    grid.innerHTML = '';
+    const favoritesGrid = document.getElementById('favoritesGrid');
+    const platformGrid = document.getElementById('platformGrid');
+    if (!platformGrid || !favoritesGrid) return;
     
+    favoritesGrid.innerHTML = '';
+    platformGrid.innerHTML = '';
+
     const lastDate = [...entries].sort((a,b) => new Date(b.date) - new Date(a.date))[0]?.date;
     const platformsWithLastBalance = new Set(
         entries.filter(e => e.date === lastDate && e.balance > 0).map(e => e.protocol)
     );
-
-    let filtered = platforms;
     
-    if (activeCategory === 'favorites') {
-        filtered = filtered.filter(p => favorites.includes(p.name));
-    } else if (activeCategory !== 'all') {
-        filtered = filtered.filter(p => p.category === activeCategory);
+    platforms.sort((a, b) => a.name.localeCompare(b.name));
+    
+    const sortedFavorites = [...favorites].map(favName => platforms.find(p => p.name === favName)).filter(p => p);
+    let nonFavoritePlatforms = platforms.filter(p => !favorites.includes(p.name));
+    
+    if (activeCategory !== 'all') {
+        nonFavoritePlatforms = nonFavoritePlatforms.filter(p => p.category === activeCategory);
     }
-    
     if (searchTerm) {
-        filtered = filtered.filter(p => 
+        nonFavoritePlatforms = nonFavoritePlatforms.filter(p => 
             p.name.toLowerCase().includes(searchTerm) ||
             (p.type && p.type.toLowerCase().includes(searchTerm)) ||
             (p.tags && p.tags.some(tag => tag.toLowerCase().includes(searchTerm)))
         );
     }
-    
-    filtered.sort((a, b) => {
-        const aFav = favorites.includes(a.name);
-        const bFav = favorites.includes(b.name);
-        if (aFav && !bFav) return -1;
-        if (!aFav && bFav) return 1;
-        return a.name.localeCompare(b.name);
-    });
-    
-    filtered.forEach((p, index) => {
+
+    const createTile = (p) => {
         const tile = document.createElement('div');
         tile.className = 'platform-btn';
-        tile.dataset.index = index;
         tile.dataset.platform = p.name;
         
         if (selectedPlatforms.includes(p.name)) tile.classList.add('selected');
@@ -927,38 +1027,7 @@ function renderPlatformButtons() {
         
         tile.onclick = (e) => {
             if (navigator.vibrate) navigator.vibrate(50);
-            
-            if (e.ctrlKey || e.metaKey) {
-                togglePlatform(tile, p.name);
-                multiSelectStartIndex = index;
-            } else if (e.shiftKey && multiSelectStartIndex >= 0) {
-                const allTiles = Array.from(grid.querySelectorAll('.platform-btn[data-platform]'));
-                const currentTileIndex = allTiles.findIndex(t => t.dataset.platform === p.name);
-                const startTileIndex = allTiles.findIndex(t => t.dataset.platform === allTiles[multiSelectStartIndex].dataset.platform);
-
-                const start = Math.min(startTileIndex, currentTileIndex);
-                const end = Math.max(startTileIndex, currentTileIndex);
-                
-                for (let i = start; i <= end; i++) {
-                    const platformTile = allTiles[i];
-                    if (platformTile && platformTile.dataset.platform) {
-                        const platformName = platformTile.dataset.platform;
-                        if (!selectedPlatforms.includes(platformName)) {
-                            selectedPlatforms.push(platformName);
-                            platformTile.classList.add('selected');
-                            addPlatformInput(platformName);
-                        }
-                    }
-                }
-            } else {
-                multiSelectStartIndex = index;
-                togglePlatform(tile, p.name);
-            }
-        };
-        
-        tile.oncontextmenu = (e) => {
-            e.preventDefault();
-            toggleFavorite(p.name);
+            togglePlatform(tile, p.name);
         };
         
         let tagsHtml = '';
@@ -972,7 +1041,6 @@ function renderPlatformButtons() {
         }
         
         tile.innerHTML = `
-            <span class="favorite-star">⭐</span>
             <span class="has-balance-icon">💰</span>
             <div class="tile-actions">
                 <span class="tile-action-btn edit" title="Plattform bearbeiten" onclick="event.stopPropagation(); openEditPlatformModal('${p.name}')">✎</span>
@@ -982,15 +1050,19 @@ function renderPlatformButtons() {
             <div class="name">${p.name}</div>
             <div class="type">${p.type}</div>
             ${tagsHtml}`;
-        grid.appendChild(tile);
-    });
+        return tile;
+    };
+
+    sortedFavorites.forEach(p => favoritesGrid.appendChild(createTile(p)));
+    nonFavoritePlatforms.forEach(p => platformGrid.appendChild(createTile(p)));
 
     const addTile = document.createElement('div');
     addTile.className = 'platform-btn';
     addTile.onclick = addCustomPlatform;
     addTile.innerHTML = `<div class="icon">➕</div><div class="name">Andere</div><div class="type">Hinzufügen</div>`;
-    grid.appendChild(addTile);
+    platformGrid.appendChild(addTile);
 }
+
 
 function getTagClass(tag) {
     const tagLower = tag.toLowerCase();
@@ -1007,19 +1079,6 @@ function filterByTag(tag) {
     filterPlatforms();
 }
 
-function toggleFavorite(platformName) {
-    const index = favorites.indexOf(platformName);
-    if (index > -1) {
-        favorites.splice(index, 1);
-        showNotification(`${platformName} aus Favoriten entfernt`);
-    } else {
-        favorites.push(platformName);
-        showNotification(`${platformName} zu Favoriten hinzugefügt`);
-    }
-    saveData();
-    renderPlatformButtons();
-}
-
 function filterCategory(element, category) {
     activeCategory = category;
     document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
@@ -1028,8 +1087,16 @@ function filterCategory(element, category) {
 }
 
 async function resetPlatforms() {
-    const confirmation = await showCustomPrompt({ title: 'Plattformen zurücksetzen', text: 'Benutzerdefinierte Plattformliste wird gelöscht. "reset" eingeben.', showInput: true });
-    if (confirmation && confirmation.toLowerCase() === 'reset') {
+    const result = await showCustomPrompt({
+        title: 'Plattformen zurücksetzen',
+        text: 'Benutzerdefinierte Plattformliste wird gelöscht. "reset" eingeben.',
+        showInput: true,
+        actions: [
+            { text: 'Abbrechen', class: 'btn-primary' },
+            { text: 'Zurücksetzen', class: 'btn-danger', value: 'reset' }
+        ]
+    });
+    if (result && result.toLowerCase() === 'reset') {
         platforms = [...DEFAULT_PLATFORMS];
         favorites = [];
         saveData();
@@ -1054,13 +1121,13 @@ function togglePlatform(element, platformName) {
 }
 
 async function addCustomPlatform() {
-    const name = await showCustomPrompt({ title: 'Neue Plattform', text: 'Name der Plattform:', showInput: true });
+    const name = await showCustomPrompt({ title: 'Neue Plattform', text: 'Name der Plattform:', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
     if (!name || !name.trim()) return;
     if (platforms.some(p => p.name.toLowerCase() === name.trim().toLowerCase())) return showNotification('Plattform existiert bereits!', 'error');
 
-    const type = await showCustomPrompt({ title: 'Plattform Typ', text: `Typ für "${name.trim()}"? (z.B. DEX, Lending)`, showInput: true });
-    const category = await showCustomPrompt({ title: 'Kategorie', text: 'Exchange, DeFi, Lending, Wallet oder Custom?', showInput: true });
-    const tagsInput = await showCustomPrompt({ title: 'Tags', text: 'Tags (kommagetrennt, z.B. high-risk, staking, defi):', showInput: true });
+    const type = await showCustomPrompt({ title: 'Plattform Typ', text: `Typ für "${name.trim()}"? (z.B. DEX, Lending)`, showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
+    const category = await showCustomPrompt({ title: 'Kategorie', text: 'Exchange, DeFi, Lending, Wallet oder Custom?', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
+    const tagsInput = await showCustomPrompt({ title: 'Tags', text: 'Tags (kommagetrennt, z.B. high-risk, staking, defi):', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Speichern', value: 'save', class: 'btn-success'}] });
     
     const tags = tagsInput ? tagsInput.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
 
@@ -1209,8 +1276,8 @@ function setDateFilter(period) {
     const endDate = new Date();
     let startDate = new Date();
 
-    document.getElementById('filterStartDate').value = '';
     document.getElementById('filterEndDate').value = '';
+    document.getElementById('filterStartDate').value = '';
 
     switch(period) {
         case '7d': startDate.setDate(endDate.getDate() - 7); break;
@@ -1310,8 +1377,11 @@ async function saveAllEntries() {
          const confirmed = await showCustomPrompt({
             title: 'Auto-Zero Bestätigung',
             text: 'Sollen die folgenden Plattformen, die nicht ausgewählt wurden, für dieses Datum auf 0 gesetzt werden?',
-            showInput: false,
-            listHtml: listHtml
+            listHtml: listHtml,
+            actions: [
+                { text: 'Nein' },
+                { text: 'Ja, auf 0 setzen', class: 'btn-success', value: true }
+            ]
         });
         
         if (confirmed) {
@@ -1384,23 +1454,36 @@ async function deleteCashflow(cashflowId) {
 }
 
 async function deletePlatform(platformName) {
-    platforms = platforms.filter(p => p.name !== platformName);
-    favorites = favorites.filter(f => f !== platformName);
-    entries = entries.filter(e => e.protocol !== platformName);
-    
-    if (selectedPlatforms.includes(platformName)) {
-        removePlatformInput(platformName);
+    const confirmed = await showCustomPrompt({
+        title: 'Plattform löschen',
+        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
+    });
+    if (confirmed) {
+        platforms = platforms.filter(p => p.name !== platformName);
+        favorites = favorites.filter(f => f !== platformName);
+        entries = entries.filter(e => e.protocol !== platformName);
+        
+        if (selectedPlatforms.includes(platformName)) {
+            removePlatformInput(platformName);
+        }
+        
+        saveData();
+        applyDateFilter();
+        renderPlatformButtons();
+        updateCashflowTargets();
+        showNotification(`Plattform '${platformName}' und alle Einträge gelöscht!`);
     }
-    
-    saveData();
-    applyDateFilter();
-    renderPlatformButtons();
-    updateCashflowTargets();
-    showNotification(`Plattform '${platformName}' und alle Einträge gelöscht!`);
 }
 
 async function clearAllData() {
-    const confirmation = await showCustomPrompt({ title: '⚠️ Alle Daten löschen', text: 'WARNUNG: Alle Einträge und Cashflows werden gelöscht! "DELETE ALL" eingeben.', showInput: true });
+    const confirmation = await showCustomPrompt({
+        title: '⚠️ Alle Daten löschen',
+        text: 'WARNUNG: Alle Einträge und Cashflows werden gelöscht! "DELETE ALL" eingeben.',
+        showInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Alles löschen', class: 'btn-danger', value: 'DELETE ALL'}]
+    });
+
     if (confirmation === 'DELETE ALL') {
         entries = [];
         cashflows = [];
@@ -1460,78 +1543,113 @@ function updateDisplay() {
     updateKeyMetrics();
 }
 
+/**
+ * BERECHNET UND AKTUALISIERT ALLE STATISTIK-KARTEN IM DASHBOARD
+ */
 function updateStats() {
-    const { totalBalance, netInvested, totalDeposits, totalWithdrawals } = calculateAdjustedBalances(filteredEntries, filteredCashflows);
-    document.getElementById('totalValue').textContent = `$${totalBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    
     const sortedDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    if (sortedDates.length > 1) {
-        const currentTotal = filteredEntries.filter(e => e.date === sortedDates[sortedDates.length-1]).reduce((sum, e) => sum + e.balance, 0);
-        const previousTotal = filteredEntries.filter(e => e.date === sortedDates[0]).reduce((sum, e) => sum + e.balance, 0);
-        const change = currentTotal - previousTotal;
-        const changePercent = (previousTotal !== 0) ? (change / previousTotal * 100) : 0;
-        
-        const totalChangeValueEl = document.getElementById('totalChangeValue');
-        const totalChangePercentEl = document.getElementById('totalChangePercent');
-        const totalChangeDiv = document.getElementById('totalChange');
 
-        totalChangeValueEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-        totalChangePercentEl.textContent = ` (${changePercent.toFixed(2)}%)`;
-        totalChangeDiv.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
-
-    } else {
-         const totalChangeValueEl = document.getElementById('totalChangeValue');
-         const totalChangePercentEl = document.getElementById('totalChangePercent');
-         if(totalChangeValueEl) totalChangeValueEl.textContent = 'Keine Daten';
-         if(totalChangePercentEl) totalChangePercentEl.textContent = '';
+    if (sortedDates.length === 0) {
+        document.getElementById('totalValue').textContent = '$0.00';
+        ['totalChangeValue', 'totalChangePercent', 'dailyChangePercent', 'dailyChangeValue', 'netInvested', 'netInvestedChange', 'totalProfit', 'profitPercent'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '-';
+        });
+        ['totalChange', 'dailyChangeAmount'].forEach(id => {
+             const el = document.getElementById(id);
+             if(el) el.className = 'stat-change';
+        });
+        return;
     }
+
+    const filterStartDateStr = document.getElementById('filterStartDate').value;
+    const isAllTime = !filterStartDateStr;
+
+    // KORREKTUR: Finde den letzten bekannten Kontostand VOR dem Start des Zeitraums
+    let startBalance = 0;
+    if (!isAllTime) {
+        const priorEntryDates = [...new Set(entries.map(e => e.date))]
+            .filter(d => d < filterStartDateStr)
+            .sort((a, b) => new Date(b) - new Date(a));
+
+        if (priorEntryDates.length > 0) {
+            const lastDateBeforePeriod = priorEntryDates[0];
+            startBalance = entries
+                .filter(e => e.date === lastDateBeforePeriod)
+                .reduce((sum, e) => sum + e.balance, 0);
+        }
+    }
+
+    const endDate = sortedDates[sortedDates.length - 1];
+    const endBalance = filteredEntries.filter(e => e.date === endDate).reduce((sum, e) => sum + e.balance, 0);
+
+    const netCashflowInPeriod = filteredCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+    const depositsInPeriod = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
     
-    // --- NEU: Berechnung für die 24h Veränderung ---
-    const dailyChangePercentEl = document.getElementById('dailyChangePercent');
-    const dailyChangeValueEl = document.getElementById('dailyChangeValue');
-    const dailyChangeAmountEl = document.getElementById('dailyChangeAmount');
-
-    // Finde alle einzigartigen Daten aus der gesamten Historie und sortiere sie
+    const periodProfit = endBalance - startBalance - netCashflowInPeriod;
+    
+    const roiBase = startBalance + depositsInPeriod;
+    const periodRoiPercent = roiBase !== 0 ? (periodProfit / roiBase) * 100 : 0;
+    
+    // --- Karten aktualisieren ---
+    
+    // 1. Karte: "Portfolio Gesamtwert"
+    document.getElementById('totalValue').textContent = `$${endBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('totalChangeValue').textContent = `${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
+    document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+    
+    // 2. Karte: "Letzte Veränderung"
     const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
-
-    if (allUniqueDates.length >= 2 && dailyChangePercentEl) {
+    if (allUniqueDates.length >= 2) {
         const latestDate = allUniqueDates[0];
         const previousDate = allUniqueDates[1];
+        const latestTotal = entries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
+        const previousTotal = entries.filter(e => e.date === previousDate).reduce((sum, e) => sum + e.balance, 0);
+        const cashflowBetween = cashflows
+            .filter(c => c.date > previousDate && c.date <= latestDate)
+            .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
 
-        const latestTotal = entries
-            .filter(e => e.date === latestDate)
-            .reduce((sum, e) => sum + e.balance, 0);
-
-        const previousTotal = entries
-            .filter(e => e.date === previousDate)
-            .reduce((sum, e) => sum + e.balance, 0);
-
-        const absChange = latestTotal - previousTotal;
+        const absChange = latestTotal - previousTotal - cashflowBetween;
         const pctChange = previousTotal !== 0 ? (absChange / previousTotal) * 100 : 0;
 
-        dailyChangePercentEl.textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
-        dailyChangeValueEl.textContent = `${absChange >= 0 ? '+' : ''}${absChange.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        dailyChangeAmountEl.className = `stat-change ${absChange >= 0 ? 'positive' : 'negative'}`;
-    } else if (dailyChangePercentEl) {
-        dailyChangePercentEl.textContent = '-';
-        dailyChangeValueEl.textContent = '-';
-        dailyChangeAmountEl.className = 'stat-change';
+        document.getElementById('dailyChangePercent').textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+        document.getElementById('dailyChangeValue').textContent = `${absChange >= 0 ? '+' : ''}${absChange.toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
+        document.getElementById('dailyChangeAmount').className = `stat-change ${absChange >= 0 ? 'positive' : 'negative'}`;
+    } else {
+        document.getElementById('dailyChangePercent').textContent = '-';
+        document.getElementById('dailyChangeValue').textContent = '-';
+        document.getElementById('dailyChangeAmount').className = 'stat-change';
     }
     
-    document.getElementById('netInvested').textContent = `$${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    document.getElementById('netInvestedChange').textContent = `Ein: $${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+    // 3. Karte: "Netto Investiert (Zeitraum)"
+    document.getElementById('netInvested').textContent = `$${netCashflowInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${(depositsInPeriod - netCashflowInPeriod).toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
-    const profit = totalBalance - netInvested;
-    const profitPercent = netInvested !== 0 ? (profit / netInvested * 100) : 0;
-    document.getElementById('totalProfit').textContent = `$${profit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    
-    const profitPercentEl = document.getElementById('profitPercent');
-    profitPercentEl.textContent = `${profitPercent.toFixed(2)}% ROI`;
-    profitPercentEl.parentElement.className = `stat-change ${profit >= 0 ? 'positive' : 'negative'}`;
+    // 4. Karte: "Reale Performance (Zeitraum)"
+    document.getElementById('totalProfit').textContent = `$${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
+    document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 }
 
+
 function calculateAdjustedBalances(currentEntries, currentCashflows) {
-    const latestDate = currentEntries.reduce((max, e) => e.date > max ? e.date : max, '');
+    const sortedDates = [...new Set(currentEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    if (sortedDates.length === 0) {
+        const lastCashflowDate = [...currentCashflows].sort((a,b) => new Date(b.date) - new Date(a.date))[0]?.date;
+        if (!lastCashflowDate) return { totalBalance: 0, netInvested: 0, totalDeposits: 0, totalWithdrawals: 0 };
+        
+        const lastEntryBeforeCashflow = entries
+            .filter(e => e.date <= lastCashflowDate)
+            .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+        
+        const totalBalance = lastEntryBeforeCashflow ? lastEntryBeforeCashflow.balance : 0;
+        const totalDeposits = currentCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+        const totalWithdrawals = currentCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+        const netInvested = totalDeposits - totalWithdrawals;
+        return { totalBalance, totalDeposits, totalWithdrawals, netInvested };
+    }
+    const latestDate = sortedDates[sortedDates.length - 1];
     const totalBalance = currentEntries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
     const totalDeposits = currentCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
     const totalWithdrawals = currentCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
@@ -1554,6 +1672,8 @@ function updateKeyMetrics() {
     const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
     const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
     
+    if (sortedEntries.length === 0) return;
+
     const startDate = new Date(sortedEntries[0].date);
     document.getElementById('metricStartDate').textContent = formatDate(startDate);
     const durationMs = new Date() - startDate;
@@ -1662,7 +1782,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
     const confirmed = await showCustomPrompt({
         title: 'Löschen bestätigen',
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
-        showInput: false
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
     if (confirmed) {
         deleteEntry(entryId);
@@ -1682,22 +1802,25 @@ function updateBulkActionsBar() {
 
 async function bulkChangeDate() {
     if (selectedHistoryEntries.size === 0) return;
-    const newDate = await showCustomPrompt({
+    const result = await showCustomPrompt({
         title: 'Datum für Auswahl ändern',
         text: `Wähle ein neues Datum für die ${selectedHistoryEntries.size} ausgewählten Einträge.`,
-        showInput: false,
-        showDateInput: true
+        showDateInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
     });
-    if (newDate) {
-        entries.forEach(entry => {
-            if (selectedHistoryEntries.has(entry.id)) {
-                entry.date = newDate;
-            }
-        });
-        selectedHistoryEntries.clear();
-        saveData();
-        applyDateFilter();
-        showNotification('Datum für ausgewählte Einträge geändert.');
+    if (result === 'change') {
+        const dateValue = document.getElementById('bottomSheet_date_input').value;
+        if (dateValue) {
+            entries.forEach(entry => {
+                if (selectedHistoryEntries.has(entry.id)) {
+                    entry.date = dateValue;
+                }
+            });
+            selectedHistoryEntries.clear();
+            saveData();
+            applyDateFilter();
+            showNotification('Datum für ausgewählte Einträge geändert.');
+        }
     }
 }
 
@@ -1705,7 +1828,11 @@ async function deleteSelectedEntries() {
     if (selectedHistoryEntries.size === 0) {
         return showNotification('Keine Einträge ausgewählt', 'warning');
     }
-    const confirmed = await showCustomPrompt({ title: 'Auswahl löschen', text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`, showInput: false });
+    const confirmed = await showCustomPrompt({
+        title: 'Auswahl löschen',
+        text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`,
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
+    });
     if (confirmed) {
         entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
         selectedHistoryEntries.clear();
@@ -1822,7 +1949,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
     const confirmed = await showCustomPrompt({
         title: 'Löschen bestätigen',
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
-        showInput: false
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
     if (confirmed) {
         deleteCashflow(cashflowId);
@@ -1833,7 +1960,7 @@ async function deletePlatformWithConfirmation(platformName) {
     const confirmed = await showCustomPrompt({
         title: 'Plattform löschen',
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
-        showInput: false,
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
     if (confirmed) {
         deletePlatform(platformName);
@@ -1896,7 +2023,6 @@ function initializeCharts() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
 
-    // Helper-Funktion für die Dollar-Formatierung
     const formatDollar = (value) => {
         if (document.body.classList.contains('privacy-mode')) {
             return '$***';
@@ -2344,124 +2470,4 @@ function showNotification(text, type = 'success') {
     setTimeout(() => {
         notification.classList.remove('show');
     }, 3000);
-}
-
-function setupPromptModal() {
-    const modal = document.getElementById('promptModal');
-    const cancelBtn = document.getElementById('promptModalCancel');
-    const okBtn = document.getElementById('promptModalOk');
-    const input = document.getElementById('promptModalInput');
-    const dateInput = document.getElementById('promptModalDateInput');
-
-    cancelBtn.onclick = () => {
-        modal.classList.remove('visible');
-        if (promptResolve) promptResolve(null);
-    };
-    okBtn.onclick = () => {
-        modal.classList.remove('visible');
-        if (promptResolve) {
-            if (input.style.display !== 'none') {
-                promptResolve(input.value);
-            } else if (dateInput.style.display !== 'none') {
-                promptResolve(dateInput.value);
-            } else {
-                promptResolve(true);
-            }
-        }
-    };
-    input.onkeydown = (e) => {
-        if (e.key === 'Enter') okBtn.click();
-        if (e.key === 'Escape') cancelBtn.click();
-    };
-}
-
-function showCustomPrompt({title, text, showInput = false, showDateInput = false, listHtml = ''}) {
-    return new Promise(resolve => {
-        promptResolve = resolve;
-        document.getElementById('promptModalTitle').textContent = title;
-        document.getElementById('promptModalText').textContent = text;
-        const listContainer = document.getElementById('promptModalListContainer');
-        listContainer.innerHTML = listHtml;
-        
-        const input = document.getElementById('promptModalInput');
-        input.style.display = showInput ? 'block' : 'none';
-        input.value = '';
-        
-        const dateInput = document.getElementById('promptModalDateInput');
-        dateInput.style.display = showDateInput ? 'block' : 'none';
-        dateInput.value = new Date().toISOString().split('T')[0];
-
-        document.getElementById('promptModal').classList.add('visible');
-        if (showInput) input.focus();
-        if (showDateInput) dateInput.focus();
-    });
-}
-
-function openEditPlatformModal(platformName) {
-    const platform = platforms.find(p => p.name === platformName);
-    if (!platform) return;
-
-    document.getElementById('editPlatformOldName').value = platform.name;
-    document.getElementById('editPlatformName').value = platform.name;
-    document.getElementById('editPlatformType').value = platform.type || '';
-    document.getElementById('editPlatformCategory').value = platform.category || '';
-    document.getElementById('editPlatformTags').value = (platform.tags || []).join(', ');
-
-    document.getElementById('editPlatformModal').classList.add('visible');
-}
-function closeEditPlatformModal() { document.getElementById('editPlatformModal').classList.remove('visible'); }
-
-function savePlatformEdit() {
-    const oldName = document.getElementById('editPlatformOldName').value;
-    const newName = document.getElementById('editPlatformName').value.trim();
-    const type = document.getElementById('editPlatformType').value.trim();
-    const category = document.getElementById('editPlatformCategory').value.trim();
-    const tags = document.getElementById('editPlatformTags').value.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
-    
-    if (!newName) return showNotification('Name darf nicht leer sein', 'error');
-
-    const platform = platforms.find(p => p.name === oldName);
-    if (platform) {
-        platform.name = newName;
-        platform.type = type;
-        platform.category = category;
-        platform.tags = tags;
-        
-        entries.forEach(e => { if (e.protocol === oldName) e.protocol = newName; });
-        cashflows.forEach(c => { if (c.platform === oldName) c.platform = newName; });
-        if (favorites.includes(oldName)) {
-            favorites = favorites.map(f => f === oldName ? newName : f);
-        }
-
-        saveData();
-        applyDateFilter();
-        renderPlatformButtons();
-        updateCashflowTargets();
-        showNotification('Plattform aktualisiert!');
-        closeEditPlatformModal();
-    }
-}
-
-function registerServiceWorker() {
-    if ('serviceWorker' in navigator) {
-        const swCode = `
-            self.addEventListener('install', e => {
-                self.skipWaiting();
-            });
-            self.addEventListener('activate', e => {
-                e.waitUntil(clients.claim());
-            });
-            self.addEventListener('fetch', e => {
-                if (e.request.url.includes('api.github.com')) {
-                    return; 
-                }
-                e.respondWith(fetch(e.request));
-            });
-        `;
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        navigator.serviceWorker.register(swUrl).then(() => {
-            console.log('PWA Service Worker registered');
-        }).catch(err => console.log('SW registration failed:', err));
-    }
 }

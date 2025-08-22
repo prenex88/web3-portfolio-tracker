@@ -13,6 +13,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%23764ba2'/></linearGradient></defs><circle cx='50' cy='50' r='45' fill='url(%23g)'/><text x='50' y='65' text-anchor='middle' font-size='40' fill='white'>🚀</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -122,7 +123,7 @@
             </div>
 
             <div id="dashboardContent">
-                <div class="stats-grid">
+                <div class="stats-grid" id="stats-widget">
                     <div class="stat-card">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
@@ -174,7 +175,7 @@
                     </div>
                 </div>
 
-                <div class="section">
+                <div class="section" id="portfolio-chart-widget">
                     <div class="section-header">
                         <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
                         <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
@@ -185,7 +186,7 @@
                     </div>
                 </div>
                 
-                <div class="two-column-layout">
+                <div class="two-column-layout" id="details-widgets">
                     <div class="section">
                         <div class="section-header">
                             <div class="section-title"><span>ℹ️</span><span>Portfolio-Analyse</span></div>
@@ -266,7 +267,11 @@
                 </div>
 
                 <div style="margin-bottom: 24px;">
-                    <h3 style="margin-bottom: 16px; color: var(--text-primary);">🦄 Plattformen wählen:</h3>
+                    <h3 style="margin-bottom: 16px; color: var(--text-primary);">⭐ Favoriten-Zone</h3>
+                    <p style="color: var(--text-secondary); font-size: 14px; margin-top: -12px; margin-bottom: 16px;">Plattformen hierher ziehen, um sie als Favorit zu markieren.</p>
+                    <div id="favoritesGrid" class="platform-grid favorites-zone"></div>
+                    
+                    <h3 style="margin-bottom: 16px; color: var(--text-primary);">🦄 Alle Plattformen</h3>
                     
                     <div class="platform-search-container">
                         <input type="text" id="platformSearch" class="platform-search" placeholder="Plattform suchen... (Ctrl+F)" oninput="filterPlatforms()" onkeydown="handleSearchKeydown(event)">
@@ -276,7 +281,6 @@
                     
                     <div class="category-filter">
                         <button class="category-btn active" onclick="filterCategory(this, 'all')">Alle</button>
-                        <button class="category-btn" onclick="filterCategory(this, 'favorites')">⭐ Favoriten</button>
                         <button class="category-btn" onclick="filterCategory(this, 'Exchange')">Exchanges</button>
                         <button class="category-btn" onclick="filterCategory(this, 'DeFi')">DeFi</button>
                         <button class="category-btn" onclick="filterCategory(this, 'Lending')">Lending</button>
@@ -533,98 +537,13 @@
         </div>
     </div>
     
-    <div id="promptModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="promptModalTitle" class="modal-title">Titel</h2>
+    <div id="bottomSheet" class="bottom-sheet-overlay">
+        <div class="bottom-sheet-content">
+            <div class="bottom-sheet-header">
+                <div class="bottom-sheet-drag-handle"></div>
             </div>
-            <div class="modal-body">
-                <p id="promptModalText"></p>
-                <div id="promptModalListContainer"></div>
-                <input type="text" id="promptModalInput" class="input-field" style="width: 100%; margin-top: 15px; display: none;">
-                <input type="date" id="promptModalDateInput" class="date-input" style="width: 100%; margin-top: 15px; display: none;">
-            </div>
-            <div class="modal-footer">
-                <button id="promptModalCancel" class="btn btn-danger">Abbrechen</button>
-                <button id="promptModalOk" class="btn btn-success" style="margin-left: 10px;">OK</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="editPlatformModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">Plattform bearbeiten</h2>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="editPlatformOldName">
-                <div class="github-input-group">
-                    <label>Name</label>
-                    <input type="text" id="editPlatformName" class="input-field">
+            <div id="bottomSheetBody" class="bottom-sheet-body">
                 </div>
-                <div class="github-input-group">
-                    <label>Typ (z.B. Exchange, DEX)</label>
-                    <input type="text" id="editPlatformType" class="input-field">
-                </div>
-                 <div class="github-input-group">
-                    <label>Kategorie (z.B. Exchange, DeFi)</label>
-                    <input type="text" id="editPlatformCategory" class="input-field">
-                </div>
-                 <div class="github-input-group">
-                    <label>Tags (kommagetrennt)</label>
-                    <input type="text" id="editPlatformTags" class="input-field">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-danger" onclick="closeEditPlatformModal()">Abbrechen</button>
-                <button class="btn btn-success" onclick="savePlatformEdit()" style="margin-left: 10px;">Speichern</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="githubSetupModal" class="github-setup-modal">
-        <div class="github-setup-content">
-            <div class="github-setup-header">
-                <div class="github-setup-title">📝 GitHub Token Setup</div>
-                <p style="color: var(--text-secondary); font-size: 14px;">
-                    Gib dein Personal Access Token ein, um Cloud Sync zu aktivieren
-                </p>
-            </div>
-            <div class="github-input-group">
-                <label>Personal Access Token</label>
-                <input type="password" id="githubTokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-                <div class="github-input-help">
-                    <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" style="color: var(--primary);">
-                        → Token auf GitHub erstellen (mit 'gist' Berechtigung)
-                    </a>
-                </div>
-            </div>
-            <div class="github-setup-actions">
-                <button class="btn btn-danger" onclick="closeGitHubModal()">Abbrechen</button>
-                <button class="btn btn-success" onclick="saveGitHubToken()">Speichern</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="gistSetupModal" class="github-setup-modal">
-        <div class="github-setup-content">
-            <div class="github-setup-header">
-                <div class="github-setup-title">📋 Gist ID Setup</div>
-                <p style="color: var(--text-secondary); font-size: 14px;">
-                    Gib die ID deines privaten Gists ein oder erstelle einen neuen
-                </p>
-            </div>
-            <div class="github-input-group">
-                <label>Gist ID</label>
-                <input type="text" id="gistIdInput" placeholder="z.B. a1b2c3d4e5f6g7h8i9j0">
-                <div class="github-input-help">
-                    Die ID findest du in der URL deines Gists: gist.github.com/username/[DIESE_ID]
-                </div>
-            </div>
-            <div class="github-setup-actions">
-                <button class="btn btn-danger" onclick="closeGistModal()">Abbrechen</button>
-                <button class="btn btn-success" onclick="saveGistId()">Speichern</button>
-            </div>
         </div>
     </div>
 
