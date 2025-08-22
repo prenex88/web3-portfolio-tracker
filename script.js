@@ -117,16 +117,16 @@ function isMobileDevice() {
 }
 
 // =================================================================================
-// DRAG & DROP FUNKTIONEN (NEU)
+// DRAG & DROP FUNKTIONEN
 // =================================================================================
 function initializeDragAndDrop() {
-    // KORREKTUR: Optionen für besseres Mobile-Verhalten
     const sortableOptions = {
         animation: 200,
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
-        delay: 150, // Verzögerung in ms, nur auf Touch-Geräten
+        delay: 200,
         delayOnTouchOnly: true,
+        touchStartThreshold: 10, 
     };
 
     const dashboardEl = document.getElementById('dashboardContent');
@@ -489,6 +489,9 @@ function setupTouchGestures() {
     const pullToRefreshEl = document.getElementById('pullToRefresh');
     
     document.addEventListener('touchstart', (e) => {
+        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+            return;
+        }
         touchStartX = e.changedTouches[0].screenX;
         touchStartY = e.changedTouches[0].screenY;
         
@@ -510,6 +513,9 @@ function setupTouchGestures() {
     }, { passive: true });
     
     document.addEventListener('touchend', (e) => {
+        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+            return;
+        }
         touchEndX = e.changedTouches[0].screenX;
         touchEndY = e.changedTouches[0].screenY;
         
@@ -1635,7 +1641,6 @@ function updateStats() {
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 }
 
-
 function calculateAdjustedBalances(currentEntries, currentCashflows) {
     const sortedDates = [...new Set(currentEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
     if (sortedDates.length === 0) {
@@ -2473,4 +2478,195 @@ function showNotification(text, type = 'success') {
     setTimeout(() => {
         notification.classList.remove('show');
     }, 3000);
+}
+
+// =================================================================================
+// BOTTOM SHEET MODAL
+// =================================================================================
+function setupBottomSheet() {
+    const sheet = document.getElementById('bottomSheet');
+    const sheetContent = sheet.querySelector('.bottom-sheet-content');
+    let startY, startHeight;
+
+    const onTouchStart = (e) => {
+        startY = e.touches[0].pageY;
+        startHeight = sheetContent.clientHeight;
+        sheetContent.style.transition = 'none';
+    };
+
+    const onTouchMove = (e) => {
+        const deltaY = e.touches[0].pageY - startY;
+        if (deltaY > 0) { 
+            sheetContent.style.transform = `translateY(${deltaY}px)`;
+        }
+    };
+
+    const onTouchEnd = (e) => {
+        const deltaY = e.changedTouches[0].pageY - startY;
+        sheetContent.style.transition = 'transform 0.3s ease';
+        if (deltaY > startHeight / 4) {
+            closeBottomSheet();
+        } else {
+            sheetContent.style.transform = 'translateY(0)';
+        }
+    };
+
+    sheet.addEventListener('click', (e) => {
+        if (e.target === sheet) {
+            closeBottomSheet();
+        }
+    });
+    
+    const header = sheet.querySelector('.bottom-sheet-header');
+    header.addEventListener('touchstart', onTouchStart, { passive: true });
+    header.addEventListener('touchmove', onTouchMove, { passive: true });
+    header.addEventListener('touchend', onTouchEnd, { passive: true });
+}
+
+function openBottomSheet(contentHtml) {
+    const sheet = document.getElementById('bottomSheet');
+    const sheetBody = document.getElementById('bottomSheetBody');
+    sheetBody.innerHTML = contentHtml;
+    sheet.classList.add('visible');
+}
+
+function closeBottomSheet(value = null) {
+    const sheet = document.getElementById('bottomSheet');
+    sheet.classList.remove('visible');
+    if (promptResolve) {
+        promptResolve(value);
+        promptResolve = null;
+    }
+}
+
+function showCustomPrompt({ title, text, showInput = false, showDateInput = false, listHtml = '', actions = [] }) {
+    return new Promise(resolve => {
+        promptResolve = resolve;
+
+        let actionsHtml = actions.map(action => 
+            `<button class="btn ${action.class || 'btn-primary'}" onclick="closeBottomSheet('${action.value || action.text}')">${action.text}</button>`
+        ).join('');
+        if (actions.length === 0) {
+            actionsHtml = `
+                <button class="btn btn-danger" onclick="closeBottomSheet(null)">Abbrechen</button>
+                <button class="btn btn-success" onclick="closeBottomSheet(document.getElementById('bottomSheet_input')?.value || document.getElementById('bottomSheet_date_input')?.value || true)">OK</button>
+            `;
+        }
+
+        const contentHtml = `
+            <div class="modal-header"><h2 class="modal-title">${title}</h2></div>
+            <div class="modal-body">
+                <p>${text}</p>
+                ${listHtml || ''}
+                ${showInput ? '<input type="text" id="bottomSheet_input" class="input-field" style="width: 100%; margin-top: 15px;">' : ''}
+                ${showDateInput ? '<input type="date" id="bottomSheet_date_input" class="date-input" style="width: 100%; margin-top: 15px;">' : ''}
+            </div>
+            <div class="modal-footer">${actionsHtml}</div>
+        `;
+        openBottomSheet(contentHtml);
+        
+        const input = document.getElementById('bottomSheet_input');
+        const dateInput = document.getElementById('bottomSheet_date_input');
+        if (input) {
+            input.focus();
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    closeBottomSheet(input.value);
+                }
+            };
+        }
+        if (dateInput) {
+            dateInput.value = new Date().toISOString().split('T')[0];
+            dateInput.focus();
+        }
+    });
+}
+
+function openEditPlatformModal(platformName) {
+    const platform = platforms.find(p => p.name === platformName);
+    if (!platform) return;
+
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Plattform bearbeiten</h2></div>
+        <div class="modal-body">
+            <input type="hidden" id="editPlatformOldName" value="${platform.name}">
+            <div class="github-input-group">
+                <label>Name</label>
+                <input type="text" id="editPlatformName" class="input-field" value="${platform.name}">
+            </div>
+            <div class="github-input-group">
+                <label>Typ (z.B. Exchange, DEX)</label>
+                <input type="text" id="editPlatformType" class="input-field" value="${platform.type || ''}">
+            </div>
+             <div class="github-input-group">
+                <label>Kategorie (z.B. Exchange, DeFi)</label>
+                <input type="text" id="editPlatformCategory" class="input-field" value="${platform.category || ''}">
+            </div>
+             <div class="github-input-group">
+                <label>Tags (kommagetrennt)</label>
+                <input type="text" id="editPlatformTags" class="input-field" value="${(platform.tags || []).join(', ')}">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
+            <button class="btn btn-success" onclick="savePlatformEdit()">Speichern</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+}
+
+function savePlatformEdit() {
+    const oldName = document.getElementById('editPlatformOldName').value;
+    const newName = document.getElementById('editPlatformName').value.trim();
+    const type = document.getElementById('editPlatformType').value.trim();
+    const category = document.getElementById('editPlatformCategory').value.trim();
+    const tags = document.getElementById('editPlatformTags').value.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+    
+    if (!newName) return showNotification('Name darf nicht leer sein', 'error');
+
+    const platform = platforms.find(p => p.name === oldName);
+    if (platform) {
+        platform.name = newName;
+        platform.type = type;
+        platform.category = category;
+        platform.tags = tags;
+        
+        entries.forEach(e => { if (e.protocol === oldName) e.protocol = newName; });
+        cashflows.forEach(c => { if (c.platform === oldName) c.platform = newName; });
+        if (favorites.includes(oldName)) {
+            favorites = favorites.map(f => f === oldName ? newName : f);
+        }
+
+        saveData();
+        applyDateFilter();
+        renderPlatformButtons();
+        updateCashflowTargets();
+        showNotification('Plattform aktualisiert!');
+        closeBottomSheet();
+    }
+}
+
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        const swCode = `
+            self.addEventListener('install', e => {
+                self.skipWaiting();
+            });
+            self.addEventListener('activate', e => {
+                e.waitUntil(clients.claim());
+            });
+            self.addEventListener('fetch', e => {
+                if (e.request.url.includes('api.github.com')) {
+                    return; 
+                }
+                e.respondWith(fetch(e.request));
+            });
+        `;
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl).then(() => {
+            console.log('PWA Service Worker registered');
+        }).catch(err => console.log('SW registration failed:', err));
+    }
 }
