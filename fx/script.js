@@ -1,7 +1,16 @@
 // =================================================================================
-// CONFIGURATION & INITIAL DATA
+// KONFIGURATION & INITIALE DATEN
 // =================================================================================
-const STORAGE_PREFIX = 'fx_'; 
+
+// *** HIER DEINE GIST-IDs EINTRAGEN ***
+const GIST_ID_DEFAULT = '73f61002574be57ec1dacb473046ae48'; // Für die Hauptversion
+const GIST_ID_FX = '753ec1f447c375c9a96c05feb66c05a6'; // Für die /fx Version
+
+// Automatische Erkennung der Version
+const isFxVersion = window.location.pathname.includes('/fx');
+const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_' : 'w3pt_default_';
+const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
+
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
     { name: 'Coinbase', icon: '🪙', type: 'Exchange', category: 'Exchange', tags: ['regulated', 'beginner'] },
@@ -34,7 +43,7 @@ const DEFAULT_PLATFORMS = [
 const GITHUB_API = 'https://api.github.com';
 
 // =================================================================================
-// GLOBAL VARIABLES
+// GLOBALE VARIABLEN
 // =================================================================================
 let platforms = [];
 let entries = [];
@@ -64,18 +73,21 @@ let autocompleteItems = [];
 let biometricEnabled = false;
 let quickActionsVisible = false;
 
-// GITHUB SYNC VARIABLES
+// GITHUB SYNC VARIABLEN
 let githubToken = null;
-let gistId = '753ec1f447c375c9a96c05feb66c05a6'; // This can be your default/fallback Gist ID
+let gistId = GIST_ID_CURRENT; 
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
 
 // =================================================================================
-// INITIALIZATION
+// INITIALISIERUNG
 // =================================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    // *** HIER IST DIE KORREKTUR: Plugin global registrieren ***
+    Chart.register(ChartDataLabels);
+
     if (isMobileDevice()) {
         checkBiometricAuth();
     }
@@ -103,7 +115,7 @@ function isMobileDevice() {
 }
 
 // =================================================================================
-// BIOMETRIC AUTHENTICATION
+// BIOMETRISCHE AUTHENTIFIZIERUNG
 // =================================================================================
 async function checkBiometricAuth() {
     if (localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) !== 'true') {
@@ -132,12 +144,12 @@ async function checkBiometricAuth() {
             if (isAvailable) {
                 overlay.classList.remove('visible');
                 appContainer.classList.remove('content-locked');
-                showNotification('Biometric Authentication erfolgreich! 🔐');
+                showNotification('Biometrische Authentifizierung erfolgreich! 🔐');
             }
         } else {
             overlay.classList.remove('visible');
             appContainer.classList.remove('content-locked');
-            showNotification('Biometric Auth nicht verfügbar - übersprungen', 'warning');
+            showNotification('Biometrische Authentifizierung nicht verfügbar - übersprungen', 'warning');
         }
     } catch (error) {
         console.log('Biometric auth cancelled or failed:', error);
@@ -157,11 +169,11 @@ function toggleBiometric() {
     const enabled = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
     localStorage.setItem(`${STORAGE_PREFIX}biometricEnabled`, !enabled);
     document.getElementById('biometricToggle').checked = !enabled;
-    showNotification(enabled ? 'Biometric Auth deaktiviert' : 'Biometric Auth aktiviert beim nächsten Start');
+    showNotification(enabled ? 'Biometrische Authentifizierung deaktiviert' : 'Biometrische Authentifizierung beim nächsten Start aktiviert');
 }
 
 // =================================================================================
-// AUTOCOMPLETE SYSTEM
+// AUTOCOMPLETE-SYSTEM
 // =================================================================================
 function setupAutocomplete() {
     const searchInput = document.getElementById('platformSearch');
@@ -278,6 +290,7 @@ function selectAutocompleteItem(platform) {
 // EVENT LISTENERS & SHORTCUTS
 // =================================================================================
 function addEventListeners() {
+    document.getElementById('privacyToggle').addEventListener('click', togglePrivacyMode);
     const inputsContainer = document.getElementById('platformInputs');
     if (inputsContainer) {
         inputsContainer.addEventListener('focusin', (e) => {
@@ -515,6 +528,14 @@ function toggleCompactMode() {
     if (allocationChart) allocationChart.resize();
 }
 
+function togglePrivacyMode() {
+    document.body.classList.toggle('privacy-mode');
+    
+    // Charts neu rendern, damit die Tooltips und Achsenbeschriftungen aktualisiert werden
+    if (portfolioChart) portfolioChart.update();
+    if (allocationChart) allocationChart.update();
+}
+
 // =================================================================================
 // GITHUB SYNC & SKELETONS
 // =================================================================================
@@ -528,14 +549,16 @@ function hideSkeletons() {
 
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
-    // The line below is commented out because the Gist ID is hardcoded above.
-    // If you want the Gist ID to be configurable from the UI again, uncomment the next line.
-    // gistId = localStorage.getItem(`${STORAGE_PREFIX}gistId`) || gistId; 
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
     
+    // Gist ID wird nicht mehr aus dem Local Storage geladen, sondern ist fix.
+    // Wir zeigen sie aber trotzdem im UI an.
+    document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
+    // Blendet den Gist-ID-Einstellungsbereich aus, da er jetzt fix ist.
+    document.getElementById('gistDisplay').closest('.setting-item').style.display = 'none';
+
     if (githubToken) document.getElementById('tokenDisplay').textContent = 'ghp_****' + githubToken.slice(-4);
-    if (gistId) document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
     if (lastSyncTime) updateLastSyncDisplay();
     
     document.getElementById('autoSyncToggle').checked = autoSync;
@@ -545,7 +568,7 @@ function loadGitHubConfig() {
 
 async function syncNow() {
     if (!githubToken || !gistId) {
-        showNotification('Bitte zuerst GitHub konfigurieren', 'error');
+        showNotification('Bitte zuerst GitHub Token konfigurieren', 'error');
         switchTab('settings');
         return;
     }
@@ -622,9 +645,7 @@ function mergeData(localData, cloudData) {
 
 function openCloudSettings() { switchTab('settings'); }
 function setupGitHubToken() { document.getElementById('githubSetupModal').classList.add('visible'); document.getElementById('githubTokenInput').focus(); }
-function setupGistId() { document.getElementById('gistSetupModal').classList.add('visible'); document.getElementById('gistIdInput').focus(); }
 function closeGitHubModal() { document.getElementById('githubSetupModal').classList.remove('visible'); }
-function closeGistModal() { document.getElementById('gistSetupModal').classList.remove('visible'); }
 
 function saveGitHubToken() {
     const token = document.getElementById('githubTokenInput').value.trim();
@@ -652,60 +673,13 @@ function clearGitHubToken() {
     }
 }
 
-function clearGistId() {
-    if (confirm('Wirklich die Gist ID löschen?')) {
-        localStorage.removeItem(`${STORAGE_PREFIX}gistId`);
-        // If you clear the Gist ID, you might want to reset to a default or null
-        // Since it's hardcoded, this function will only clear the localStorage value
-        // but the variable `gistId` will retain its hardcoded value until the page reloads.
-        gistId = null; // Or some default
-        document.getElementById('gistDisplay').textContent = 'Nicht konfiguriert';
-        updateSyncStatus();
-        updateSyncBarVisibility();
-        showNotification('Gist ID gelöscht');
-    }
-}
+// Gist ID Funktionen sind nicht mehr nötig, da die ID fix ist.
+function setupGistId() {}
+function closeGistModal() {}
+function saveGistId() {}
+function clearGistId() {}
+async function createNewGist() {}
 
-function saveGistId() {
-    const id = document.getElementById('gistIdInput').value.trim();
-    if (!id) return showNotification('Bitte Gist ID eingeben', 'error');
-    gistId = id;
-    localStorage.setItem(`${STORAGE_PREFIX}gistId`, id);
-    document.getElementById('gistDisplay').textContent = id.slice(0, 8) + '...';
-    document.getElementById('gistIdInput').value = '';
-    closeGistModal();
-    showNotification('Gist ID gespeichert!');
-    updateSyncStatus();
-    updateSyncBarVisibility();
-    testConnection();
-}
-
-async function createNewGist() {
-    if (!githubToken) return setupGitHubToken();
-    try {
-        showNotification('Erstelle neuen Gist...');
-        const response = await fetch(`${GITHUB_API}/gists`, {
-            method: 'POST',
-            headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                description: 'Web3 Portfolio Tracker Data',
-                public: false,
-                files: { 'portfolio-data.json': { content: JSON.stringify({ platforms, entries, cashflows, favorites, lastSync: new Date().toISOString() }, null, 2) } }
-            })
-        });
-        if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
-        const newGist = await response.json();
-        gistId = newGist.id;
-        localStorage.setItem(`${STORAGE_PREFIX}gistId`, gistId);
-        document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
-        showNotification('Neuer Gist erstellt! 🎉');
-        updateSyncStatus();
-        updateSyncBarVisibility();
-        await syncNow();
-    } catch (error) {
-        showNotification('Fehler beim Erstellen des Gists', 'error');
-    }
-}
 
 async function testConnection() {
     if (!githubToken || !gistId) return showNotification('Bitte Token und Gist ID konfigurieren', 'error');
@@ -951,11 +925,8 @@ function renderPlatformButtons() {
         if (favorites.includes(p.name)) tile.classList.add('favorite');
         if (platformsWithLastBalance.has(p.name)) tile.classList.add('has-balance');
         
-        // Enhanced click with haptic feedback
         tile.onclick = (e) => {
-            if (navigator.vibrate) {
-                navigator.vibrate(50);
-            }
+            if (navigator.vibrate) navigator.vibrate(50);
             
             if (e.ctrlKey || e.metaKey) {
                 togglePlatform(tile, p.name);
@@ -1003,7 +974,10 @@ function renderPlatformButtons() {
         tile.innerHTML = `
             <span class="favorite-star">⭐</span>
             <span class="has-balance-icon">💰</span>
-            <div class="remove-tile" title="Plattform entfernen" onclick="event.stopPropagation(); showDeleteConfirmation(this, '${p.name}', 'platform')">×</div>
+            <div class="tile-actions">
+                <span class="tile-action-btn edit" title="Plattform bearbeiten" onclick="event.stopPropagation(); openEditPlatformModal('${p.name}')">✎</span>
+                <span class="tile-action-btn remove" title="Plattform löschen" onclick="event.stopPropagation(); deletePlatformWithConfirmation('${p.name}')">×</span>
+            </div>
             <div class="icon">${p.icon}</div>
             <div class="name">${p.name}</div>
             <div class="type">${p.type}</div>
@@ -1063,16 +1037,6 @@ async function resetPlatforms() {
         updateCashflowTargets();
         showNotification('Plattformen wurden zurückgesetzt!');
     }
-}
-
-async function deletePlatform(platformName) {
-    platforms = platforms.filter(p => p.name !== platformName);
-    favorites = favorites.filter(f => f !== platformName);
-    saveData();
-    if (selectedPlatforms.includes(platformName)) removePlatformInput(platformName);
-    renderPlatformButtons();
-    updateCashflowTargets();
-    showNotification(`${platformName} gelöscht!`);
 }
 
 function togglePlatform(element, platformName) {
@@ -1154,19 +1118,26 @@ function loadLastEntries() {
         return;
     }
     const lastEntryDate = sortedDates[0];
-    const platformsFromLastDate = [...new Set(entries.filter(e => e.date === lastEntryDate).map(e => e.protocol))];
+    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate && e.balance > 0);
+    const platformsToLoad = [...new Set(entriesFromLastDate.map(e => e.protocol))];
+
+    if (platformsToLoad.length === 0) {
+        showNotification(`Keine Plattformen mit Saldo > 0 am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        return;
+    }
     
     document.getElementById('platformInputs').innerHTML = '';
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
     
-    platformsFromLastDate.forEach(platformName => {
+    platformsToLoad.forEach(platformName => {
         const button = Array.from(document.querySelectorAll('.platform-btn[data-platform]')).find(btn => btn.dataset.platform === platformName);
         if (button) {
             togglePlatform(button, platformName);
         }
     });
-    showNotification(`Plattformen vom ${formatDate(lastEntryDate)} geladen.`);
+
+    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`);
 }
 
 // =================================================================================
@@ -1174,6 +1145,12 @@ function loadLastEntries() {
 // =================================================================================
 function loadData() {
     platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms_v10`)) || [...DEFAULT_PLATFORMS];
+    
+    platforms = platforms.map(p => ({
+        ...p,
+        tags: p.tags || []
+    }));
+    
     entries = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries_v10`)) || [];
     cashflows = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows_v10`)) || [];
     favorites = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites_v10`)) || [];
@@ -1290,6 +1267,9 @@ function saveSingleEntry(inputElement) {
     }
 }
 
+// =================================================================================
+// AUTO-ZERO LOGIK
+// =================================================================================
 function updateAutoZeroHint() {
     const hint = document.getElementById('autoZeroHint');
     const platformsToZero = getPlatformsToAutoZero();
@@ -1302,7 +1282,7 @@ function updateAutoZeroHint() {
 }
 
 function getPlatformsToAutoZero() {
-     const date = document.getElementById('entryDate').value;
+    const date = document.getElementById('entryDate').value;
     if (!date || entries.length === 0) return [];
     
     const previousDates = [...new Set(entries.map(e => e.date))].filter(d => d < date);
@@ -1344,8 +1324,9 @@ async function saveAllEntries() {
     }
 
     selectedPlatforms.forEach(platformName => {
-        const balanceInput = document.getElementById(`balance_${platformName.replace(/\s+/g, '_')}`);
-        const noteInput = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`);
+        const inputId = platformName.replace(/\s+/g, '_');
+        const balanceInput = document.getElementById(`balance_${inputId}`);
+        const noteInput = document.getElementById(`note_${inputId}`);
         if (balanceInput && balanceInput.value) {
             const balance = parseFloat(balanceInput.value.replace(',', '.'));
             if (isNaN(balance)) return;
@@ -1402,18 +1383,20 @@ async function deleteCashflow(cashflowId) {
     showNotification('Cashflow gelöscht!');
 }
 
-async function deleteSelectedEntries() {
-    if (selectedHistoryEntries.size === 0) {
-        return showNotification('Keine Einträge ausgewählt', 'warning');
+async function deletePlatform(platformName) {
+    platforms = platforms.filter(p => p.name !== platformName);
+    favorites = favorites.filter(f => f !== platformName);
+    entries = entries.filter(e => e.protocol !== platformName);
+    
+    if (selectedPlatforms.includes(platformName)) {
+        removePlatformInput(platformName);
     }
-    const confirmed = await showCustomPrompt({ title: 'Auswahl löschen', text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`, showInput: false });
-    if (confirmed) {
-        entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
-        selectedHistoryEntries.clear();
-        saveData();
-        applyDateFilter();
-        showNotification('Ausgewählte Einträge gelöscht');
-    }
+    
+    saveData();
+    applyDateFilter();
+    renderPlatformButtons();
+    updateCashflowTargets();
+    showNotification(`Plattform '${platformName}' und alle Einträge gelöscht!`);
 }
 
 async function clearAllData() {
@@ -1487,16 +1470,52 @@ function updateStats() {
         const previousTotal = filteredEntries.filter(e => e.date === sortedDates[0]).reduce((sum, e) => sum + e.balance, 0);
         const change = currentTotal - previousTotal;
         const changePercent = (previousTotal !== 0) ? (change / previousTotal * 100) : 0;
-        const changeTextEl = document.getElementById('totalChangeText');
-        changeTextEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})} (${changePercent.toFixed(2)}%)`;
-        changeTextEl.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('weeklyGrowth').textContent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
-        document.getElementById('weeklyGrowthAmount').className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('weeklyChangeText').textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+        
+        const totalChangeValueEl = document.getElementById('totalChangeValue');
+        const totalChangePercentEl = document.getElementById('totalChangePercent');
+        const totalChangeDiv = document.getElementById('totalChange');
+
+        totalChangeValueEl.textContent = `${change >= 0 ? '+' : ''}${change.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+        totalChangePercentEl.textContent = ` (${changePercent.toFixed(2)}%)`;
+        totalChangeDiv.className = `stat-change ${change >= 0 ? 'positive' : 'negative'}`;
+
     } else {
-         document.getElementById('totalChangeText').textContent = 'Keine Daten';
-         document.getElementById('weeklyGrowth').textContent = '-';
-         document.getElementById('weeklyChangeText').textContent = '-';
+         const totalChangeValueEl = document.getElementById('totalChangeValue');
+         const totalChangePercentEl = document.getElementById('totalChangePercent');
+         if(totalChangeValueEl) totalChangeValueEl.textContent = 'Keine Daten';
+         if(totalChangePercentEl) totalChangePercentEl.textContent = '';
+    }
+    
+    // --- NEU: Berechnung für die 24h Veränderung ---
+    const dailyChangePercentEl = document.getElementById('dailyChangePercent');
+    const dailyChangeValueEl = document.getElementById('dailyChangeValue');
+    const dailyChangeAmountEl = document.getElementById('dailyChangeAmount');
+
+    // Finde alle einzigartigen Daten aus der gesamten Historie und sortiere sie
+    const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+
+    if (allUniqueDates.length >= 2 && dailyChangePercentEl) {
+        const latestDate = allUniqueDates[0];
+        const previousDate = allUniqueDates[1];
+
+        const latestTotal = entries
+            .filter(e => e.date === latestDate)
+            .reduce((sum, e) => sum + e.balance, 0);
+
+        const previousTotal = entries
+            .filter(e => e.date === previousDate)
+            .reduce((sum, e) => sum + e.balance, 0);
+
+        const absChange = latestTotal - previousTotal;
+        const pctChange = previousTotal !== 0 ? (absChange / previousTotal) * 100 : 0;
+
+        dailyChangePercentEl.textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+        dailyChangeValueEl.textContent = `${absChange >= 0 ? '+' : ''}${absChange.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        dailyChangeAmountEl.className = `stat-change ${absChange >= 0 ? 'positive' : 'negative'}`;
+    } else if (dailyChangePercentEl) {
+        dailyChangePercentEl.textContent = '-';
+        dailyChangeValueEl.textContent = '-';
+        dailyChangeAmountEl.className = 'stat-change';
     }
     
     document.getElementById('netInvested').textContent = `$${netInvested.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
@@ -1506,11 +1525,8 @@ function updateStats() {
     const profitPercent = netInvested !== 0 ? (profit / netInvested * 100) : 0;
     document.getElementById('totalProfit').textContent = `$${profit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     
-    // NEU: Das Element in einer Variable speichern
     const profitPercentEl = document.getElementById('profitPercent');
     profitPercentEl.textContent = `${profitPercent.toFixed(2)}% ROI`;
-    // NEU: Die CSS-Klasse basierend auf dem Gewinn setzen
-    // .parentElement zielt auf das übergeordnete <div> mit der Klasse "stat-change"
     profitPercentEl.parentElement.className = `stat-change ${profit >= 0 ? 'positive' : 'negative'}`;
 }
 
@@ -1585,6 +1601,9 @@ function updateKeyMetrics() {
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
 }
 
+// =================================================================================
+// HISTORY TAB - BULK ACTIONS & DISPLAY
+// =================================================================================
 function updateHistory() {
     const tbody = document.getElementById('historyTableBody');
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
@@ -1595,12 +1614,18 @@ function updateHistory() {
     );
 
     dataToDisplay.sort((a, b) => {
-        const aVal = a[historySort.key] || 0;
-        const bVal = b[historySort.key] || 0;
-        const order = historySort.order === 'asc' ? 1 : -1;
-        if (historySort.key === 'date') return (new Date(bVal) - new Date(aVal)) * order;
-        if (typeof aVal === 'string') return aVal.localeCompare(bVal) * order;
-        return (aVal - bVal) * order;
+        const aVal = a[historySort.key];
+        const bVal = b[historySort.key];
+
+        if (historySort.order === 'asc') {
+            if (historySort.key === 'date') return new Date(aVal) - new Date(bVal);
+            if (typeof aVal === 'string') return aVal.localeCompare(bVal);
+            return aVal - bVal;
+        } else { // desc
+            if (historySort.key === 'date') return new Date(bVal) - new Date(aVal);
+            if (typeof aVal === 'string') return bVal.localeCompare(aVal);
+            return bVal - aVal;
+        }
     });
 
     tbody.innerHTML = '';
@@ -1623,14 +1648,25 @@ function updateHistory() {
             <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
             <td>${formatDate(entry.date)}</td>
             <td style="font-weight: 600;">${entry.protocol}</td>
-            <td>$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td class="dollar-value">$${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); showDeleteConfirmation(this, ${entry.id}, 'entry')">Löschen</button></td>
+            <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+async function deleteSingleEntryWithConfirmation(entryId) {
+    const confirmed = await showCustomPrompt({
+        title: 'Löschen bestätigen',
+        text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
+        showInput: false
+    });
+    if (confirmed) {
+        deleteEntry(entryId);
+    }
 }
 
 function updateBulkActionsBar() {
@@ -1645,6 +1681,7 @@ function updateBulkActionsBar() {
 }
 
 async function bulkChangeDate() {
+    if (selectedHistoryEntries.size === 0) return;
     const newDate = await showCustomPrompt({
         title: 'Datum für Auswahl ändern',
         text: `Wähle ein neues Datum für die ${selectedHistoryEntries.size} ausgewählten Einträge.`,
@@ -1664,35 +1701,49 @@ async function bulkChangeDate() {
     }
 }
 
-function handleHistoryRowClick(e, row, entryId, index) {
-    if (e.target.type === 'checkbox') {
-        toggleHistorySelection(entryId, row.querySelector('input[type="checkbox"]').checked);
-        lastSelectedHistoryRow = index;
-        return;
+async function deleteSelectedEntries() {
+    if (selectedHistoryEntries.size === 0) {
+        return showNotification('Keine Einträge ausgewählt', 'warning');
     }
-    if (e.shiftKey && lastSelectedHistoryRow !== null) {
-        const tableRows = Array.from(row.parentElement.children);
-        const start = Math.min(index, lastSelectedHistoryRow);
-        const end = Math.max(index, lastSelectedHistoryRow);
-        for (let i = start; i <= end; i++) {
-            const currentRow = tableRows[i];
-            const id = parseFloat(currentRow.dataset.id);
-            if (!selectedHistoryEntries.has(id)) {
-               toggleHistorySelection(id, true);
-            }
-        }
-    } else {
-         toggleHistorySelection(entryId, !selectedHistoryEntries.has(entryId));
-         lastSelectedHistoryRow = index;
+    const confirmed = await showCustomPrompt({ title: 'Auswahl löschen', text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`, showInput: false });
+    if (confirmed) {
+        entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
+        selectedHistoryEntries.clear();
+        saveData();
+        applyDateFilter();
+        showNotification('Ausgewählte Einträge gelöscht');
     }
 }
 
-function toggleHistorySelection(entryId, isSelected) {
+function handleHistoryRowClick(e, row, entryId, index) {
+    if (e.target.type === 'checkbox' || e.target.tagName === 'TD') {
+        toggleHistorySelection(entryId, !selectedHistoryEntries.has(entryId));
+        if (e.shiftKey && lastSelectedHistoryRow !== null) {
+            const tableRows = Array.from(row.parentElement.children);
+            const start = Math.min(index, lastSelectedHistoryRow);
+            const end = Math.max(index, lastSelectedHistoryRow);
+            for (let i = start; i <= end; i++) {
+                const currentRow = tableRows[i];
+                const id = parseFloat(currentRow.dataset.id);
+                if (isSelected(id) !== isSelected(entryId)) { 
+                   toggleHistorySelection(id, !selectedHistoryEntries.has(id));
+                }
+            }
+        }
+        lastSelectedHistoryRow = index;
+    }
+}
+
+function isSelected(entryId) {
+    return selectedHistoryEntries.has(entryId);
+}
+
+function toggleHistorySelection(entryId, shouldBeSelected) {
     const row = document.querySelector(`#historyTableBody tr[data-id='${entryId}']`);
     if (!row) return;
 
     const checkbox = row.querySelector('input[type="checkbox"]');
-    if (isSelected) {
+    if (shouldBeSelected) {
         selectedHistoryEntries.add(entryId);
         row.classList.add('multi-selected-row');
         checkbox.checked = true;
@@ -1707,7 +1758,7 @@ function toggleHistorySelection(entryId, isSelected) {
 
 function toggleSelectAllHistory(e) {
     const isChecked = e.target.checked;
-    const rows = document.querySelectorAll('#historyTableBody tr');
+    const rows = document.querySelectorAll('#historyTableBody tr[data-id]');
     rows.forEach(row => {
         const entryId = parseFloat(row.dataset.id);
         if (entryId) {
@@ -1730,6 +1781,9 @@ function updateSelectAllCheckbox() {
         selectAllCheckbox.indeterminate = false;
     }
 }
+// =================================================================================
+// REST OF SCRIPT
+// =================================================================================
 
 function updateCashflowDisplay() {
     const tbody = document.getElementById('cashflowTableBody');
@@ -1755,13 +1809,35 @@ function updateCashflowDisplay() {
         row.innerHTML = `
             <td>${formatDate(cf.date)}</td>
             <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td class="${cf.type === 'deposit' ? 'positive' : 'negative'}">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
+            <td class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">$${cf.amount.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
             <td>${cf.platform || '-'}</td>
             <td class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="showDeleteConfirmation(this, ${cf.id}, 'cashflow')">Löschen</button></td>
+            <td><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
+}
+
+async function deleteCashflowWithConfirmation(cashflowId) {
+    const confirmed = await showCustomPrompt({
+        title: 'Löschen bestätigen',
+        text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
+        showInput: false
+    });
+    if (confirmed) {
+        deleteCashflow(cashflowId);
+    }
+}
+
+async function deletePlatformWithConfirmation(platformName) {
+    const confirmed = await showCustomPrompt({
+        title: 'Plattform löschen',
+        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
+        showInput: false,
+    });
+    if (confirmed) {
+        deletePlatform(platformName);
+    }
 }
 
 function updatePlatformDetails() {
@@ -1806,8 +1882,8 @@ function updatePlatformDetails() {
             <td>${data.entries}</td>
             <td>${formatDate(data.first)}</td>
             <td>${formatDate(data.last)}</td>
-            <td>$${data.avg.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
-            <td class="${data.total >= 0 ? 'positive' : 'negative'}">$${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
+            <td class="dollar-value">$${data.avg.toLocaleString('de-DE', {minimumFractionDigits: 2})}</td>
+            <td class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">$${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
         `;
         tbody.appendChild(row);
     });
@@ -1819,14 +1895,46 @@ function updatePlatformDetails() {
 function initializeCharts() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
+
+    // Helper-Funktion für die Dollar-Formatierung
+    const formatDollar = (value) => {
+        if (document.body.classList.contains('privacy-mode')) {
+            return '$***';
+        }
+        return '$' + value.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    };
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-            y: { beginAtZero: false, ticks: { color: textColor }, grid: { color: gridColor } },
+            y: { 
+                beginAtZero: false, 
+                ticks: { 
+                    color: textColor,
+                    callback: (value) => formatDollar(value)
+                }, 
+                grid: { color: gridColor } 
+            },
             x: { ticks: { color: textColor }, grid: { color: gridColor } }
         },
-        plugins: { legend: { labels: { color: textColor } } }
+        plugins: { 
+            legend: { labels: { color: textColor } },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        let label = context.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (context.parsed.y !== null) {
+                            label += formatDollar(context.parsed.y);
+                        }
+                        return label;
+                    }
+                }
+            }
+        }
     };
 
     const portfolioCtx = document.getElementById('portfolioChart')?.getContext('2d');
@@ -1834,7 +1942,7 @@ function initializeCharts() {
         portfolioChart = new Chart(portfolioCtx, {
             type: 'line',
             data: { labels: [], datasets: [{ label: 'Portfolio Wert', data: [], backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', borderWidth: 3, tension: 0.4, fill: true }] },
-            options: { ...chartOptions, plugins: { legend: { display: false } } }
+            options: { ...chartOptions, plugins: { ...chartOptions.plugins, legend: { display: false }, datalabels: { display: false } } }
         });
     }
 
@@ -1843,8 +1951,59 @@ function initializeCharts() {
         allocationChart = new Chart(allocationCtx, {
             type: 'doughnut',
             data: { labels: [], datasets: [{ data: [], backgroundColor: ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff', '#34d399', '#6ee7b7', '#a7f3d0', '#fBBf24', '#fb923c', '#f87171', '#fb7185'] }] },
-            options: { ...chartOptions, scales: {} }
+            options: { 
+                responsive: true,
+                maintainAspectRatio: false,
+                onClick: handleChartClick,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { color: textColor }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                    label += formatDollar(context.parsed);
+                                }
+                                return label;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        formatter: (value, ctx) => {
+                            const sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                            const percentage = (value * 100 / sum);
+                            if (percentage < 3) return '';
+                            return percentage.toFixed(1) + '%';
+                        },
+                        color: '#fff',
+                        font: { weight: 'bold', size: 14, },
+                        textStrokeColor: 'rgba(0,0,0,0.5)',
+                        textStrokeWidth: 2
+                    }
+                }
+            }
         });
+    }
+}
+
+
+function handleChartClick(event, elements) {
+    if (elements.length > 0) {
+        const clickedElementIndex = elements[0].index;
+        const platformName = allocationChart.data.labels[clickedElementIndex];
+        
+        if (platformName) {
+            document.getElementById('historySearch').value = platformName;
+            switchTab('history');
+            updateHistory();
+            showNotification(`Historie gefiltert für: ${platformName}`);
+        }
     }
 }
 
@@ -1951,9 +2110,6 @@ async function exportPDF() {
     };
 }
 
-// =================================================================================
-// DATA IMPORT / EXPORT
-// =================================================================================
 function exportJSON() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, favorites }));
     const downloadAnchorNode = document.createElement('a');
@@ -2101,9 +2257,6 @@ function handleJsonImport(event) {
     event.target.value = '';
 }
 
-// =================================================================================
-// UTILITY & HELPER FUNCTIONS
-// =================================================================================
 function formatDate(dateStr) {
     if (!dateStr) return '';
     const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
@@ -2165,7 +2318,7 @@ function handleSort(e) {
         sortState.order = sortState.order === 'asc' ? 'desc' : 'asc';
     } else {
         sortState.key = key;
-        sortState.order = 'desc';
+        sortState.order = 'desc'; 
     }
     
     table.querySelectorAll('.sort-arrow').forEach(arrow => arrow.textContent = '');
@@ -2244,46 +2397,6 @@ function showCustomPrompt({title, text, showInput = false, showDateInput = false
     });
 }
 
-function showDeleteConfirmation(element, id, type) {
-    const tooltip = document.createElement('div');
-    tooltip.className = 'confirmation-tooltip';
-    tooltip.innerHTML = `
-        Sicher löschen?
-        <div class="confirmation-actions">
-            <button class="confirm-btn confirm-yes">Ja</button>
-            <button class="confirm-btn confirm-no">Nein</button>
-        </div>
-    `;
-
-    document.body.appendChild(tooltip);
-    const rect = element.getBoundingClientRect();
-    tooltip.style.top = `${rect.top - tooltip.offsetHeight - 10}px`;
-    tooltip.style.left = `${rect.left + rect.width / 2}px`;
-
-    setTimeout(() => tooltip.classList.add('visible'), 10);
-    
-    const removeTooltip = () => {
-        tooltip.classList.remove('visible');
-        setTimeout(() => tooltip.remove(), 300);
-    };
-
-    tooltip.querySelector('.confirm-yes').onclick = () => {
-        if (type === 'entry') deleteEntry(id);
-        if (type === 'cashflow') deleteCashflow(id);
-        if (type === 'platform') deletePlatform(id);
-        removeTooltip();
-    };
-    tooltip.querySelector('.confirm-no').onclick = removeTooltip;
-    
-    setTimeout(() => {
-        document.addEventListener('click', (e) => {
-            if (!tooltip.contains(e.target)) {
-                removeTooltip();
-            }
-        }, { once: true });
-    }, 100);
-}
-
 function openEditPlatformModal(platformName) {
     const platform = platforms.find(p => p.name === platformName);
     if (!platform) return;
@@ -2314,7 +2427,6 @@ function savePlatformEdit() {
         platform.category = category;
         platform.tags = tags;
         
-        // Update all related data
         entries.forEach(e => { if (e.protocol === oldName) e.protocol = newName; });
         cashflows.forEach(c => { if (c.platform === oldName) c.platform = newName; });
         if (favorites.includes(oldName)) {
@@ -2340,20 +2452,16 @@ function registerServiceWorker() {
                 e.waitUntil(clients.claim());
             });
             self.addEventListener('fetch', e => {
-                // Anfragen an die GitHub API sollen NICHT vom Service Worker behandelt werden.
-                // Dadurch wird sichergestellt, dass Auth-Header etc. korrekt vom Browser gesendet werden.
                 if (e.request.url.includes('api.github.com')) {
-                    return; // Lässt die Anfrage normal durch, ohne sie abzufangen.
+                    return; 
                 }
-                
-                // Alle anderen Anfragen werden weiterhin normal verarbeitet.
                 e.respondWith(fetch(e.request));
             });
         `;
         const blob = new Blob([swCode], { type: 'application/javascript' });
         const swUrl = URL.createObjectURL(blob);
         navigator.serviceWorker.register(swUrl).then(() => {
-            console.log('PWA Service Worker registered (corrected version)');
+            console.log('PWA Service Worker registered');
         }).catch(err => console.log('SW registration failed:', err));
     }
 }

@@ -575,6 +575,7 @@ body.has-sync-bar .tab-navigation {
 }
 .autocomplete-item:hover { background: rgba(99, 102, 241, 0.1); }
 .autocomplete-item.selected { background: rgba(99, 102, 241, 0.2); }
+
 .auto-zero-hint {
     display: none;
     padding: 12px 16px;
@@ -1867,4 +1868,14 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.5s ease;
+}
+
+/* NEU: Privatsphäre-Modus */
+.dollar-value {
+    transition: filter 0.3s ease;
+}
+
+body.privacy-mode .dollar-value {
+    filter: blur(6px);
+    pointer-events: none; /* Verhindert, dass man den Wert beim Hovern sieht */
 }
