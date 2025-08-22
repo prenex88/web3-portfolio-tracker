@@ -107,101 +107,11 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker();
-    
-    applyDashboardWidgetOrder();
-    initializeDragAndDrop();
 });
 
 function isMobileDevice() {
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
-
-// =================================================================================
-// DRAG & DROP FUNKTIONEN
-// =================================================================================
-function initializeDragAndDrop() {
-    const sortableOptions = {
-        animation: 200,
-        ghostClass: 'sortable-ghost',
-        dragClass: 'sortable-drag',
-        delay: 200,
-        delayOnTouchOnly: true,
-        touchStartThreshold: 10, 
-    };
-
-    const dashboardEl = document.getElementById('dashboardContent');
-    if (dashboardEl) {
-        new Sortable(dashboardEl, {
-            ...sortableOptions,
-            onEnd: (evt) => {
-                const newOrder = [...dashboardEl.children].map(el => el.id);
-                localStorage.setItem(`${STORAGE_PREFIX}dashboardWidgetOrder`, JSON.stringify(newOrder));
-            }
-        });
-    }
-
-    const favoritesGridEl = document.getElementById('favoritesGrid');
-    const platformGridEl = document.getElementById('platformGrid');
-
-    if (favoritesGridEl && platformGridEl) {
-        new Sortable(favoritesGridEl, {
-            ...sortableOptions,
-            group: 'platforms',
-            onAdd: (evt) => {
-                const platformName = evt.item.dataset.platform;
-                if (!favorites.includes(platformName)) {
-                    favorites.push(platformName);
-                    saveData();
-                    renderPlatformButtons();
-                }
-            },
-            onEnd: (evt) => {
-                const newFavoritesOrder = [...favoritesGridEl.children].map(el => el.dataset.platform);
-                favorites = newFavoritesOrder;
-                saveData();
-            }
-        });
-
-        new Sortable(platformGridEl, {
-            ...sortableOptions,
-            group: 'platforms',
-            onAdd: (evt) => {
-                const platformName = evt.item.dataset.platform;
-                favorites = favorites.filter(f => f !== platformName);
-                saveData();
-                renderPlatformButtons();
-            },
-            onEnd: (evt) => {
-                const newPlatformOrder = [...platformGridEl.children].map(el => el.dataset.platform).filter(p => p);
-                
-                const favoritePlatforms = platforms.filter(p => favorites.includes(p.name));
-                const nonFavoritePlatforms = platforms.filter(p => !favorites.includes(p.name));
-
-                nonFavoritePlatforms.sort((a, b) => {
-                    return newPlatformOrder.indexOf(a.name) - newPlatformOrder.indexOf(b.name);
-                });
-
-                platforms = [...favoritePlatforms, ...nonFavoritePlatforms];
-                saveData();
-            }
-        });
-    }
-}
-
-function applyDashboardWidgetOrder() {
-    const dashboardEl = document.getElementById('dashboardContent');
-    const savedOrder = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}dashboardWidgetOrder`));
-    
-    if (savedOrder && dashboardEl) {
-        savedOrder.forEach(widgetId => {
-            const widget = document.getElementById(widgetId);
-            if (widget) {
-                dashboardEl.appendChild(widget);
-            }
-        });
-    }
-}
-
 
 // =================================================================================
 // BIOMETRISCHE AUTHENTIFIZIERUNG
@@ -489,7 +399,7 @@ function setupTouchGestures() {
     const pullToRefreshEl = document.getElementById('pullToRefresh');
     
     document.addEventListener('touchstart', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a')) {
             return;
         }
         touchStartX = e.changedTouches[0].screenX;
@@ -513,7 +423,7 @@ function setupTouchGestures() {
     }, { passive: true });
     
     document.addEventListener('touchend', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a')) {
             return;
         }
         touchEndX = e.changedTouches[0].screenX;
@@ -586,10 +496,8 @@ function showSwipeIndicator(tabName) {
 // =================================================================================
 function setupQuickActions() {
     if (window.innerWidth <= 768) {
-        setTimeout(() => {
-            document.getElementById('quickActionsBar').classList.add('visible');
-            quickActionsVisible = true;
-        }, 2000);
+        document.getElementById('quickActionsBar').classList.add('visible');
+        quickActionsVisible = true;
     }
 }
 
