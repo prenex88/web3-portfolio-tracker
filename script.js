@@ -1074,6 +1074,7 @@ function switchTab(tabName) {
     if (tabName === 'platforms') updatePlatformDetails();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
+        updateCashflowStats(); // Call the new stats function here
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     }
 }
@@ -1559,10 +1560,6 @@ function updateDisplay() {
  * BERECHNET UND AKTUALISIERT ALLE STATISTIK-KARTEN IM DASHBOARD (KORRIGIERTE VERSION)
  */
 function updateStats() {
-    const sortedDatesInPeriod = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    const filterStartDateStr = document.getElementById('filterStartDate').value;
-    const isAllTime = !filterStartDateStr || document.querySelector('.filter-btn.active')?.textContent === 'Alles';
-
     // --- Schritt 1: Behandeln des "Keine Daten vorhanden"-Falls ---
     if (entries.length === 0) {
         document.getElementById('totalValue').textContent = '$0.00';
@@ -1577,60 +1574,107 @@ function updateStats() {
         return;
     }
 
-    // --- Schritt 2: Den Kontostand zu Beginn des Zeitraums ermitteln ---
+    // --- Schritt 2: Zeitraum-Parameter bestimmen ---
+    const filterStartDateStr = document.getElementById('filterStartDate').value;
+    const filterEndDateStr = document.getElementById('filterEndDate').value;
+    const isFiltered = filterStartDateStr || filterEndDateStr;
+    
+    // Alle verfügbaren Datumswerte (ungefiltert) für Berechnungen
+    const allDates = [...new Set(entries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    const latestDateOverall = allDates[allDates.length - 1];
+    
+    // --- Schritt 3: Aktueller Portfolio-Wert (immer der neueste verfügbare) ---
+    const currentPortfolioValue = entries
+        .filter(e => e.date === latestDateOverall)
+        .reduce((sum, e) => sum + e.balance, 0);
+
+    // --- Schritt 4: Start- und Endsaldo für den gewählten Zeitraum bestimmen ---
     let startBalance = 0;
-    // Finde das letzte Eintragsdatum, das strikt VOR dem Beginn unseres Filterzeitraums liegt.
-    const priorEntryDates = [...new Set(entries.map(e => e.date))]
-        .filter(d => filterStartDateStr && d < filterStartDateStr)
-        .sort((a, b) => new Date(b) - new Date(a));
+    let endBalance = currentPortfolioValue;
+    let periodStartDate = allDates[0]; // Default: erster Eintrag
+    let periodEndDate = latestDateOverall; // Default: letzter Eintrag
 
-    if (priorEntryDates.length > 0) {
-        const lastDateBeforePeriod = priorEntryDates[0];
-        startBalance = entries
-            .filter(e => e.date === lastDateBeforePeriod)
-            .reduce((sum, e) => sum + e.balance, 0);
+    if (isFiltered) {
+        // Bestimme den tatsächlichen Zeitraum basierend auf Filter
+        if (filterStartDateStr) {
+            periodStartDate = filterStartDateStr;
+            // Finde den letzten Eintrag VOR dem Startzeitraum
+            const entriesBeforeStart = entries
+                .filter(e => e.date < filterStartDateStr)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            if (entriesBeforeStart.length > 0) {
+                const lastDateBefore = entriesBeforeStart[0].date;
+                startBalance = entries
+                    .filter(e => e.date === lastDateBefore)
+                    .reduce((sum, e) => sum + e.balance, 0);
+            }
+        }
+
+        if (filterEndDateStr) {
+            periodEndDate = filterEndDateStr;
+            // Finde den letzten Eintrag BIS zum Endzeitraum
+            const entriesUntilEnd = entries
+                .filter(e => e.date <= filterEndDateStr)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            if (entriesUntilEnd.length > 0) {
+                const lastDateUntilEnd = entriesUntilEnd[0].date;
+                endBalance = entries
+                    .filter(e => e.date === lastDateUntilEnd)
+                    .reduce((sum, e) => sum + e.balance, 0);
+            } else {
+                endBalance = startBalance; // Keine Einträge im Zeitraum
+            }
+        } else {
+            // Wenn kein Enddatum gesetzt, verwende den aktuellen Wert
+            endBalance = currentPortfolioValue;
+        }
     }
 
-    // --- Schritt 3: Den Kontostand am Ende des Zeitraums ermitteln ---
-    let endBalance;
-    if (sortedDatesInPeriod.length > 0) {
-        // Wenn es Einträge IM Zeitraum gibt, ist der Endsaldo der Wert des letzten Eintrags.
-        const lastDateInPeriod = sortedDatesInPeriod[sortedDatesInPeriod.length - 1];
-        endBalance = filteredEntries.filter(e => e.date === lastDateInPeriod).reduce((sum, e) => sum + e.balance, 0);
-    } else {
-        // Wenn es KEINE Einträge im Zeitraum gibt, hat sich der Kontostand nicht geändert.
-        endBalance = startBalance;
-    }
+    // --- Schritt 5: Cashflows im Zeitraum berechnen ---
+    const relevantCashflows = cashflows.filter(c => {
+        const isAfterStart = !filterStartDateStr || c.date >= filterStartDateStr;
+        const isBeforeEnd = !filterEndDateStr || c.date <= filterEndDateStr;
+        return isAfterStart && isBeforeEnd;
+    });
+
+    const depositsInPeriod = relevantCashflows
+        .filter(c => c.type === 'deposit')
+        .reduce((sum, c) => sum + c.amount, 0);
     
-    if (isAllTime && entries.length > 0) {
-        const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-        endBalance = entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0);
-        startBalance = 0; // Für "Alles" ist der Startsaldo immer 0.
-    }
-
-    // --- Schritt 4: Statistiken basierend auf den korrekten Start- und Endsalden berechnen ---
-    const netCashflowInPeriod = filteredCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
-    const depositsInPeriod = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = filteredCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    const withdrawalsInPeriod = relevantCashflows
+        .filter(c => c.type === 'withdraw')
+        .reduce((sum, c) => sum + c.amount, 0);
     
+    const netCashflowInPeriod = depositsInPeriod - withdrawalsInPeriod;
+
+    // --- Schritt 6: Performance-Berechnung ---
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    const roiBase = startBalance + depositsInPeriod;
-    const periodRoiPercent = roiBase !== 0 ? (periodProfit / roiBase) * 100 : 0;
+    
+    // ROI-Berechnung: Profit im Verhältnis zum eingesetzten Kapital
+    const investedCapital = startBalance + depositsInPeriod;
+    const periodRoiPercent = investedCapital > 0 ? (periodProfit / investedCapital) * 100 : 0;
 
-    // --- Schritt 5: Die Benutzeroberfläche aktualisieren ---
-    // 1. Karte: "Portfolio Gesamtwert"
-    document.getElementById('totalValue').textContent = `$${endBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    document.getElementById('totalChangeValue').textContent = `${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    // --- Schritt 7: UI Updates ---
+    // 1. Karte: "Portfolio Gesamtwert" (zeigt IMMER den aktuellen Wert)
+    document.getElementById('totalValue').textContent = `$${currentPortfolioValue.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    
+    // Zeige die Veränderung für den gewählten Zeitraum
+    const changeSign = periodProfit >= 0 ? '+' : '';
+    document.getElementById('totalChangeValue').textContent = `${changeSign}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
     document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
-    // 2. Karte: "Letzte Veränderung"
+    // 2. Karte: "Letzte Veränderung" (unabhängig vom Filter - zeigt immer die letzte Änderung)
     const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (allUniqueDates.length >= 2) {
         const latestDate = allUniqueDates[0];
         const previousDate = allUniqueDates[1];
         const latestTotal = entries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
         const previousTotal = entries.filter(e => e.date === previousDate).reduce((sum, e) => sum + e.balance, 0);
+        
+        // Berücksichtige Cashflows zwischen den beiden Daten
         const cashflowBetween = cashflows
             .filter(c => c.date > previousDate && c.date <= latestDate)
             .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
@@ -1649,36 +1693,39 @@ function updateStats() {
     
     // 3. Karte: "Netto Investiert (Zeitraum)"
     document.getElementById('netInvested').textContent = `$${netCashflowInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
     // 4. Karte: "Reale Performance (Zeitraum)"
     document.getElementById('totalProfit').textContent = `$${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+
+    // Zusätzlich: Update der Cashflow-Statistiken
+    updateCashflowStats();
 }
 
-function calculateAdjustedBalances(currentEntries, currentCashflows) {
-    const sortedDates = [...new Set(currentEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    if (sortedDates.length === 0) {
-        const lastCashflowDate = [...currentCashflows].sort((a,b) => new Date(b.date) - new Date(a.date))[0]?.date;
-        if (!lastCashflowDate) return { totalBalance: 0, netInvested: 0, totalDeposits: 0, totalWithdrawals: 0 };
-        
-        const lastEntryBeforeCashflow = entries
-            .filter(e => e.date <= lastCashflowDate)
-            .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-        
-        const totalBalance = lastEntryBeforeCashflow ? lastEntryBeforeCashflow.balance : 0;
-        const totalDeposits = currentCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-        const totalWithdrawals = currentCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
-        const netInvested = totalDeposits - totalWithdrawals;
-        return { totalBalance, totalDeposits, totalWithdrawals, netInvested };
-    }
-    const latestDate = sortedDates[sortedDates.length - 1];
-    const totalBalance = currentEntries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
-    const totalDeposits = currentCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = currentCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
-    const netInvested = totalDeposits - totalWithdrawals;
-    return { totalBalance, totalDeposits, totalWithdrawals, netInvested };
+// Neue Hilfsfunktion für Cashflow-Stats
+function updateCashflowStats() {
+    const totalDeposits = cashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = cashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    const netCashflow = totalDeposits - totalWithdrawals;
+    
+    const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+    const currentValue = lastDateOverall ? entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    
+    const totalProfit = currentValue - netCashflow;
+    const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
+    
+    // Update Cashflow Tab Stats
+    const totalDepositsEl = document.getElementById('totalDeposits');
+    const totalWithdrawalsEl = document.getElementById('totalWithdrawals');
+    const netCashflowEl = document.getElementById('netCashflow');
+    const roiPercentEl = document.getElementById('roiPercent');
+    
+    if (totalDepositsEl) totalDepositsEl.textContent = `$${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (totalWithdrawalsEl) totalWithdrawalsEl.textContent = `$${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (netCashflowEl) netCashflowEl.textContent = `$${netCashflow.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (roiPercentEl) roiPercentEl.textContent = `${roi.toFixed(2)}%`;
 }
 
 // =================================================================================
