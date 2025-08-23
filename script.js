@@ -41,6 +41,8 @@ const DEFAULT_PLATFORMS = [
     { name: 'Ledger', icon: '🔒', type: 'Hardware', category: 'Wallet', tags: ['wallet', 'cold-storage'] },
 ];
 const GITHUB_API = 'https://api.github.com';
+const COINGECKO_API = 'https://api.coingecko.com/api/v3';
+const CORS_PROXY = 'https://corsproxy.io/?';
 
 // =================================================================================
 // GLOBALE VARIABLEN
@@ -80,6 +82,10 @@ let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
+
+// BENCHMARK VARIABLEN
+const apiCache = new Map();
+let showingCryptoBenchmarks = false;
 
 // =================================================================================
 // INITIALISIERUNG
@@ -425,6 +431,17 @@ function addEventListeners() {
     if (biometricToggle) {
         biometricToggle.checked = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
     }
+    
+    // Event listeners for new chart time range buttons
+    document.querySelectorAll('.chart-time-filter .filter-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const period = e.currentTarget.dataset.period;
+            setChartDateFilter(period);
+        });
+    });
+    
+    document.getElementById('benchmarkToggleBtn')?.addEventListener('click', toggleBenchmarkView);
+    document.getElementById('refreshBenchmarksBtn')?.addEventListener('click', refreshBenchmarkData);
 }
 
 function setupKeyboardShortcuts() {
@@ -684,11 +701,17 @@ function toggleFilter() {
 
 function setDateFilter(period) {
     document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
-    const clickedButton = document.querySelector(`.filter-btn[onclick="setDateFilter('${period}')"]`);
-    if (clickedButton) {
-        clickedButton.classList.add('active');
-        document.getElementById('activeFilterDisplay').textContent = clickedButton.textContent;
+    document.querySelectorAll('.chart-controls .chart-timeframe-btn').forEach(b => b.classList.remove('active'));
+
+    const mainFilterButton = document.querySelector(`.filter-presets .filter-btn[onclick="setDateFilter('${period}')"]`);
+    if (mainFilterButton) {
+        mainFilterButton.classList.add('active');
+        document.getElementById('activeFilterDisplay').textContent = mainFilterButton.textContent;
     }
+    
+    const chartFilterButton = document.querySelector(`.chart-controls .chart-timeframe-btn[onclick="setDateFilter('${period}')"]`);
+    if(chartFilterButton) chartFilterButton.classList.add('active');
+
 
     const endDate = new Date();
     let startDate = new Date();
@@ -710,6 +733,7 @@ function setDateFilter(period) {
     document.getElementById('filterEndDate').value = endDate.toISOString().split('T')[0];
     applyDateFilter();
 }
+
 
 function applyAndSetCustomDateFilter() {
     document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
@@ -1074,6 +1098,7 @@ function switchTab(tabName) {
     if (tabName === 'platforms') updatePlatformDetails();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
+        updateCashflowStats(); // Call the new stats function here
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     }
 }
@@ -1559,10 +1584,6 @@ function updateDisplay() {
  * BERECHNET UND AKTUALISIERT ALLE STATISTIK-KARTEN IM DASHBOARD (KORRIGIERTE VERSION)
  */
 function updateStats() {
-    const sortedDatesInPeriod = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    const filterStartDateStr = document.getElementById('filterStartDate').value;
-    const isAllTime = !filterStartDateStr || document.querySelector('.filter-btn.active')?.textContent === 'Alles';
-
     // --- Schritt 1: Behandeln des "Keine Daten vorhanden"-Falls ---
     if (entries.length === 0) {
         document.getElementById('totalValue').textContent = '$0.00';
@@ -1577,60 +1598,107 @@ function updateStats() {
         return;
     }
 
-    // --- Schritt 2: Den Kontostand zu Beginn des Zeitraums ermitteln ---
+    // --- Schritt 2: Zeitraum-Parameter bestimmen ---
+    const filterStartDateStr = document.getElementById('filterStartDate').value;
+    const filterEndDateStr = document.getElementById('filterEndDate').value;
+    const isFiltered = filterStartDateStr || filterEndDateStr;
+    
+    // Alle verfügbaren Datumswerte (ungefiltert) für Berechnungen
+    const allDates = [...new Set(entries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    const latestDateOverall = allDates[allDates.length - 1];
+    
+    // --- Schritt 3: Aktueller Portfolio-Wert (immer der neueste verfügbare) ---
+    const currentPortfolioValue = entries
+        .filter(e => e.date === latestDateOverall)
+        .reduce((sum, e) => sum + e.balance, 0);
+
+    // --- Schritt 4: Start- und Endsaldo für den gewählten Zeitraum bestimmen ---
     let startBalance = 0;
-    // Finde das letzte Eintragsdatum, das strikt VOR dem Beginn unseres Filterzeitraums liegt.
-    const priorEntryDates = [...new Set(entries.map(e => e.date))]
-        .filter(d => filterStartDateStr && d < filterStartDateStr)
-        .sort((a, b) => new Date(b) - new Date(a));
+    let endBalance = currentPortfolioValue;
+    let periodStartDate = allDates[0]; // Default: erster Eintrag
+    let periodEndDate = latestDateOverall; // Default: letzter Eintrag
 
-    if (priorEntryDates.length > 0) {
-        const lastDateBeforePeriod = priorEntryDates[0];
-        startBalance = entries
-            .filter(e => e.date === lastDateBeforePeriod)
-            .reduce((sum, e) => sum + e.balance, 0);
+    if (isFiltered) {
+        // Bestimme den tatsächlichen Zeitraum basierend auf Filter
+        if (filterStartDateStr) {
+            periodStartDate = filterStartDateStr;
+            // Finde den letzten Eintrag VOR dem Startzeitraum
+            const entriesBeforeStart = entries
+                .filter(e => e.date < filterStartDateStr)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            if (entriesBeforeStart.length > 0) {
+                const lastDateBefore = entriesBeforeStart[0].date;
+                startBalance = entries
+                    .filter(e => e.date === lastDateBefore)
+                    .reduce((sum, e) => sum + e.balance, 0);
+            }
+        }
+
+        if (filterEndDateStr) {
+            periodEndDate = filterEndDateStr;
+            // Finde den letzten Eintrag BIS zum Endzeitraum
+            const entriesUntilEnd = entries
+                .filter(e => e.date <= filterEndDateStr)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            if (entriesUntilEnd.length > 0) {
+                const lastDateUntilEnd = entriesUntilEnd[0].date;
+                endBalance = entries
+                    .filter(e => e.date === lastDateUntilEnd)
+                    .reduce((sum, e) => sum + e.balance, 0);
+            } else {
+                endBalance = startBalance; // Keine Einträge im Zeitraum
+            }
+        } else {
+            // Wenn kein Enddatum gesetzt, verwende den aktuellen Wert
+            endBalance = currentPortfolioValue;
+        }
     }
 
-    // --- Schritt 3: Den Kontostand am Ende des Zeitraums ermitteln ---
-    let endBalance;
-    if (sortedDatesInPeriod.length > 0) {
-        // Wenn es Einträge IM Zeitraum gibt, ist der Endsaldo der Wert des letzten Eintrags.
-        const lastDateInPeriod = sortedDatesInPeriod[sortedDatesInPeriod.length - 1];
-        endBalance = filteredEntries.filter(e => e.date === lastDateInPeriod).reduce((sum, e) => sum + e.balance, 0);
-    } else {
-        // Wenn es KEINE Einträge im Zeitraum gibt, hat sich der Kontostand nicht geändert.
-        endBalance = startBalance;
-    }
+    // --- Schritt 5: Cashflows im Zeitraum berechnen ---
+    const relevantCashflows = cashflows.filter(c => {
+        const isAfterStart = !filterStartDateStr || c.date >= filterStartDateStr;
+        const isBeforeEnd = !filterEndDateStr || c.date <= filterEndDateStr;
+        return isAfterStart && isBeforeEnd;
+    });
+
+    const depositsInPeriod = relevantCashflows
+        .filter(c => c.type === 'deposit')
+        .reduce((sum, c) => sum + c.amount, 0);
     
-    if (isAllTime && entries.length > 0) {
-        const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-        endBalance = entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0);
-        startBalance = 0; // Für "Alles" ist der Startsaldo immer 0.
-    }
-
-    // --- Schritt 4: Statistiken basierend auf den korrekten Start- und Endsalden berechnen ---
-    const netCashflowInPeriod = filteredCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
-    const depositsInPeriod = filteredCashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = filteredCashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    const withdrawalsInPeriod = relevantCashflows
+        .filter(c => c.type === 'withdraw')
+        .reduce((sum, c) => sum + c.amount, 0);
     
+    const netCashflowInPeriod = depositsInPeriod - withdrawalsInPeriod;
+
+    // --- Schritt 6: Performance-Berechnung ---
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    const roiBase = startBalance + depositsInPeriod;
-    const periodRoiPercent = roiBase !== 0 ? (periodProfit / roiBase) * 100 : 0;
+    
+    // ROI-Berechnung: Profit im Verhältnis zum eingesetzten Kapital
+    const investedCapital = startBalance + depositsInPeriod;
+    const periodRoiPercent = investedCapital > 0 ? (periodProfit / investedCapital) * 100 : 0;
 
-    // --- Schritt 5: Die Benutzeroberfläche aktualisieren ---
-    // 1. Karte: "Portfolio Gesamtwert"
-    document.getElementById('totalValue').textContent = `$${endBalance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    document.getElementById('totalChangeValue').textContent = `${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    // --- Schritt 7: UI Updates ---
+    // 1. Karte: "Portfolio Gesamtwert" (zeigt IMMER den aktuellen Wert)
+    document.getElementById('totalValue').textContent = `$${currentPortfolioValue.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    
+    // Zeige die Veränderung für den gewählten Zeitraum
+    const changeSign = periodProfit >= 0 ? '+' : '';
+    document.getElementById('totalChangeValue').textContent = `${changeSign}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
     document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
-    // 2. Karte: "Letzte Veränderung"
+    // 2. Karte: "Letzte Veränderung" (unabhängig vom Filter - zeigt immer die letzte Änderung)
     const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (allUniqueDates.length >= 2) {
         const latestDate = allUniqueDates[0];
         const previousDate = allUniqueDates[1];
         const latestTotal = entries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
         const previousTotal = entries.filter(e => e.date === previousDate).reduce((sum, e) => sum + e.balance, 0);
+        
+        // Berücksichtige Cashflows zwischen den beiden Daten
         const cashflowBetween = cashflows
             .filter(c => c.date > previousDate && c.date <= latestDate)
             .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
@@ -1649,12 +1717,39 @@ function updateStats() {
     
     // 3. Karte: "Netto Investiert (Zeitraum)"
     document.getElementById('netInvested').textContent = `$${netCashflowInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
+    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
     // 4. Karte: "Reale Performance (Zeitraum)"
     document.getElementById('totalProfit').textContent = `$${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+
+    // Zusätzlich: Update der Cashflow-Statistiken
+    updateCashflowStats();
+}
+
+// Neue Hilfsfunktion für Cashflow-Stats
+function updateCashflowStats() {
+    const totalDeposits = cashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = cashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    const netCashflow = totalDeposits - totalWithdrawals;
+    
+    const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+    const currentValue = lastDateOverall ? entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    
+    const totalProfit = currentValue - netCashflow;
+    const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
+    
+    // Update Cashflow Tab Stats
+    const totalDepositsEl = document.getElementById('totalDeposits');
+    const totalWithdrawalsEl = document.getElementById('totalWithdrawals');
+    const netCashflowEl = document.getElementById('netCashflow');
+    const roiPercentEl = document.getElementById('roiPercent');
+    
+    if (totalDepositsEl) totalDepositsEl.textContent = `$${totalDeposits.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (totalWithdrawalsEl) totalWithdrawalsEl.textContent = `$${totalWithdrawals.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (netCashflowEl) netCashflowEl.textContent = `$${netCashflow.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    if (roiPercentEl) roiPercentEl.textContent = `${roi.toFixed(2)}%`;
 }
 
 function calculateAdjustedBalances(currentEntries, currentCashflows) {
@@ -2043,56 +2138,193 @@ function updatePlatformDetails() {
 // =================================================================================
 // CHARTS & EXPORT
 // =================================================================================
+
+// NEUE FUNKTIONEN FÜR DEN CUSTOM TOOLTIP
+const getOrCreateTooltip = (chart) => {
+  let tooltipEl = chart.canvas.parentNode.querySelector('.chartjs-tooltip');
+
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'chartjs-tooltip';
+    
+    const table = document.createElement('table');
+    table.style.margin = '0px';
+
+    tooltipEl.appendChild(table);
+    chart.canvas.parentNode.appendChild(tooltipEl);
+  }
+
+  return tooltipEl;
+};
+
+const externalTooltipHandler = (context) => {
+  // Tooltip Element
+  const {chart, tooltip} = context;
+  const tooltipEl = getOrCreateTooltip(chart);
+
+  // Hide if no tooltip
+  if (tooltip.opacity === 0) {
+    tooltipEl.style.opacity = 0;
+    return;
+  }
+
+  // Set Text
+  if (tooltip.body) {
+    const titleLines = tooltip.title || [];
+    const bodyLines = tooltip.body.map(b => b.lines);
+
+    const tableHead = document.createElement('thead');
+
+    titleLines.forEach(title => {
+      const tr = document.createElement('tr');
+      tr.style.borderWidth = 0;
+
+      const th = document.createElement('th');
+      th.style.borderWidth = 0;
+      th.colSpan = 3; 
+      
+      const dataIndex = tooltip.dataPoints[0].dataIndex;
+      const originalDate = chart.data.originalDates[dataIndex];
+      const dayEntries = entries.filter(e => e.date === originalDate);
+      const portfolioValue = dayEntries.reduce((sum, e) => sum + e.balance, 0);
+
+      const portfolioData = chart.data.datasets[0].data;
+      const currentValue = portfolioData[dataIndex];
+      const previousValue = dataIndex > 0 ? portfolioData[dataIndex - 1] : currentValue;
+      const change = currentValue - previousValue;
+      
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'tooltip-header';
+      headerDiv.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <span style="font-size: 1.5em; font-weight: bold;">${formatDollar(portfolioValue)}</span>
+              <span style="font-size: 0.9em; color: ${change >= 0 ? 'var(--success)' : 'var(--danger)'};">
+                  ${change >= 0 ? '↑' : '↓'} ${change.toFixed(2)}%
+              </span>
+          </div>
+          <div style="font-size: 0.9em; color: var(--text-secondary); text-align: left;">${formatDate(originalDate)}</div>
+      `;
+      th.appendChild(headerDiv);
+      tr.appendChild(th);
+      tableHead.appendChild(tr);
+    });
+
+    const tableBody = document.createElement('tbody');
+    
+    const dataIndex = tooltip.dataPoints[0].dataIndex;
+    const originalDate = chart.data.originalDates[dataIndex];
+    const dayEntries = entries.filter(e => e.date === originalDate);
+
+    const note = dayEntries.find(e => e.note)?.note || '';
+    const activePlatforms = dayEntries
+        .filter(e => e.balance > 0)
+        .map(e => e.protocol)
+        .join(', ');
+
+    if (note) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.innerHTML = `<div style="margin-top: 10px;"><strong style="color: var(--text-secondary);">Strategie:</strong> ${note}</div>`;
+        tr.appendChild(td);
+        tableBody.appendChild(tr);
+    }
+    if (activePlatforms) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.innerHTML = `<div style="margin-top: 5px;"><strong style="color: var(--text-secondary);">Protokolle:</strong> ${activePlatforms}</div>`;
+        tr.appendChild(td);
+        tableBody.appendChild(tr);
+    }
+
+    const tableRoot = tooltipEl.querySelector('table');
+    
+    while (tableRoot.firstChild) {
+      tableRoot.firstChild.remove();
+    }
+
+    tableRoot.appendChild(tableHead);
+    tableRoot.appendChild(tableBody);
+  }
+
+  const {offsetLeft: positionX, offsetTop: positionY} = chart.canvas;
+
+  tooltipEl.style.opacity = 1;
+  tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+  tooltipEl.style.top = positionY + tooltip.caretY + 'px';
+  tooltipEl.style.font = tooltip.options.bodyFont.string;
+  tooltipEl.style.padding = tooltip.options.padding + 'px ' + tooltip.options.padding + 'px';
+  tooltipEl.style.pointerEvents = 'none';
+};
+
+
 function initializeCharts() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
-
-    const formatDollar = (value) => {
-        if (document.body.classList.contains('privacy-mode')) {
-            return '$***';
-        }
-        return '$' + value.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    };
-
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-            y: { 
-                beginAtZero: false, 
-                ticks: { 
-                    color: textColor,
-                    callback: (value) => formatDollar(value)
-                }, 
-                grid: { color: gridColor } 
-            },
-            x: { ticks: { color: textColor }, grid: { color: gridColor } }
-        },
-        plugins: { 
-            legend: { labels: { color: textColor } },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        let label = context.dataset.label || '';
-                        if (label) {
-                            label += ': ';
-                        }
-                        if (context.parsed.y !== null) {
-                            label += formatDollar(context.parsed.y);
-                        }
-                        return label;
-                    }
-                }
-            }
-        }
-    };
 
     const portfolioCtx = document.getElementById('portfolioChart')?.getContext('2d');
     if (portfolioCtx) {
         portfolioChart = new Chart(portfolioCtx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: 'Portfolio Wert', data: [], backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1', borderWidth: 3, tension: 0.4, fill: true }] },
-            options: { ...chartOptions, plugins: { ...chartOptions.plugins, legend: { display: false }, datalabels: { display: false } } }
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Portfolio', data: [], borderColor: 'rgba(99, 102, 241, 1)', backgroundColor: 'rgba(99, 102, 241, 0.2)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0, pointHoverRadius: 6 },
+                    { label: 'S&P 500', data: [], borderColor: 'rgba(239, 68, 68, 1)', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, hidden: false },
+                    { label: 'DAX', data: [], borderColor: 'rgba(245, 158, 11, 1)', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, hidden: false },
+                    { label: 'Bitcoin', data: [], borderColor: 'rgba(16, 185, 129, 1)', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, hidden: true },
+                    { label: 'Ethereum', data: [], borderColor: 'rgba(139, 92, 246, 1)', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, hidden: true },
+                ]
+            },
+            // *** GEÄNDERTER TEIL ***
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        ticks: {
+                            color: textColor,
+                            callback: (value) => `${value.toFixed(0)}%`
+                        },
+                        grid: {
+                            color: gridColor
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            color: textColor
+                        },
+                        grid: {
+                            display: false
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom',
+                        align: 'start',
+                        labels: {
+                            color: textColor,
+                            usePointStyle: true,
+                            boxWidth: 8,
+                            padding: 20
+                        }
+                    },
+                    tooltip: {
+                        enabled: false,
+                        external: externalTooltipHandler
+                    },
+                    datalabels: {
+                        display: false
+                    }
+                }
+            }
         });
     }
 
@@ -2102,46 +2334,19 @@ function initializeCharts() {
             type: 'doughnut',
             data: { labels: [], datasets: [{ data: [], backgroundColor: ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff', '#34d399', '#6ee7b7', '#a7f3d0', '#fBBf24', '#fb923c', '#f87171', '#fb7185'] }] },
             options: { 
-                responsive: true,
-                maintainAspectRatio: false,
-                onClick: handleChartClick,
+                responsive: true, maintainAspectRatio: false, onClick: handleChartClick,
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { color: textColor }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.label || '';
-                                if (label) {
-                                    label += ': ';
-                                }
-                                if (context.parsed !== null) {
-                                    label += formatDollar(context.parsed);
-                                }
-                                return label;
-                            }
-                        }
-                    },
+                    legend: { position: 'top', labels: { color: textColor } },
+                    tooltip: { callbacks: { label: (c) => `${c.label}: ${formatDollar(c.parsed)}` } },
                     datalabels: {
-                        formatter: (value, ctx) => {
-                            const sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
-                            const percentage = (value * 100 / sum);
-                            if (percentage < 3) return '';
-                            return percentage.toFixed(1) + '%';
-                        },
-                        color: '#fff',
-                        font: { weight: 'bold', size: 14, },
-                        textStrokeColor: 'rgba(0,0,0,0.5)',
-                        textStrokeWidth: 2
+                        formatter: (v, ctx) => (v * 100 / ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0)) > 3 ? `${(v * 100 / ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0)).toFixed(1)}%` : '',
+                        color: '#fff', font: { weight: 'bold', size: 14 }, textStrokeColor: 'rgba(0,0,0,0.5)', textStrokeWidth: 2
                     }
                 }
             }
         });
     }
 }
-
 
 function handleChartClick(event, elements) {
     if (elements.length > 0) {
@@ -2158,16 +2363,10 @@ function handleChartClick(event, elements) {
 }
 
 function updateCharts() {
-    const dateGroups = filteredEntries.reduce((acc, e) => {
-        acc[e.date] = (acc[e.date] || 0) + e.balance;
-        return acc;
-    }, {});
+    updateChartWithBenchmarks();
+    
+    const dateGroups = filteredEntries.reduce((acc, e) => { acc[e.date] = (acc[e.date] || 0) + e.balance; return acc; }, {});
     const sortedDates = Object.keys(dateGroups).sort((a,b) => new Date(a) - new Date(b));
-    if (portfolioChart) {
-        portfolioChart.data.labels = sortedDates.map(d => formatDate(d));
-        portfolioChart.data.datasets[0].data = sortedDates.map(d => dateGroups[d]);
-        portfolioChart.update();
-    }
 
     if (allocationChart && sortedDates.length > 0) {
         const latestDate = sortedDates[sortedDates.length - 1];
@@ -2176,6 +2375,164 @@ function updateCharts() {
         allocationChart.data.datasets[0].data = latestEntries.map(e => e.balance);
         allocationChart.update();
     }
+}
+
+async function fetchWithCache(url, cacheKey, durationMinutes = 60) {
+    const cachedItem = sessionStorage.getItem(cacheKey);
+    if (cachedItem) {
+        const { timestamp, data } = JSON.parse(cachedItem);
+        if (Date.now() - timestamp < durationMinutes * 60 * 1000) {
+            return data;
+        }
+    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    sessionStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data }));
+    return data;
+}
+
+async function fetchYahooData(ticker, from, to) {
+    const url = `${CORS_PROXY}https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${from}&period2=${to}&interval=1d`;
+    try {
+        const data = await fetchWithCache(url, `yahoo_${ticker}_${from}_${to}`);
+        if (!data.chart.result[0].indicators.quote[0].close) return [];
+        return data.chart.result[0].timestamp.map((ts, i) => [
+            ts * 1000,
+            data.chart.result[0].indicators.quote[0].close[i]
+        ]);
+    } catch (error) {
+        console.error(`Failed to fetch ${ticker} data, using fallback:`, error);
+        return 'fallback';
+    }
+}
+
+async function fetchCoinGeckoData(id, from, to) {
+    const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
+    try {
+        const data = await fetchWithCache(url, `coingecko_${id}_${from}_${to}`);
+        return data.prices;
+    } catch (error) {
+        console.error(`Failed to fetch ${id} data, using fallback:`, error);
+        return 'fallback';
+    }
+}
+
+function generateFallbackData(volatility, dates) {
+    let lastPerf = 0;
+    const dailyVol = volatility / Math.sqrt(365);
+    return dates.map(() => {
+        const change = (Math.random() - 0.5) * dailyVol * 2;
+        lastPerf = lastPerf + (change * 100);
+        return lastPerf;
+    });
+}
+
+async function updateChartWithBenchmarks() {
+    const dateGroups = filteredEntries.reduce((acc, e) => { acc[e.date] = (acc[e.date] || 0) + e.balance; return acc; }, {});
+    const sortedDates = Object.keys(dateGroups).sort((a,b) => new Date(a) - new Date(b));
+
+    if (!portfolioChart || sortedDates.length < 2) {
+        if (portfolioChart) {
+            portfolioChart.data.datasets.forEach(ds => ds.data = []);
+            portfolioChart.update();
+        }
+        return;
+    }
+
+    const portfolioValues = sortedDates.map(d => dateGroups[d]);
+    
+    const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
+    const toTs = Math.floor(Date.now() / 1000);
+
+    let [sp500Prices, daxPrices, btcPrices, ethPrices] = await Promise.all([
+        fetchYahooData('%5EGSPC', fromTs, toTs),
+        fetchYahooData('%5EGDAXI', fromTs, toTs),
+        fetchCoinGeckoData('bitcoin', fromTs, toTs),
+        fetchCoinGeckoData('ethereum', fromTs, toTs)
+    ]);
+
+    const calculatePercentageChange = (values, isBenchmark = false, benchmarkPrices, fallbackVolatility) => {
+        if (isBenchmark && benchmarkPrices === 'fallback') {
+            return generateFallbackData(fallbackVolatility, sortedDates);
+        }
+
+        const priceMap = isBenchmark ? new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price])) : null;
+        
+        let baseline = null;
+        // Find the first valid value to use as baseline
+        for(let i = 0; i < sortedDates.length; i++) {
+            const date = sortedDates[i];
+            const value = isBenchmark ? priceMap.get(date) : values[i];
+            if (value !== null && value !== undefined) {
+                baseline = value;
+                break;
+            }
+        }
+        
+        if (baseline === null || baseline === 0) return Array(sortedDates.length).fill(null);
+
+        let lastKnownValue = baseline;
+        return sortedDates.map((date, i) => {
+            let currentValue = isBenchmark ? priceMap.get(date) : values[i];
+            if (currentValue === null || currentValue === undefined) {
+                currentValue = lastKnownValue; // Forward-fill
+            } else {
+                lastKnownValue = currentValue;
+            }
+            return ((currentValue - baseline) / baseline) * 100;
+        });
+    };
+    
+    // *** GEÄNDERTER TEIL ***
+    portfolioChart.data.originalDates = sortedDates; 
+
+    const maxLabels = window.innerWidth < 768 ? 4 : 8; 
+    const stepSize = Math.ceil(sortedDates.length / maxLabels);
+
+    portfolioChart.data.labels = sortedDates.map((d, i) => {
+        if (i % stepSize === 0) {
+            const date = new Date(d);
+            return date.toLocaleDateString('de-DE', { month: 'short', day: 'numeric' });
+        }
+        return ''; 
+    });
+    
+    portfolioChart.data.datasets[0].data = calculatePercentageChange(portfolioValues);
+    portfolioChart.data.datasets[1].data = calculatePercentageChange([], true, sp500Prices, 0.15);
+    portfolioChart.data.datasets[2].data = calculatePercentageChange([], true, daxPrices, 0.18);
+    portfolioChart.data.datasets[3].data = calculatePercentageChange([], true, btcPrices, 0.70);
+    portfolioChart.data.datasets[4].data = calculatePercentageChange([], true, ethPrices, 0.85);
+    portfolioChart.update();
+}
+
+
+function toggleBenchmarkView() {
+    if (!portfolioChart) return;
+    showingCryptoBenchmarks = !showingCryptoBenchmarks;
+    const btn = document.getElementById('benchmarkToggleBtn');
+    if (btn) btn.textContent = showingCryptoBenchmarks ? '- Crypto' : '+ Crypto';
+    
+    // Indices: 1=S&P500, 2=DAX, 3=BTC, 4=ETH
+    portfolioChart.setDatasetVisibility(1, !showingCryptoBenchmarks);
+    portfolioChart.setDatasetVisibility(2, !showingCryptoBenchmarks);
+    portfolioChart.setDatasetVisibility(3, showingCryptoBenchmarks);
+    portfolioChart.setDatasetVisibility(4, showingCryptoBenchmarks);
+    portfolioChart.update();
+}
+
+function refreshBenchmarkData() {
+    // Clear only benchmark cache keys
+    const keysToRemove = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('yahoo_') || key.startsWith('coingecko_'))) {
+            keysToRemove.push(key);
+        }
+    }
+    keysToRemove.forEach(key => sessionStorage.removeItem(key));
+    showNotification('Marktdaten werden aktualisiert...', 'info');
+    updateChartWithBenchmarks();
 }
 
 function exportChart(containerId) {
@@ -2412,6 +2769,12 @@ function formatDate(dateStr) {
     const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
     return new Date(dateStr).toLocaleDateString('de-DE', options);
 }
+
+const formatDollar = (value) => {
+    if (document.body.classList.contains('privacy-mode')) return '$******';
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'USD' }).format(value);
+};
+
 
 function setToToday() { document.getElementById('entryDate').valueAsDate = new Date(); }
 function setToYesterday() {

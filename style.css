@@ -1154,6 +1154,124 @@ body.has-sync-bar .tab-navigation {
     opacity: 0.5;
 }
 
+/* === NEU: Chart Controls & Legend === */
+.chart-controls {
+    display: flex;
+    gap: 8px;
+    background: rgba(0,0,0,0.05);
+    padding: 5px;
+    border-radius: 10px;
+}
+.dark-mode .chart-controls {
+    background: rgba(255,255,255,0.05);
+}
+.chart-timeframe-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.chart-timeframe-btn:hover {
+    background: rgba(0,0,0,0.05);
+    color: var(--text-primary);
+}
+.chart-timeframe-btn.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+}
+.chart-performance-legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 16px;
+    padding: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    flex-wrap: wrap;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.legend-item .color-box {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+/* === Ende Chart Controls & Legend === */
+
+
+/* === NEU: Custom Chart.js Tooltip === */
+.chartjs-tooltip {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+    color: var(--text-primary);
+    padding: 12px;
+    transition: all 0.2s ease;
+    width: 250px;
+    z-index: 100;
+}
+.tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.tooltip-date {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.tooltip-value {
+    font-size: 16px;
+    font-weight: 700;
+}
+.tooltip-change {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.tooltip-platforms-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+}
+.tooltip-platforms {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 12px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+.tooltip-platforms li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+}
+.tooltip-platforms li .platform-value {
+    font-weight: 600;
+}
+/* === Ende Custom Chart.js Tooltip === */
+
+
 /* Biometric Auth Overlay */
 .biometric-overlay {
     position: fixed;
@@ -1822,4 +1940,70 @@ body.privacy-mode .dollar-value::after {
     transform: translateY(-50%);
     font-weight: normal;
     letter-spacing: 1.5px;
+}
+
+/* ==================================
+   NEU: Stile für den Chart-Tooltip
+   ================================== */
+.chart-tooltip {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    background: var(--card-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    padding: 12px;
+    transition: opacity 0.2s ease;
+    width: 280px;
+    z-index: 100;
+}
+
+.tooltip-header {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tooltip-date {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.tooltip-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tooltip-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.tooltip-change {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.tooltip-platforms {
+    margin-top: 8px;
+}
+
+.platform-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.tooltip-platforms ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-height: 100px;
+    overflow-y: auto;
 }

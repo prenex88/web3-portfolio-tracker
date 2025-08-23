@@ -178,12 +178,21 @@
                 <div class="section" id="portfolio-chart-widget">
                     <div class="section-header">
                         <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                        <div class="chart-controls">
+                            <button class="chart-timeframe-btn" onclick="setDateFilter('30d')">1M</button>
+                            <button class="chart-timeframe-btn" onclick="setDateFilter('90d')">3M</button>
+                            <button class="chart-timeframe-btn" onclick="setDateFilter('ytd')">YTD</button>
+                            <button class="chart-timeframe-btn" onclick="setDateFilter('1y')">1J</button>
+                            <button class="chart-timeframe-btn active" onclick="setDateFilter('all')">MAX</button>
+                        </div>
                         <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
                     </div>
                     <div class="chart-container" id="portfolioChartContainer">
                          <div class="chart-skeleton"></div>
                         <canvas id="portfolioChart"></canvas>
+                        <div id="chartjs-tooltip" class="chartjs-tooltip"></div>
                     </div>
+                    <div id="chart-performance-legend" class="chart-performance-legend"></div>
                 </div>
                 
                 <div class="two-column-layout" id="details-widgets">
