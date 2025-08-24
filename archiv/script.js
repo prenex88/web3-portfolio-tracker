@@ -2648,88 +2648,75 @@ async function updateChartWithBenchmarks() {
     const dateGroups = filteredEntries.reduce((acc, e) => { acc[e.date] = (acc[e.date] || 0) + e.balance; return acc; }, {});
     const sortedDates = Object.keys(dateGroups).sort((a,b) => new Date(a) - new Date(b));
 
-    if (!portfolioChart || sortedDates.length < 2) {
-        if (portfolioChart) {
-            portfolioChart.data.datasets.forEach(ds => ds.data = []);
-            portfolioChart.update();
-        }
+    if (!portfolioChart) return;
+    
+    // Fall 1: Keine oder zu wenige Daten -> Diagramm leeren und beenden.
+    if (sortedDates.length < 2) {
+        portfolioChart.data.labels = [];
+        portfolioChart.data.datasets.forEach(ds => ds.data = []);
+        portfolioChart.update();
         return;
     }
 
+    // Portfolio-Daten vorbereiten
     const portfolioValues = sortedDates.map(d => dateGroups[d]);
-    
     portfolioChart.data.originalDates = sortedDates; 
     portfolioChart.data.portfolioValues = portfolioValues;
-    portfolioChart.data.realPortfolioValues = portfolioValues;
 
     const maxLabels = window.innerWidth < 768 ? 4 : 8; 
     const stepSize = Math.ceil(sortedDates.length / maxLabels);
-
-    portfolioChart.data.labels = sortedDates.map((d, i) => {
-        if (i % stepSize === 0) {
-            const date = new Date(d);
-            return date.toLocaleDateString('de-DE', { month: 'short', day: 'numeric' });
-        }
-        return ''; 
-    });
+    portfolioChart.data.labels = sortedDates.map((d, i) => (i % stepSize === 0) ? new Date(d).toLocaleDateString('de-DE', { month: 'short', day: 'numeric' }) : '');
     
+    // Eigene Portfolio-Linie berechnen und setzen
     portfolioChart.data.datasets[0].data = calculateTWR(sortedDates, portfolioValues);
     
-    // Update Labels für Klarheit
-    portfolioChart.data.datasets[1].label = 'S&P 500 Index';
-    portfolioChart.data.datasets[2].label = 'DAX Index';
+    // WICHTIG: Benchmark-Linien vor dem ersten Zeichnen leeren
+    for (let i = 1; i < portfolioChart.data.datasets.length; i++) {
+        portfolioChart.data.datasets[i].data = [];
+    }
 
-
-    const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
-    const toTs = Math.floor(Date.now() / 1000);
-
-    let [sp500Prices, daxPrices, btcPrices, ethPrices] = await Promise.all([
-        fetchMarketData('%5EGSPC', fromTs, toTs),
-        fetchMarketData('%5EGDAXI', fromTs, toTs),
-        fetchCoinGeckoData('bitcoin', fromTs, toTs),
-        fetchCoinGeckoData('ethereum', fromTs, toTs)
-    ]);
-
-    const calculateBenchmarkChange = (benchmarkPrices, dates) => {
-        if (!benchmarkPrices || benchmarkPrices.length === 0) return new Array(dates.length).fill(null);
-        
-        const priceMap = new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price]));
-        
-        let baseline = null;
-        let firstDate = new Date(dates[0]);
-        
-        for (let i = 0; i <= 5; i++) {
-            const dateStr = firstDate.toISOString().split('T')[0];
-            if (priceMap.has(dateStr)) {
-                baseline = priceMap.get(dateStr);
-                break;
-            }
-            firstDate.setDate(firstDate.getDate() - 1);
-        }
-        if (baseline === null) {
-            baseline = benchmarkPrices[0][1];
-        }
-
-        if (baseline === null) return new Array(dates.length).fill(null);
-
-        let lastKnownPrice = baseline;
-        return dates.map(date => {
-            const currentPrice = priceMap.get(date);
-            if (currentPrice !== undefined && currentPrice !== null) {
-                lastKnownPrice = currentPrice;
-                return ((currentPrice - baseline) / baseline) * 100;
-            } else {
-                return ((lastKnownPrice - baseline) / baseline) * 100;
-            }
-        });
-    };
-    
-    portfolioChart.data.datasets[1].data = calculateBenchmarkChange(sp500Prices, sortedDates);
-    portfolioChart.data.datasets[2].data = calculateBenchmarkChange(daxPrices, sortedDates);
-    portfolioChart.data.datasets[3].data = calculateBenchmarkChange(btcPrices, sortedDates);
-    portfolioChart.data.datasets[4].data = calculateBenchmarkChange(ethPrices, sortedDates);
-    
+    // *** SCHRITT 1: SOFORT ZEICHNEN ***
+    // Das Diagramm wird jetzt sofort mit der eigenen Portfolio-Linie angezeigt.
     portfolioChart.update();
+
+    // *** SCHRITT 2: BENCHMARKS IM HINTERGRUND LADEN UND HINZUFÜGEN ***
+    try {
+        const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
+        const toTs = Math.floor(new Date(sortedDates[sortedDates.length - 1]).getTime() / 1000) + 86400;
+
+        const calculateBenchmarkChange = (benchmarkPrices, dates) => {
+            if (!benchmarkPrices || benchmarkPrices.length === 0) return new Array(dates.length).fill(null);
+            const priceMap = new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price]));
+            let baseline = benchmarkPrices[0][1];
+            if (baseline === null || baseline === 0) return new Array(dates.length).fill(0);
+            let lastKnownPrice = baseline;
+            return dates.map(date => {
+                const currentPrice = priceMap.get(date);
+                if (currentPrice !== undefined && currentPrice !== null) lastKnownPrice = currentPrice;
+                return ((lastKnownPrice - baseline) / baseline) * 100;
+            });
+        };
+
+        // Daten parallel laden
+        const [sp500Prices, daxPrices, btcPrices, ethPrices] = await Promise.all([
+            fetchMarketData('%5EGSPC', fromTs, toTs),
+            fetchMarketData('%5EGDAXI', fromTs, toTs),
+            fetchCoinGeckoData('bitcoin', fromTs, toTs),
+            fetchCoinGeckoData('ethereum', fromTs, toTs)
+        ]);
+        
+        // Benchmark-Daten zur Chart-Konfiguration hinzufügen
+        portfolioChart.data.datasets[1].data = calculateBenchmarkChange(sp500Prices, sortedDates);
+        portfolioChart.data.datasets[2].data = calculateBenchmarkChange(daxPrices, sortedDates);
+        portfolioChart.data.datasets[3].data = calculateBenchmarkChange(btcPrices, sortedDates);
+        portfolioChart.data.datasets[4].data = calculateBenchmarkChange(ethPrices, sortedDates);
+
+        // Das Diagramm ein zweites Mal aktualisieren, um die neuen Benchmark-Linien zu zeichnen
+        portfolioChart.update();
+
+    } catch (error) {
+        console.error("Benchmarks konnten nicht geladen werden, Portfolio wird trotzdem angezeigt:", error);
+    }
 }
 
 
