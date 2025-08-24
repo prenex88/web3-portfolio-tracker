@@ -2297,80 +2297,49 @@ const externalTooltipHandler = (context) => {
     const date = chart.data.originalDates[dataIndex];
     if (!date) return;
     
+    // --- (Der gesamte Code zum Befüllen des Tooltips bleibt identisch) ---
     const portfolioValueToday = chart.data.portfolioValues[dataIndex];
     const twrPercentage = chart.data.datasets[0].data[dataIndex] || 0;
-    
-    const depositsUpToDate = cashflows
-        .filter(c => c.type === 'deposit' && c.date <= date)
-        .reduce((s, c) => s + c.amount, 0);
-    const withdrawalsUpToDate = cashflows
-        .filter(c => c.type === 'withdraw' && c.date <= date)
-        .reduce((s, c) => s + c.amount, 0);
+    const depositsUpToDate = cashflows.filter(c => c.type === 'deposit' && c.date <= date).reduce((s, c) => s + c.amount, 0);
+    const withdrawalsUpToDate = cashflows.filter(c => c.type === 'withdraw' && c.date <= date).reduce((s, c) => s + c.amount, 0);
     const netCashflowUpToDate = depositsUpToDate - withdrawalsUpToDate;
-    
     const profit = portfolioValueToday - netCashflowUpToDate;
     const roiPercentage = netCashflowUpToDate > 0 ? (profit / netCashflowUpToDate) * 100 : 0;
-    
     let dailyPerformance = 0;
     if (dataIndex > 0) {
         const previousTwrPercentage = chart.data.datasets[0].data[dataIndex - 1] || 0;
         dailyPerformance = twrPercentage - previousTwrPercentage;
     }
-    
     const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || 'Keine Strategie für diesen Tag hinterlegt.';
     const activeProtocols = entries.filter(e => e.date === date && e.balance > 0).map(e => e.protocol).join(', ');
-
     tooltipContainer.innerHTML = ''; 
-
     const twrColor = twrPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
     const roiColor = roiPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
     const perfColorDaily = dailyPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
-    
     const headerEl = document.createElement('div');
     headerEl.style.borderBottom = '1px solid var(--border)';
     headerEl.style.paddingBottom = '8px';
     headerEl.style.marginBottom = '8px';
-
-    headerEl.innerHTML = `
-        <div style="font-size: 1.3em; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;">${formatDollar(portfolioValueToday)}</div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
-            <div style="background: ${twrColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${twrColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Performance</div><div style="color: ${twrColor}; font-weight: 700; font-size: 1.1em;">${twrPercentage >= 0 ? '+' : ''}${twrPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">TWR</div></div>
-            <div style="background: ${roiColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${roiColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Gewinn</div><div style="color: ${roiColor}; font-weight: 700; font-size: 1.1em;">${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">ROI</div></div>
-            <div style="background: ${perfColorDaily}15; border-radius: 6px; padding: 8px; border: 1px solid ${perfColorDaily}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Änderung</div><div style="color: ${perfColorDaily}; font-weight: 700; font-size: 1.1em;">${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">Periode</div></div>
-        </div>`;
+    headerEl.innerHTML = `<div style="font-size: 1.3em; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;">${formatDollar(portfolioValueToday)}</div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;"><div style="background: ${twrColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${twrColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Performance</div><div style="color: ${twrColor}; font-weight: 700; font-size: 1.1em;">${twrPercentage >= 0 ? '+' : ''}${twrPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">TWR</div></div><div style="background: ${roiColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${roiColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Gewinn</div><div style="color: ${roiColor}; font-weight: 700; font-size: 1.1em;">${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">ROI</div></div><div style="background: ${perfColorDaily}15; border-radius: 6px; padding: 8px; border: 1px solid ${perfColorDaily}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Änderung</div><div style="color: ${perfColorDaily}; font-weight: 700; font-size: 1.1em;">${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">Periode</div></div></div>`;
     tooltipContainer.appendChild(headerEl);
-
     const dateEl = document.createElement('div');
-    dateEl.style.fontSize = '0.85em';
-    dateEl.style.color = 'var(--text-secondary)';
-    dateEl.style.marginBottom = '8px';
-    dateEl.style.fontWeight = '500';
+    dateEl.style.fontSize = '0.85em';dateEl.style.color = 'var(--text-secondary)';dateEl.style.marginBottom = '8px';dateEl.style.fontWeight = '500';
     dateEl.innerHTML = `📅 ${new Date(date).toLocaleDateString('de-DE', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     tooltipContainer.appendChild(dateEl);
-
     if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.' || activeProtocols) {
         const infoSection = document.createElement('div');
-        infoSection.style.marginTop = '8px';
-        infoSection.style.paddingTop = '8px';
-        infoSection.style.borderTop = '1px solid var(--border)';
-        infoSection.style.fontSize = '0.8em';
+        infoSection.style.marginTop = '8px';infoSection.style.paddingTop = '8px';infoSection.style.borderTop = '1px solid var(--border)';infoSection.style.fontSize = '0.8em';
         let infoHTML = '';
         if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.') {
             infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">🎯 Strategie</div><div style="color: var(--text-secondary); padding-left: 4px;">${dayStrategy}</div></div>`;
             if (activeProtocols) infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
         }
-        if (activeProtocols) {
-            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
-        }
+        if (activeProtocols) infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
         infoSection.innerHTML = infoHTML;
         tooltipContainer.appendChild(infoSection);
     }
-    
     const benchmarksEl = document.createElement('div');
-    benchmarksEl.style.marginTop = '8px';
-    benchmarksEl.style.paddingTop = '8px';
-    benchmarksEl.style.borderTop = '1px solid var(--border)';
-    benchmarksEl.style.fontSize = '0.8em';
+    benchmarksEl.style.marginTop = '8px';benchmarksEl.style.paddingTop = '8px';benchmarksEl.style.borderTop = '1px solid var(--border)';benchmarksEl.style.fontSize = '0.8em';
     let benchmarkHTML = '<div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">📈 Benchmarks</div>';
     const sp500Performance = chart.data.datasets[1]?.data[dataIndex];
     if (sp500Performance !== undefined && sp500Performance !== null) {
@@ -2385,23 +2354,53 @@ const externalTooltipHandler = (context) => {
     benchmarksEl.innerHTML = benchmarkHTML;
     tooltipContainer.appendChild(benchmarksEl);
     
-    // Positionierung
-    const canvasRect = chart.canvas.getBoundingClientRect();
-    const tooltipWidth = tooltipEl.offsetWidth;
-
+    // === FINALE, ROBUSTE POSITIONIERUNG FÜR ALLE GERÄTE ===
     tooltipEl.style.opacity = 1;
     tooltipEl.style.position = 'absolute';
     tooltipEl.style.transform = '';
 
-    let left = canvasRect.left + window.scrollX + tooltip.caretX + 15;
-    let top = canvasRect.top + window.scrollY + tooltip.caretY + 15;
+    const canvasRect = chart.canvas.getBoundingClientRect();
+    const tooltipRect = tooltipEl.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 10;
+    const offset = 15;
 
-    if (left + tooltipWidth > window.innerWidth + window.scrollX) {
-        left = canvasRect.left + window.scrollX + tooltip.caretX - tooltipWidth - 15;
+    // Horizontale Positionierung
+    let left;
+    // Prüfen, ob rechts genug Platz ist
+    if (canvasRect.left + tooltip.caretX + tooltipRect.width + offset + margin < viewportWidth) {
+        left = canvasRect.left + tooltip.caretX + offset;
+    } 
+    // Prüfen, ob links genug Platz ist
+    else if (canvasRect.left + tooltip.caretX - tooltipRect.width - offset - margin > 0) {
+        left = canvasRect.left + tooltip.caretX - tooltipRect.width - offset;
+    }
+    // Fallback: mittig zentrieren, wenn nirgends Platz ist (sehr schmale Bildschirme)
+    else {
+        left = (viewportWidth - tooltipRect.width) / 2;
     }
 
-    tooltipEl.style.left = left + 'px';
-    tooltipEl.style.top = top + 'px';
+    // Vertikale Positionierung
+    let top;
+    // Prüfen, ob unten genug Platz ist
+    if (canvasRect.top + tooltip.caretY + tooltipRect.height + offset + margin < viewportHeight) {
+        top = canvasRect.top + tooltip.caretY + offset;
+    }
+    // Ansonsten, oben positionieren
+    else {
+        top = canvasRect.top + tooltip.caretY - tooltipRect.height - offset;
+    }
+    
+    // Finale Korrektur, um sicherzustellen, dass es niemals aus dem Bildschirm ragt
+    if (left < margin) left = margin;
+    if (left + tooltipRect.width + margin > viewportWidth) left = viewportWidth - tooltipRect.width - margin;
+    if (top < margin) top = margin;
+    if (top + tooltipRect.height + margin > viewportHeight) top = viewportHeight - tooltipRect.height - margin;
+
+    // Finale Position mit Scroll-Offset anwenden
+    tooltipEl.style.left = left + window.scrollX + 'px';
+    tooltipEl.style.top = top + window.scrollY + 'px';
 };
 
 function initializeCharts() {
