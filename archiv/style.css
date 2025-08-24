@@ -2013,7 +2013,3 @@ body.privacy-mode .dollar-value::after {
 .dashboard-card {
     overflow: visible !important;
 }
-
-#portfolioChartContainer, .section, .chart-container, #dashboardContent {
-    overflow: visible !important;
-}
