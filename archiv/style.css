@@ -2018,3 +2018,10 @@ body.privacy-mode .dollar-value::after {
 #portfolioChartContainer, .section, .chart-container, #dashboardContent {
     overflow: visible !important;
 }
+
+/* Stellt sicher, dass der Tooltip auf schmalen Bildschirmen nicht breiter als der Bildschirm ist */
+@media (max-width: 480px) {
+    .chartjs-tooltip {
+        max-width: calc(100vw - 20px);
+    }
+}
