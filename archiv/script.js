@@ -2259,13 +2259,13 @@ function updatePlatformDetails() {
 // =================================================================================
 
 const getOrCreateTooltip = (chart) => {
-    let tooltipEl = chart.canvas.parentNode.querySelector('.chartjs-tooltip');
+    let tooltipEl = document.querySelector('.chartjs-tooltip');
 
     if (!tooltipEl) {
         tooltipEl = document.createElement('div');
-        tooltipEl.id = 'chartjs-tooltip';
         tooltipEl.className = 'chartjs-tooltip';
-        chart.canvas.parentNode.appendChild(tooltipEl);
+        // HINWEIS: Wir setzen keine ID, da wir nach der Klasse suchen und sie nur einmal existieren sollte.
+        document.body.appendChild(tooltipEl);
     }
 
     let contentEl = tooltipEl.querySelector('.chartjs-tooltip-content');
@@ -2289,7 +2289,7 @@ const externalTooltipHandler = (context) => {
     }
 
     const tooltipContainer = tooltipEl.querySelector('.chartjs-tooltip-content');
-    if (!tooltipContainer) {
+    if (!tooltipContainer || !tooltip.dataPoints.length) {
         return;
     }
         
@@ -2298,11 +2298,8 @@ const externalTooltipHandler = (context) => {
     if (!date) return;
     
     const portfolioValueToday = chart.data.portfolioValues[dataIndex];
-    
-    // TWR vom Chart-Dataset
     const twrPercentage = chart.data.datasets[0].data[dataIndex] || 0;
     
-    // ROI berechnen - WICHTIG: Alle Cashflows bis einschließlich dem angezeigten Datum
     const depositsUpToDate = cashflows
         .filter(c => c.type === 'deposit' && c.date <= date)
         .reduce((s, c) => s + c.amount, 0);
@@ -2313,9 +2310,7 @@ const externalTooltipHandler = (context) => {
     
     const profit = portfolioValueToday - netCashflowUpToDate;
     const roiPercentage = netCashflowUpToDate > 0 ? (profit / netCashflowUpToDate) * 100 : 0;
-
     
-    // Perioden-Performance (TWR-Differenz)
     let dailyPerformance = 0;
     if (dataIndex > 0) {
         const previousTwrPercentage = chart.data.datasets[0].data[dataIndex - 1] || 0;
@@ -2323,11 +2318,7 @@ const externalTooltipHandler = (context) => {
     }
     
     const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || 'Keine Strategie für diesen Tag hinterlegt.';
-    
-    const activeProtocols = entries
-        .filter(e => e.date === date && e.balance > 0)
-        .map(e => e.protocol)
-        .join(', ');
+    const activeProtocols = entries.filter(e => e.date === date && e.balance > 0).map(e => e.protocol).join(', ');
 
     tooltipContainer.innerHTML = ''; 
 
@@ -2339,22 +2330,14 @@ const externalTooltipHandler = (context) => {
     headerEl.style.borderBottom = '1px solid var(--border)';
     headerEl.style.paddingBottom = '8px';
     headerEl.style.marginBottom = '8px';
+
     headerEl.innerHTML = `
-        <div style="font-size: 1.3em; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">
-            ${formatDollar(portfolioValueToday)}
-        </div>
-        <div style="display: flex; gap: 6px; font-size: 0.85em; flex-wrap: wrap;">
-          <span style="color: ${twrColor}; background: ${twrColor}20; padding: 2px 6px; border-radius: 4px; font-weight: 500;">
-            ${twrPercentage >= 0 ? '+' : ''}${twrPercentage.toFixed(2)}% TWR
-          </span>
-          <span style="color: ${roiColor}; background: ${roiColor}20; padding: 2px 6px; border-radius: 4px; font-weight: 500;">
-            ${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(2)}% ROI
-          </span>
-          <span style="color: ${perfColorDaily}; background: ${perfColorDaily}20; padding: 2px 6px; border-radius: 4px; font-weight: 500;">
-            ${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}% Periode
-          </span>
-        </div>
-    `;
+        <div style="font-size: 1.3em; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;">${formatDollar(portfolioValueToday)}</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+            <div style="background: ${twrColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${twrColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Performance</div><div style="color: ${twrColor}; font-weight: 700; font-size: 1.1em;">${twrPercentage >= 0 ? '+' : ''}${twrPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">TWR</div></div>
+            <div style="background: ${roiColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${roiColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Gewinn</div><div style="color: ${roiColor}; font-weight: 700; font-size: 1.1em;">${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">ROI</div></div>
+            <div style="background: ${perfColorDaily}15; border-radius: 6px; padding: 8px; border: 1px solid ${perfColorDaily}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Änderung</div><div style="color: ${perfColorDaily}; font-weight: 700; font-size: 1.1em;">${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">Periode</div></div>
+        </div>`;
     tooltipContainer.appendChild(headerEl);
 
     const dateEl = document.createElement('div');
@@ -2362,11 +2345,7 @@ const externalTooltipHandler = (context) => {
     dateEl.style.color = 'var(--text-secondary)';
     dateEl.style.marginBottom = '8px';
     dateEl.style.fontWeight = '500';
-    dateEl.innerHTML = `📅 ${new Date(date).toLocaleDateString('de-DE', { 
-        month: 'short', 
-        day: 'numeric',
-        year: 'numeric'
-    })}`;
+    dateEl.innerHTML = `📅 ${new Date(date).toLocaleDateString('de-DE', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     tooltipContainer.appendChild(dateEl);
 
     if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.' || activeProtocols) {
@@ -2375,108 +2354,55 @@ const externalTooltipHandler = (context) => {
         infoSection.style.paddingTop = '8px';
         infoSection.style.borderTop = '1px solid var(--border)';
         infoSection.style.fontSize = '0.8em';
-        
         let infoHTML = '';
-        
         if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.') {
-            infoHTML += `
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">🎯 Strategie</div>
-                    <div style="color: var(--text-secondary); padding-left: 4px;">${dayStrategy}</div>
-                </div>
-            `;
-            
-            // Füge Trennlinie hinzu, wenn auch Plattformen vorhanden sind
-            if (activeProtocols) {
-                infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
-            }
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">🎯 Strategie</div><div style="color: var(--text-secondary); padding-left: 4px;">${dayStrategy}</div></div>`;
+            if (activeProtocols) infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
         }
-        
         if (activeProtocols) {
-            infoHTML += `
-                <div style="margin-bottom: 6px;">
-                    <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div>
-                    <div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div>
-                </div>
-            `;
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
         }
-        
         infoSection.innerHTML = infoHTML;
         tooltipContainer.appendChild(infoSection);
     }
-
-    // Zeige Benchmark-Performance
+    
     const benchmarksEl = document.createElement('div');
     benchmarksEl.style.marginTop = '8px';
     benchmarksEl.style.paddingTop = '8px';
     benchmarksEl.style.borderTop = '1px solid var(--border)';
     benchmarksEl.style.fontSize = '0.8em';
-    
     let benchmarkHTML = '<div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">📈 Benchmarks</div>';
-    
-    // S&P 500 Performance
     const sp500Performance = chart.data.datasets[1]?.data[dataIndex];
     if (sp500Performance !== undefined && sp500Performance !== null) {
         const sp500Color = sp500Performance >= 0 ? 'var(--success)' : 'var(--danger)';
-        benchmarkHTML += `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                <span style="color: var(--text-secondary);">S&P 500:</span>
-                <span style="color: ${sp500Color}; font-weight: 500;">
-                    ${sp500Performance >= 0 ? '+' : ''}${sp500Performance.toFixed(2)}%
-                </span>
-            </div>
-        `;
+        benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">S&P 500:</span><span style="color: ${sp500Color}; font-weight: 500;">${sp500Performance >= 0 ? '+' : ''}${sp500Performance.toFixed(2)}%</span></div>`;
     }
-    
-    // DAX Performance  
     const daxPerformance = chart.data.datasets[2]?.data[dataIndex];
     if (daxPerformance !== undefined && daxPerformance !== null) {
         const daxColor = daxPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
-        benchmarkHTML += `
-            <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-secondary);">DAX:</span>
-                <span style="color: ${daxColor}; font-weight: 500;">
-                    ${daxPerformance >= 0 ? '+' : ''}${daxPerformance.toFixed(2)}%
-                </span>
-            </div>
-        `;
+        benchmarkHTML += `<div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);">DAX:</span><span style="color: ${daxColor}; font-weight: 500;">${daxPerformance >= 0 ? '+' : ''}${daxPerformance.toFixed(2)}%</span></div>`;
     }
-    
     benchmarksEl.innerHTML = benchmarkHTML;
     tooltipContainer.appendChild(benchmarksEl);
     
-    // NUR EINMAL DEKLARIEREN!
-    const { offsetLeft: positionX, offsetTop: positionY } = chart.canvas;
-    const chartWidth = chart.canvas.width;
-    const tooltipWidth = 320; // Geschätzte Breite
-    
-    let newX = positionX + tooltip.caretX;
-    
-    // Wenn zu weit rechts (letztes Viertel des Charts), zeige links vom Cursor
-    if (tooltip.caretX > chartWidth * 0.75) {
-        newX = positionX + tooltip.caretX - tooltipWidth - 20;
-        tooltipEl.style.transform = 'translate(0, 0)';
-    } 
-    // Wenn zu weit links
-    else if (tooltip.caretX < chartWidth * 0.25) {
-        newX = positionX + tooltip.caretX + 20;
-        tooltipEl.style.transform = 'translate(0, 0)';
-    } 
-    // Mitte: zentriert
-    else {
-        tooltipEl.style.transform = 'translate(-50%, 0)';
-    }
-    
-    // Sicherstellen, dass Tooltip nicht außerhalb des sichtbaren Bereichs ist
-    const maxX = window.innerWidth - tooltipWidth - 20;
-    const minX = 20;
-    newX = Math.max(minX, Math.min(newX, maxX));
+    // Positionierung
+    const canvasRect = chart.canvas.getBoundingClientRect();
+    const tooltipWidth = tooltipEl.offsetWidth;
 
     tooltipEl.style.opacity = 1;
-    tooltipEl.style.left = newX + 'px';
-    tooltipEl.style.top = positionY + tooltip.caretY + 10 + 'px';
-};
+    tooltipEl.style.position = 'absolute';
+    tooltipEl.style.transform = '';
 
+    let left = canvasRect.left + window.scrollX + tooltip.caretX + 15;
+    let top = canvasRect.top + window.scrollY + tooltip.caretY + 15;
+
+    if (left + tooltipWidth > window.innerWidth + window.scrollX) {
+        left = canvasRect.left + window.scrollX + tooltip.caretX - tooltipWidth - 15;
+    }
+
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
+};
 
 function initializeCharts() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
@@ -3425,8 +3351,12 @@ function addMissingStyles() {
             pointer-events: none;
             transform: translate(-50%, 0);
             transition: all 0.2s ease;
-            z-index: 1000;
+            z-index: 10000;
             font-size: 0.9em;
+            tooltipEl.style.opacity = 1;
+            tooltipEl.style.left = newX + 'px';
+            tooltipEl.style.top = positionY + tooltip.caretY + 10 + 'px';
+            tooltipEl.style.zIndex = '10000';  // Explizit setzen
         }
         .chartjs-tooltip-content {
              padding: 12px;

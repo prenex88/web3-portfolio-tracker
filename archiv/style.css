@@ -1222,8 +1222,9 @@ body.has-sync-bar .tab-navigation {
     padding: 12px;
     transition: all 0.2s ease;
     width: 250px;
-    z-index: 10000; /* Erhöhter z-index */
+    z-index: 9999; /* Sehr hoher z-index, um über allem zu schweben */
 }
+
 .tooltip-header {
     display: flex;
     justify-content: space-between;
@@ -2011,5 +2012,9 @@ body.privacy-mode .dollar-value::after {
 #portfolioChartContainer,
 .chart-container,
 .dashboard-card {
+    overflow: visible !important;
+}
+
+#portfolioChartContainer, .section, .chart-container, #dashboardContent {
     overflow: visible !important;
 }
