@@ -2358,29 +2358,45 @@ const externalTooltipHandler = (context) => {
     tooltipEl.style.opacity = 1;
     tooltipEl.style.position = 'absolute';
     tooltipEl.style.transform = '';
-    // Schritt 1: Unsichtbar positionieren, um die echte Größe zu messen
-    tooltipEl.style.left = '-9999px';
-    tooltipEl.style.top = '-9999px';
-    
-    const tooltipRect = tooltipEl.getBoundingClientRect();
+
     const canvasRect = chart.canvas.getBoundingClientRect();
+    const tooltipRect = tooltipEl.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
-    const margin = 15;
+    const viewportHeight = window.innerHeight;
+    const margin = 10;
+    const offset = 15;
 
     // Horizontale Positionierung
-    let left = canvasRect.left + tooltip.caretX;
-    if (left + tooltipRect.width + margin > viewportWidth) {
-        left = viewportWidth - tooltipRect.width - margin;
+    let left;
+    // Prüfen, ob rechts genug Platz ist
+    if (canvasRect.left + tooltip.caretX + tooltipRect.width + offset + margin < viewportWidth) {
+        left = canvasRect.left + tooltip.caretX + offset;
+    } 
+    // Prüfen, ob links genug Platz ist
+    else if (canvasRect.left + tooltip.caretX - tooltipRect.width - offset - margin > 0) {
+        left = canvasRect.left + tooltip.caretX - tooltipRect.width - offset;
     }
-    if (left < margin) {
-        left = margin;
+    // Fallback: mittig zentrieren, wenn nirgends Platz ist (sehr schmale Bildschirme)
+    else {
+        left = (viewportWidth - tooltipRect.width) / 2;
     }
 
     // Vertikale Positionierung
-    let top = canvasRect.top + tooltip.caretY + 20; // Bevorzugt unter dem Punkt
-    if (top + tooltipRect.height + margin > window.innerHeight) {
-        top = canvasRect.top + tooltip.caretY - tooltipRect.height - 20; // Ansonsten darüber
+    let top;
+    // Prüfen, ob unten genug Platz ist
+    if (canvasRect.top + tooltip.caretY + tooltipRect.height + offset + margin < viewportHeight) {
+        top = canvasRect.top + tooltip.caretY + offset;
     }
+    // Ansonsten, oben positionieren
+    else {
+        top = canvasRect.top + tooltip.caretY - tooltipRect.height - offset;
+    }
+    
+    // Finale Korrektur, um sicherzustellen, dass es niemals aus dem Bildschirm ragt
+    if (left < margin) left = margin;
+    if (left + tooltipRect.width + margin > viewportWidth) left = viewportWidth - tooltipRect.width - margin;
+    if (top < margin) top = margin;
+    if (top + tooltipRect.height + margin > viewportHeight) top = viewportHeight - tooltipRect.height - margin;
 
     // Finale Position mit Scroll-Offset anwenden
     tooltipEl.style.left = left + window.scrollX + 'px';
