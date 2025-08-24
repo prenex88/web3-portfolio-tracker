@@ -44,6 +44,32 @@ const DEFAULT_PLATFORMS = [
 const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
+const ALPHA_VANTAGE_API = 'https://www.alphavantage.co/query';
+const ALPHA_VANTAGE_KEY = '6CEGANC4B4A0IN2D'; // Dein kostenloser Alpha Vantage API Key
+
+// Feste Benchmark-Daten als Fallback
+const BENCHMARK_DATA = {
+    'DAX': [
+        { date: '2025-02-14', value: 22513 },
+        { date: '2025-03-01', value: 22800 },
+        { date: '2025-04-01', value: 23100 },
+        { date: '2025-05-01', value: 23500 },
+        { date: '2025-06-01', value: 23900 },
+        { date: '2025-07-01', value: 24100 },
+        { date: '2025-08-01', value: 24200 },
+        { date: '2025-08-22', value: 24363 }
+    ],
+    'SP500': [
+        { date: '2025-02-14', value: 5800 },
+        { date: '2025-03-01', value: 5850 },
+        { date: '2025-04-01', value: 5900 },
+        { date: '2025-05-01', value: 5950 },
+        { date: '2025-06-01', value: 6000 },
+        { date: '2025-07-01', value: 6100 },
+        { date: '2025-08-01', value: 6150 },
+        { date: '2025-08-22', value: 6200 }
+    ]
+};
 
 // =================================================================================
 // GLOBALE VARIABLEN
@@ -51,7 +77,7 @@ const CORS_PROXY = 'https://corsproxy.io/?';
 let platforms = [];
 let entries = [];
 let cashflows = [];
-let dayStrategies = []; // *** NEU: Globale Variable für Tages-Strategien ***
+let dayStrategies = [];
 let filteredEntries = [];
 let filteredCashflows = [];
 let selectedPlatforms = [];
@@ -95,7 +121,6 @@ let showingCryptoBenchmarks = false;
 document.addEventListener('DOMContentLoaded', () => {
     Chart.register(ChartDataLabels);
     
-    // *** NEU: Datenmigration von v10 zu v11 ausführen ***
     migrateV10toV11();
 
     if (isMobileDevice()) {
@@ -119,6 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
     checkConnectionOnStartup();
     registerServiceWorker();
 
+    addMissingStyles();
+
     applyDashboardWidgetOrder();
     initializeDragAndDrop();
 });
@@ -128,12 +155,12 @@ function isMobileDevice() {
 }
 
 // =================================================================================
-// *** NEU: DATENMIGRATION VON V10 ZU V11 ***
+// DATENMIGRATION VON V10 ZU V11
 // =================================================================================
 function migrateV10toV11() {
     const v11_FLAG = `${STORAGE_PREFIX}migration_v11_complete`;
     if (localStorage.getItem(v11_FLAG)) {
-        return; // Migration wurde bereits durchgeführt
+        return;
     }
 
     const OLD_STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v10_' : 'w3pt_default_v10_';
@@ -141,14 +168,13 @@ function migrateV10toV11() {
     const oldEntriesRaw = localStorage.getItem(`${OLD_STORAGE_PREFIX}portfolioEntries_v10`);
     if (!oldEntriesRaw) {
         localStorage.setItem(v11_FLAG, 'true');
-        return; // Keine alten Daten zum Migrieren
+        return;
     }
 
     try {
         console.log("Starte Migration von v10 zu v11...");
         const oldEntries = JSON.parse(oldEntriesRaw);
         
-        // 1. Neue `dayStrategies` erstellen und `strategy` aus Einträgen entfernen
         const newDayStrategies = [];
         const strategyMap = new Map();
 
@@ -160,24 +186,20 @@ function migrateV10toV11() {
                     newDayStrategies.push({ date: entry.date, strategy: entry.strategy });
                 }
             }
-            // Erstelle einen neuen Eintrag ohne das `strategy` Feld
             const { strategy, ...rest } = entry;
             return rest;
         });
 
-        // 2. Andere Daten laden (falls vorhanden)
         const oldPlatforms = JSON.parse(localStorage.getItem(`${OLD_STORAGE_PREFIX}portfolioPlatforms_v10`)) || DEFAULT_PLATFORMS;
         const oldCashflows = JSON.parse(localStorage.getItem(`${OLD_STORAGE_PREFIX}portfolioCashflows_v10`)) || [];
         const oldFavorites = JSON.parse(localStorage.getItem(`${OLD_STORAGE_PREFIX}portfolioFavorites_v10`)) || [];
 
-        // 3. Daten im neuen v11-Format speichern
         localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(oldPlatforms));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(newEntries));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(oldCashflows));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(oldFavorites));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(newDayStrategies));
 
-        // 4. Migrations-Flag setzen
         localStorage.setItem(v11_FLAG, 'true');
 
         console.log("Migration erfolgreich abgeschlossen!");
@@ -186,7 +208,6 @@ function migrateV10toV11() {
     } catch (error) {
         console.error("Fehler bei der Datenmigration:", error);
         showNotification("Fehler bei der Daten-Aktualisierung!", "error");
-        // Setze Flag trotzdem, um Endlosschleifen zu vermeiden
         localStorage.setItem(v11_FLAG, 'true');
     }
 }
@@ -457,11 +478,17 @@ function selectAutocompleteItem(platform) {
 function addEventListeners() {
     document.getElementById('privacyToggle').addEventListener('click', togglePrivacyMode);
     
-    // *** NEU: Event Listener für das Datumsfeld, um die Strategie zu laden ***
     document.getElementById('entryDate').addEventListener('change', (e) => {
         const date = e.target.value;
         const strategyEntry = dayStrategies.find(s => s.date === date);
-        document.getElementById('dailyStrategy').value = strategyEntry ? strategyEntry.strategy : '';
+        const strategyInput = document.getElementById('dailyStrategy');
+        if (strategyInput) {
+            strategyInput.value = strategyEntry ? strategyEntry.strategy : '';
+        }
+        const dynamicStrategyInput = document.getElementById('dailyStrategyDynamic');
+        if (dynamicStrategyInput) {
+            dynamicStrategyInput.value = strategyEntry ? strategyEntry.strategy : '';
+        }
     });
     
     const inputsContainer = document.getElementById('platformInputs');
@@ -510,7 +537,6 @@ function addEventListeners() {
         biometricToggle.checked = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
     }
 
-    // Event listeners for new chart time range buttons
     document.querySelectorAll('.chart-time-filter .filter-btn').forEach(button => {
         button.addEventListener('click', (e) => {
             const period = e.currentTarget.dataset.period;
@@ -718,7 +744,6 @@ function togglePrivacyMode() {
 // =================================================================================
 // DATA HANDLING & FILTERING
 // =================================================================================
-// *** GEÄNDERT: Lade- und Speicherfunktionen um dayStrategies erweitert ***
 function loadData() {
     platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms`)) || [...DEFAULT_PLATFORMS];
     
@@ -753,7 +778,6 @@ function applyDateFilter() {
     const endDateStr = document.getElementById('filterEndDate').value;
 
     if (startDateStr || endDateStr) {
-        // Robuste Filterung durch direkten String-Vergleich (vermeidet Zeitzonenprobleme)
         filteredEntries = entries.filter(e => {
             const isAfterStart = startDateStr ? e.date >= startDateStr : true;
             const isBeforeEnd = endDateStr ? e.date <= endDateStr : true;
@@ -766,7 +790,6 @@ function applyDateFilter() {
             return isAfterStart && isBeforeEnd;
         });
     } else {
-        // Wenn beide Felder leer sind, zeige alle Daten
         filteredEntries = [...entries];
         filteredCashflows = [...cashflows];
     }
@@ -835,7 +858,39 @@ function resetDateFilter() {
     document.getElementById('activeFilterDisplay').textContent = 'Alles';
     setDateFilter('all');
 }
-// *** GEÄNDERT: `saveSingleEntry` an neue Datenstruktur angepasst (kein `strategy` Feld mehr)
+
+function saveStrategyForDate(date, strategy) {
+    const existingIndex = dayStrategies.findIndex(s => s.date === date);
+    if (existingIndex >= 0) {
+        if (strategy) {
+            dayStrategies[existingIndex].strategy = strategy;
+        } else {
+            dayStrategies.splice(existingIndex, 1);
+        }
+    } else if (strategy) {
+        dayStrategies.push({ date, strategy });
+    }
+}
+
+function saveStrategyOnly() {
+    const date = document.getElementById('entryDate').value;
+    const strategy = document.getElementById('dailyStrategyDynamic')?.value || '';
+    
+    if (!date) {
+        showNotification('Bitte Datum wählen!', 'error');
+        return;
+    }
+    
+    if (!strategy.trim()) {
+        showNotification('Bitte Strategie eingeben!', 'error');
+        return;
+    }
+    
+    saveStrategyForDate(date, strategy.trim());
+    saveData();
+    showNotification(`Strategie für ${formatDate(date)} gespeichert! ✅`);
+}
+
 function saveSingleEntry(inputElement) {
     const date = document.getElementById('entryDate').value;
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
@@ -848,6 +903,10 @@ function saveSingleEntry(inputElement) {
 
     entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
     entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
+    
+    const dayStrategy = document.getElementById('dailyStrategyDynamic')?.value || '';
+    saveStrategyForDate(date, dayStrategy);
+    
     saveData();
     applyDateFilter();
 
@@ -891,7 +950,6 @@ function loadGitHubConfig() {
     updateSyncBarVisibility();
 }
 
-// *** GEÄNDERT: Sync-Funktionen um `dayStrategies` erweitert ***
 async function syncNow() {
     if (!githubToken || !gistId) {
         showCustomPrompt({
@@ -954,7 +1012,7 @@ async function fetchGistData() {
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
     const gist = await response.json();
-    const content = gist.files['portfolio-data-v11.json']?.content; // Neuer Dateiname für neue Struktur
+    const content = gist.files['portfolio-data-v11.json']?.content;
     if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], lastSync: null };
     return JSON.parse(content);
 }
@@ -1188,7 +1246,7 @@ function switchTab(tabName) {
     if (tabName === 'platforms') updatePlatformDetails();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
-        updateCashflowStats(); // Call the new stats function here
+        updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     }
 }
@@ -1398,11 +1456,31 @@ async function addCustomPlatform() {
     showNotification(`${name.trim()} hinzugefügt!`);
 }
 
-// *** GEÄNDERT: `addPlatformInput` erzeugt kein Strategie-Feld mehr, nur noch Balance und Notiz ***
 function addPlatformInput(platformName) {
     const container = document.getElementById('platformInputs');
     const inputId = platformName.replace(/\s+/g, '_');
     if (document.getElementById(`input_${inputId}`)) return;
+    
+    if (!document.getElementById('dayStrategyContainer')) {
+        const strategyDiv = document.createElement('div');
+        strategyDiv.id = 'dayStrategyContainer';
+        strategyDiv.className = 'day-strategy-container';
+        strategyDiv.innerHTML = `
+            <div class="strategy-input-row">
+                <label class="strategy-label">📋 Tages-Strategie (gilt für alle Einträge):</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="dailyStrategyDynamic" class="strategy-input" 
+                        placeholder="z.B. Abgesichertes Liquidity Providing, Funding Rate Farming..."
+                        value="${getStrategyForDate(document.getElementById('entryDate').value)}"
+                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); saveStrategyOnly(); }">
+                    <button class="btn btn-primary" onclick="saveStrategyOnly()" style="white-space: nowrap;">
+                        💾 Speichern
+                    </button>
+                </div>
+            </div>
+        `;
+        container.parentElement.insertBefore(strategyDiv, container);
+    }
 
     const lastEntry = getLastEntryForPlatform(platformName);
     const lastValue = lastEntry ? lastEntry.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
@@ -1424,6 +1502,11 @@ function addPlatformInput(platformName) {
     setTimeout(() => document.getElementById(`balance_${inputId}`).focus(), 100);
 }
 
+function getStrategyForDate(date) {
+    const strategy = dayStrategies.find(s => s.date === date);
+    return strategy ? strategy.strategy : '';
+}
+
 function removePlatformInput(platformName) {
     const inputId = platformName.replace(/\s+/g, '_');
     const element = document.getElementById(`input_${inputId}`);
@@ -1432,7 +1515,13 @@ function removePlatformInput(platformName) {
     const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => btn.querySelector('.name')?.textContent === platformName);
     if (button) button.classList.remove('selected');
     updateAutoZeroHint();
+    
+    if (selectedPlatforms.length === 0) {
+        const strategyContainer = document.getElementById('dayStrategyContainer');
+        if (strategyContainer) strategyContainer.remove();
+    }
 }
+
 
 function loadLastEntries() {
     const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
@@ -1493,7 +1582,6 @@ function getPlatformsToAutoZero() {
     return [...platformsOnLastDate].filter(p => !selectedPlatforms.includes(p));
 }
 
-// *** GEÄNDERT: `saveAllEntries` speichert jetzt die globale Tages-Strategie ***
 async function saveAllEntries() {
     const date = document.getElementById('entryDate').value;
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
@@ -1501,23 +1589,9 @@ async function saveAllEntries() {
     let newEntriesCount = 0;
     let zeroedCount = 0;
 
-    // Speichere oder aktualisiere die globale Strategie für den Tag
-    const dailyStrategyText = document.getElementById('dailyStrategy').value.trim();
-    const existingStrategyIndex = dayStrategies.findIndex(s => s.date === date);
-
-    if (dailyStrategyText) {
-        if (existingStrategyIndex > -1) {
-            dayStrategies[existingStrategyIndex].strategy = dailyStrategyText;
-        } else {
-            dayStrategies.push({ date: date, strategy: dailyStrategyText });
-        }
-    } else {
-        // Wenn das Feld leer ist, entferne einen eventuell vorhandenen Eintrag
-        if (existingStrategyIndex > -1) {
-            dayStrategies.splice(existingStrategyIndex, 1);
-        }
-    }
-
+    const dayStrategy = document.getElementById('dailyStrategyDynamic')?.value || document.getElementById('dailyStrategy')?.value || '';
+    saveStrategyForDate(date, dayStrategy.trim());
+    
     const platformsToZero = getPlatformsToAutoZero();
     if (platformsToZero.length > 0) {
         const listHtml = `<ul>${platformsToZero.map(p => `<li>${p}</li>`).join('')}</ul>`;
@@ -1548,19 +1622,22 @@ async function saveAllEntries() {
             const balance = parseFloat(balanceInput.value.replace(',', '.'));
             if (isNaN(balance)) return;
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-            // *** GEÄNDERT: 'strategy' wird hier nicht mehr gespeichert ***
             entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
             newEntriesCount++;
         }
     });
 
-    if (newEntriesCount === 0 && zeroedCount === 0 && !dailyStrategyText) {
+    if (newEntriesCount === 0 && zeroedCount === 0 && !dayStrategy.trim()) {
         return showNotification('Keine Daten zum Speichern!', 'error');
     }
 
     saveData();
     applyDateFilter();
     document.getElementById('platformInputs').innerHTML = '';
+    
+    const strategyContainer = document.getElementById('dayStrategyContainer');
+    if (strategyContainer) strategyContainer.remove();
+
     document.getElementById('autoZeroHint').classList.remove('visible');
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
@@ -1568,7 +1645,7 @@ async function saveAllEntries() {
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
     if (zeroedCount > 0) message += `${zeroedCount} Plattformen auf 0 gesetzt.`;
-    if (dailyStrategyText) message += `Tages-Strategie gespeichert.`;
+    if (dayStrategy.trim()) message += `Tages-Strategie gespeichert.`;
     showNotification(message.trim());
 }
 
@@ -1638,7 +1715,7 @@ async function clearAllData() {
     if (confirmation === 'DELETE ALL') {
         entries = [];
         cashflows = [];
-        dayStrategies = []; // Auch Strategien löschen
+        dayStrategies = [];
         saveData();
         applyDateFilter();
         showNotification('Alle Daten gelöscht!');
@@ -1740,7 +1817,7 @@ function updateStats() {
             endBalance = 0;
         }
     } else {
-        startBalance = 0; // Für "Alles" ist der Start immer 0
+        startBalance = 0;
         endBalance = currentPortfolioValue;
     }
 
@@ -1749,9 +1826,15 @@ function updateStats() {
     const withdrawalsInPeriod = relevantCashflows.filter(c => c.type === 'withdraw').reduce((s, c) => s + c.amount, 0);
     const netCashflowInPeriod = depositsInPeriod - withdrawalsInPeriod;
 
+    // Berechne den Perioden-ROI korrekt
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    const investedCapital = startBalance + depositsInPeriod;
+    const investedCapital = startBalance + netCashflowInPeriod;  // Startkapital + Netto-Cashflow in der Periode
+
+    // ROI für die gewählte Periode
     const periodRoiPercent = investedCapital > 0 ? (periodProfit / investedCapital) * 100 : 0;
+
+    // Für die Anzeige "Reale Performance" 
+    const totalProfit = periodProfit;  // Verwende den Perioden-Profit
 
     document.getElementById('totalValue').textContent = formatDollar(currentPortfolioValue);
     
@@ -1786,7 +1869,7 @@ function updateStats() {
     document.getElementById('netInvested').textContent = formatDollar(netCashflowInPeriod);
     document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
     
-    document.getElementById('totalProfit').textContent = formatDollar(periodProfit);
+    document.getElementById('totalProfit').textContent = formatDollar(totalProfit);
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
@@ -1896,7 +1979,7 @@ function updateHistory() {
             if (historySort.key === 'date') return new Date(aVal) - new Date(bVal);
             if (typeof aVal === 'string') return aVal.localeCompare(bVal);
             return aVal - bVal;
-        } else { // desc
+        } else {
             if (historySort.key === 'date') return new Date(bVal) - new Date(aVal);
             if (typeof aVal === 'string') return bVal.localeCompare(aVal);
             return bVal - aVal;
@@ -2175,18 +2258,22 @@ function updatePlatformDetails() {
 // CHARTS & EXPORT
 // =================================================================================
 
-// *** NEU: Komplett neuer Tooltip-Handler basierend auf deiner Vorlage ***
 const getOrCreateTooltip = (chart) => {
-    let tooltipEl = chart.canvas.parentNode.querySelector('.chartjs-tooltip');
+    let tooltipEl = document.querySelector('.chartjs-tooltip');
 
     if (!tooltipEl) {
         tooltipEl = document.createElement('div');
         tooltipEl.className = 'chartjs-tooltip';
+        // HINWEIS: Wir setzen keine ID, da wir nach der Klasse suchen und sie nur einmal existieren sollte.
+        document.body.appendChild(tooltipEl);
+    }
 
-        const container = document.createElement('div');
-        tooltipEl.appendChild(container);
-
-        chart.canvas.parentNode.appendChild(tooltipEl);
+    let contentEl = tooltipEl.querySelector('.chartjs-tooltip-content');
+    if (!contentEl) {
+        contentEl = document.createElement('div');
+        contentEl.className = 'chartjs-tooltip-content';
+        tooltipEl.innerHTML = '';
+        tooltipEl.appendChild(contentEl);
     }
 
     return tooltipEl;
@@ -2201,103 +2288,120 @@ const externalTooltipHandler = (context) => {
         return;
     }
 
+    const tooltipContainer = tooltipEl.querySelector('.chartjs-tooltip-content');
+    if (!tooltipContainer || !tooltip.dataPoints.length) {
+        return;
+    }
+        
     const dataIndex = tooltip.dataPoints[0].dataIndex;
     const date = chart.data.originalDates[dataIndex];
     if (!date) return;
     
-    // --- DATEN SAMMELN ---
-    // 1. Portfolio-Wert für den Tag
     const portfolioValueToday = chart.data.portfolioValues[dataIndex];
+    const twrPercentage = chart.data.datasets[0].data[dataIndex] || 0;
     
-    // 2. Performance für den gewählten Zeitraum
-    const firstValueInView = chart.data.portfolioValues[0];
-    const overallPerformance = firstValueInView !== 0 ? ((portfolioValueToday - firstValueInView) / Math.abs(firstValueInView)) * 100 : 0;
+    const depositsUpToDate = cashflows
+        .filter(c => c.type === 'deposit' && c.date <= date)
+        .reduce((s, c) => s + c.amount, 0);
+    const withdrawalsUpToDate = cashflows
+        .filter(c => c.type === 'withdraw' && c.date <= date)
+        .reduce((s, c) => s + c.amount, 0);
+    const netCashflowUpToDate = depositsUpToDate - withdrawalsUpToDate;
     
-    // 3. Tagesperformance (TWR)
+    const profit = portfolioValueToday - netCashflowUpToDate;
+    const roiPercentage = netCashflowUpToDate > 0 ? (profit / netCashflowUpToDate) * 100 : 0;
+    
     let dailyPerformance = 0;
     if (dataIndex > 0) {
-        const portfolioValueYesterday = chart.data.portfolioValues[dataIndex - 1];
-        const dateYesterday = chart.data.originalDates[dataIndex - 1];
-        
-        const cashflowBetween = cashflows
-            .filter(c => c.date > dateYesterday && c.date <= date)
-            .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
-            
-        if (portfolioValueYesterday !== 0) {
-            dailyPerformance = ((portfolioValueToday - portfolioValueYesterday - cashflowBetween) / portfolioValueYesterday) * 100;
-        }
+        const previousTwrPercentage = chart.data.datasets[0].data[dataIndex - 1] || 0;
+        dailyPerformance = twrPercentage - previousTwrPercentage;
     }
     
-    // 4. Tages-Strategie
     const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || 'Keine Strategie für diesen Tag hinterlegt.';
-    
-    // 5. Aktive Protokolle
-    const activeProtocols = entries
-        .filter(e => e.date === date && e.balance > 0)
-        .map(e => e.protocol)
-        .join(', ');
+    const activeProtocols = entries.filter(e => e.date === date && e.balance > 0).map(e => e.protocol).join(', ');
 
-    // --- TOOLTIP-HTML ERSTELLEN ---
-    const tooltipContainer = tooltipEl.querySelector('div');
-    tooltipContainer.innerHTML = ''; // Clear previous content
+    tooltipContainer.innerHTML = ''; 
 
-    // Header
-    const perfColorOverall = overallPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
+    const twrColor = twrPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
+    const roiColor = roiPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
     const perfColorDaily = dailyPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
     
     const headerEl = document.createElement('div');
-    headerEl.style.display = 'flex';
-    headerEl.style.justifyContent = 'space-between';
-    headerEl.style.alignItems = 'center';
-    headerEl.style.marginBottom = '4px';
+    headerEl.style.borderBottom = '1px solid var(--border)';
+    headerEl.style.paddingBottom = '8px';
+    headerEl.style.marginBottom = '8px';
+
     headerEl.innerHTML = `
-        <span style="font-size: 1.4em; font-weight: 700;">${formatDollar(portfolioValueToday)}</span>
-        <div style="display: flex; gap: 8px; font-size: 0.9em;">
-          <span style="color: ${perfColorOverall}; background: ${perfColorOverall}20; padding: 2px 6px; border-radius: 5px;">
-            ${overallPerformance >= 0 ? '↑' : '↓'} ${Math.abs(overallPerformance).toFixed(2)}%
-          </span>
-          <span style="color: ${perfColorDaily}; background: ${perfColorDaily}20; padding: 2px 6px; border-radius: 5px;">
-            ${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}%
-          </span>
-        </div>
-    `;
+        <div style="font-size: 1.3em; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;">${formatDollar(portfolioValueToday)}</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+            <div style="background: ${twrColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${twrColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Performance</div><div style="color: ${twrColor}; font-weight: 700; font-size: 1.1em;">${twrPercentage >= 0 ? '+' : ''}${twrPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">TWR</div></div>
+            <div style="background: ${roiColor}15; border-radius: 6px; padding: 8px; border: 1px solid ${roiColor}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Gewinn</div><div style="color: ${roiColor}; font-weight: 700; font-size: 1.1em;">${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">ROI</div></div>
+            <div style="background: ${perfColorDaily}15; border-radius: 6px; padding: 8px; border: 1px solid ${perfColorDaily}20;"><div style="font-size: 0.65em; color: var(--text-secondary); margin-bottom: 2px; opacity: 0.8;">Änderung</div><div style="color: ${perfColorDaily}; font-weight: 700; font-size: 1.1em;">${dailyPerformance >= 0 ? '+' : ''}${dailyPerformance.toFixed(2)}%</div><div style="font-size: 0.65em; color: var(--text-secondary); margin-top: 2px; font-weight: 600;">Periode</div></div>
+        </div>`;
     tooltipContainer.appendChild(headerEl);
 
-    // Datum
     const dateEl = document.createElement('div');
-    dateEl.style.fontSize = '0.9em';
-    dateEl.style.color = '#cbd5e1'; // a light gray for sub-text
-    dateEl.style.marginBottom = '12px';
-    dateEl.textContent = new Date(date).toLocaleDateString('de-DE', { year: 'numeric', month: 'long', day: 'numeric' });
+    dateEl.style.fontSize = '0.85em';
+    dateEl.style.color = 'var(--text-secondary)';
+    dateEl.style.marginBottom = '8px';
+    dateEl.style.fontWeight = '500';
+    dateEl.innerHTML = `📅 ${new Date(date).toLocaleDateString('de-DE', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     tooltipContainer.appendChild(dateEl);
 
-    // Strategie
-    const strategyEl = document.createElement('div');
-    strategyEl.style.marginBottom = '8px';
-    strategyEl.innerHTML = `<strong style="color: #94a3b8;">Strategie:</strong><br>${dayStrategy}`;
-    tooltipContainer.appendChild(strategyEl);
-
-    // Protokolle
-    if (activeProtocols) {
-        const protocolsEl = document.createElement('div');
-        protocolsEl.innerHTML = `<strong style="color: #94a3b8;">Protokoll:</strong><br>${activeProtocols}`;
-        tooltipContainer.appendChild(protocolsEl);
+    if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.' || activeProtocols) {
+        const infoSection = document.createElement('div');
+        infoSection.style.marginTop = '8px';
+        infoSection.style.paddingTop = '8px';
+        infoSection.style.borderTop = '1px solid var(--border)';
+        infoSection.style.fontSize = '0.8em';
+        let infoHTML = '';
+        if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.') {
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">🎯 Strategie</div><div style="color: var(--text-secondary); padding-left: 4px;">${dayStrategy}</div></div>`;
+            if (activeProtocols) infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
+        }
+        if (activeProtocols) {
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
+        }
+        infoSection.innerHTML = infoHTML;
+        tooltipContainer.appendChild(infoSection);
     }
+    
+    const benchmarksEl = document.createElement('div');
+    benchmarksEl.style.marginTop = '8px';
+    benchmarksEl.style.paddingTop = '8px';
+    benchmarksEl.style.borderTop = '1px solid var(--border)';
+    benchmarksEl.style.fontSize = '0.8em';
+    let benchmarkHTML = '<div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">📈 Benchmarks</div>';
+    const sp500Performance = chart.data.datasets[1]?.data[dataIndex];
+    if (sp500Performance !== undefined && sp500Performance !== null) {
+        const sp500Color = sp500Performance >= 0 ? 'var(--success)' : 'var(--danger)';
+        benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">S&P 500:</span><span style="color: ${sp500Color}; font-weight: 500;">${sp500Performance >= 0 ? '+' : ''}${sp500Performance.toFixed(2)}%</span></div>`;
+    }
+    const daxPerformance = chart.data.datasets[2]?.data[dataIndex];
+    if (daxPerformance !== undefined && daxPerformance !== null) {
+        const daxColor = daxPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
+        benchmarkHTML += `<div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);">DAX:</span><span style="color: ${daxColor}; font-weight: 500;">${daxPerformance >= 0 ? '+' : ''}${daxPerformance.toFixed(2)}%</span></div>`;
+    }
+    benchmarksEl.innerHTML = benchmarkHTML;
+    tooltipContainer.appendChild(benchmarksEl);
     
     // Positionierung
-    const { offsetLeft: positionX, offsetTop: positionY } = chart.canvas;
-    let newX = positionX + tooltip.caretX;
-    
-    if (newX + tooltipEl.offsetWidth / 2 > chart.canvas.width + chart.canvas.offsetLeft) {
-        newX -= (newX + tooltipEl.offsetWidth / 2) - (chart.canvas.width + chart.canvas.offsetLeft);
-    }
-    if (newX - tooltipEl.offsetWidth / 2 < chart.canvas.offsetLeft) {
-        newX += chart.canvas.offsetLeft - (newX - tooltipEl.offsetWidth / 2);
-    }
+    const canvasRect = chart.canvas.getBoundingClientRect();
+    const tooltipWidth = tooltipEl.offsetWidth;
 
     tooltipEl.style.opacity = 1;
-    tooltipEl.style.left = newX + 'px';
-    tooltipEl.style.top = positionY + tooltip.caretY + 10 + 'px';
+    tooltipEl.style.position = 'absolute';
+    tooltipEl.style.transform = '';
+
+    let left = canvasRect.left + window.scrollX + tooltip.caretX + 15;
+    let top = canvasRect.top + window.scrollY + tooltip.caretY + 15;
+
+    if (left + tooltipWidth > window.innerWidth + window.scrollX) {
+        left = canvasRect.left + window.scrollX + tooltip.caretX - tooltipWidth - 15;
+    }
+
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
 };
 
 
@@ -2313,10 +2417,10 @@ function initializeCharts() {
                 labels: [],
                 datasets: [
                     { label: 'Portfolio', data: [], borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderWidth: 2.5, tension: 0.4, fill: true, pointRadius: 0, pointHoverRadius: 6, pointHitRadius: 20, pointBackgroundColor: '#4f46e5' },
-                    { label: 'S&P 500', data: [], borderColor: 'rgba(239, 68, 68, 0.7)', borderWidth: 1.5, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: false },
-                    { label: 'DAX', data: [], borderColor: 'rgba(245, 158, 11, 0.7)', borderWidth: 1.5, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: false },
-                    { label: 'Bitcoin', data: [], borderColor: 'rgba(16, 185, 129, 0.7)', borderWidth: 1.5, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: true },
-                    { label: 'Ethereum', data: [], borderColor: 'rgba(139, 92, 246, 0.7)', borderWidth: 1.5, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: true },
+                    { label: 'S&P 500', data: [], borderColor: '#e53e3e', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: false },
+                    { label: 'DAX', data: [], borderColor: '#3b82f6', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: false },
+                    { label: 'Bitcoin', data: [], borderColor: '#f59e0b', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: true },
+                    { label: 'Ethereum', data: [], borderColor: '#8b5cf6', borderWidth: 2, tension: 0.4, fill: false, pointRadius: 0, pointHoverRadius: 6, borderDash: [5, 5], hidden: true },
                 ]
             },
             options: {
@@ -2433,20 +2537,77 @@ async function fetchWithCache(url, cacheKey, durationMinutes = 60) {
     return data;
 }
 
-async function fetchYahooData(ticker, from, to) {
-    const url = `${CORS_PROXY}https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${from}&period2=${to}&interval=1d`;
-    try {
-        const data = await fetchWithCache(url, `yahoo_${ticker}_${from}_${to}`);
-        if (!data.chart.result[0].indicators.quote[0].close) return [];
-        return data.chart.result[0].timestamp.map((ts, i) => [
-            ts * 1000,
-            data.chart.result[0].indicators.quote[0].close[i]
-        ]);
-    } catch (error) {
-        console.error(`Failed to fetch ${ticker} data, using fallback:`, error);
-        return 'fallback';
+// Interpolation für fehlende Tage
+function interpolateBenchmarkData(benchmarkKey, dates) {
+    const benchmarkPoints = BENCHMARK_DATA[benchmarkKey];
+    if (!benchmarkPoints || benchmarkPoints.length === 0) return null;
+    
+    const result = [];
+    
+    for (const date of dates) {
+        const dateObj = new Date(date);
+        
+        // Finde die zwei nächsten Stützpunkte
+        let before = null;
+        let after = null;
+        
+        for (let i = 0; i < benchmarkPoints.length; i++) {
+            const pointDate = new Date(benchmarkPoints[i].date);
+            
+            if (pointDate <= dateObj) {
+                before = benchmarkPoints[i];
+            }
+            if (pointDate >= dateObj && !after) {
+                after = benchmarkPoints[i];
+            }
+        }
+        
+        let value;
+        if (before && after && before !== after) {
+            // Linear interpolieren zwischen zwei Punkten
+            const beforeDate = new Date(before.date);
+            const afterDate = new Date(after.date);
+            const totalDays = (afterDate - beforeDate) / (1000 * 60 * 60 * 24);
+            const daysPassed = (dateObj - beforeDate) / (1000 * 60 * 60 * 24);
+            const ratio = totalDays > 0 ? (daysPassed / totalDays) : 0;
+            value = before.value + (after.value - before.value) * ratio;
+        } else if (before) {
+            value = before.value;
+        } else if (after) {
+            value = after.value;
+        } else {
+            value = benchmarkPoints[0].value;
+        }
+        
+        result.push([dateObj.getTime(), value]);
     }
+    
+    return result;
 }
+
+async function fetchMarketData(ticker, from, to) {
+    const portfolioDates = portfolioChart.data.originalDates || [];
+    if (portfolioDates.length === 0) return [];
+
+    // Map tickers to BENCHMARK_DATA keys
+    const benchmarkMap = {
+        '%5EGDAXI': 'DAX',
+        '%5EGSPC': 'SP500'
+    };
+
+    const benchmarkKey = benchmarkMap[ticker];
+
+    if (benchmarkKey) {
+        console.log(`Using static fallback data for ${benchmarkKey}`);
+        // Use the interpolation function with the portfolio dates
+        return interpolateBenchmarkData(benchmarkKey, portfolioDates);
+    }
+    
+    // Fallback for other tickers if needed in the future
+    console.log(`No static data for ticker: ${ticker}. Returning empty array.`);
+    return [];
+}
+
 
 async function fetchCoinGeckoData(id, from, to) {
     const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
@@ -2459,14 +2620,29 @@ async function fetchCoinGeckoData(id, from, to) {
     }
 }
 
-function generateFallbackData(volatility, dates) {
-    let lastPerf = 0;
-    const dailyVol = volatility / Math.sqrt(365);
-    return dates.map(() => {
-        const change = (Math.random() - 0.5) * dailyVol * 2;
-        lastPerf = lastPerf + (change * 100);
-        return lastPerf;
-    });
+function calculateTWR(dates, values) {
+    if (dates.length < 2) return new Array(dates.length).fill(0);
+
+    let cumulativeReturn = 1;
+    const percentages = [0];
+
+    for (let i = 1; i < dates.length; i++) {
+        const prevDate = dates[i - 1];
+        const currDate = dates[i];
+        const startValue = values[i - 1];
+        const endValue = values[i];
+
+        const cashflowBetween = cashflows
+            .filter(c => c.date > prevDate && c.date <= currDate)
+            .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+
+        const periodReturn = startValue !== 0 ? (endValue - startValue - cashflowBetween) / startValue : 0;
+        
+        cumulativeReturn *= (1 + periodReturn);
+        percentages.push((cumulativeReturn - 1) * 100);
+    }
+
+    return percentages;
 }
 
 async function updateChartWithBenchmarks() {
@@ -2483,49 +2659,9 @@ async function updateChartWithBenchmarks() {
 
     const portfolioValues = sortedDates.map(d => dateGroups[d]);
     
-    const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
-    const toTs = Math.floor(Date.now() / 1000);
-
-    let [sp500Prices, daxPrices, btcPrices, ethPrices] = await Promise.all([
-        fetchYahooData('%5EGSPC', fromTs, toTs),
-        fetchYahooData('%5EGDAXI', fromTs, toTs),
-        fetchCoinGeckoData('bitcoin', fromTs, toTs),
-        fetchCoinGeckoData('ethereum', fromTs, toTs)
-    ]);
-
-    const calculatePercentageChange = (values, isBenchmark = false, benchmarkPrices, fallbackVolatility) => {
-        if (isBenchmark && benchmarkPrices === 'fallback') {
-            return generateFallbackData(fallbackVolatility, sortedDates);
-        }
-
-        const priceMap = isBenchmark ? new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price])) : null;
-        
-        let baseline = null;
-        for(let i = 0; i < sortedDates.length; i++) {
-            const date = sortedDates[i];
-            const value = isBenchmark ? priceMap.get(date) : values[i];
-            if (value !== null && value !== undefined) {
-                baseline = value;
-                break;
-            }
-        }
-        
-        if (baseline === null || baseline === 0) return Array(sortedDates.length).fill(null);
-
-        let lastKnownValue = baseline;
-        return sortedDates.map((date, i) => {
-            let currentValue = isBenchmark ? priceMap.get(date) : values[i];
-            if (currentValue === null || currentValue === undefined) {
-                currentValue = lastKnownValue;
-            } else {
-                lastKnownValue = currentValue;
-            }
-            return ((currentValue - baseline) / baseline) * 100;
-        });
-    };
-    
     portfolioChart.data.originalDates = sortedDates; 
     portfolioChart.data.portfolioValues = portfolioValues;
+    portfolioChart.data.realPortfolioValues = portfolioValues;
 
     const maxLabels = window.innerWidth < 768 ? 4 : 8; 
     const stepSize = Math.ceil(sortedDates.length / maxLabels);
@@ -2538,11 +2674,62 @@ async function updateChartWithBenchmarks() {
         return ''; 
     });
     
-    portfolioChart.data.datasets[0].data = calculatePercentageChange(portfolioValues);
-    portfolioChart.data.datasets[1].data = calculatePercentageChange([], true, sp500Prices, 0.15);
-    portfolioChart.data.datasets[2].data = calculatePercentageChange([], true, daxPrices, 0.18);
-    portfolioChart.data.datasets[3].data = calculatePercentageChange([], true, btcPrices, 0.70);
-    portfolioChart.data.datasets[4].data = calculatePercentageChange([], true, ethPrices, 0.85);
+    portfolioChart.data.datasets[0].data = calculateTWR(sortedDates, portfolioValues);
+    
+    // Update Labels für Klarheit
+    portfolioChart.data.datasets[1].label = 'S&P 500 Index';
+    portfolioChart.data.datasets[2].label = 'DAX Index';
+
+
+    const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
+    const toTs = Math.floor(Date.now() / 1000);
+
+    let [sp500Prices, daxPrices, btcPrices, ethPrices] = await Promise.all([
+        fetchMarketData('%5EGSPC', fromTs, toTs),
+        fetchMarketData('%5EGDAXI', fromTs, toTs),
+        fetchCoinGeckoData('bitcoin', fromTs, toTs),
+        fetchCoinGeckoData('ethereum', fromTs, toTs)
+    ]);
+
+    const calculateBenchmarkChange = (benchmarkPrices, dates) => {
+        if (!benchmarkPrices || benchmarkPrices.length === 0) return new Array(dates.length).fill(null);
+        
+        const priceMap = new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price]));
+        
+        let baseline = null;
+        let firstDate = new Date(dates[0]);
+        
+        for (let i = 0; i <= 5; i++) {
+            const dateStr = firstDate.toISOString().split('T')[0];
+            if (priceMap.has(dateStr)) {
+                baseline = priceMap.get(dateStr);
+                break;
+            }
+            firstDate.setDate(firstDate.getDate() - 1);
+        }
+        if (baseline === null) {
+            baseline = benchmarkPrices[0][1];
+        }
+
+        if (baseline === null) return new Array(dates.length).fill(null);
+
+        let lastKnownPrice = baseline;
+        return dates.map(date => {
+            const currentPrice = priceMap.get(date);
+            if (currentPrice !== undefined && currentPrice !== null) {
+                lastKnownPrice = currentPrice;
+                return ((currentPrice - baseline) / baseline) * 100;
+            } else {
+                return ((lastKnownPrice - baseline) / baseline) * 100;
+            }
+        });
+    };
+    
+    portfolioChart.data.datasets[1].data = calculateBenchmarkChange(sp500Prices, sortedDates);
+    portfolioChart.data.datasets[2].data = calculateBenchmarkChange(daxPrices, sortedDates);
+    portfolioChart.data.datasets[3].data = calculateBenchmarkChange(btcPrices, sortedDates);
+    portfolioChart.data.datasets[4].data = calculateBenchmarkChange(ethPrices, sortedDates);
+    
     portfolioChart.update();
 }
 
@@ -2708,7 +2895,7 @@ function exportCSV() {
             "Tages-Strategie",
             ds.date,
             sanitize(ds.strategy),
-            "", // Kein Betrag für Strategie
+            "",
             ""
         ].join(","));
     });
@@ -2820,7 +3007,6 @@ function handleJsonImport(event) {
 function formatDate(dateStr) {
     if (!dateStr) return '';
     const date = new Date(dateStr);
-    // Add timezone offset to display local date correctly
     const userTimezoneOffset = date.getTimezoneOffset() * 60000;
     const localDate = new Date(date.getTime() + userTimezoneOffset);
     const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
@@ -2837,7 +3023,7 @@ const formatDollar = (value) => {
 function setToToday() { 
     const dateInput = document.getElementById('entryDate');
     dateInput.valueAsDate = new Date();
-    dateInput.dispatchEvent(new Event('change')); // Trigger event to load strategy
+    dateInput.dispatchEvent(new Event('change'));
 }
 function setToYesterday() {
     const d = new Date();
@@ -3119,3 +3305,69 @@ function registerServiceWorker() {
 function setChartDateFilter(period) {
     setDateFilter(period);
 }
+
+function addMissingStyles() {
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = `
+        .day-strategy-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .strategy-input-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .strategy-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .strategy-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--background);
+            color: var(--text);
+            font-size: 14px;
+        }
+        .strategy-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        .chartjs-tooltip {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            min-width: 280px;
+            max-width: 320px;
+            opacity: 0;
+            position: absolute;
+            pointer-events: none;
+            transform: translate(-50%, 0);
+            transition: all 0.2s ease;
+            z-index: 10000;
+            font-size: 0.9em;
+            tooltipEl.style.opacity = 1;
+            tooltipEl.style.left = newX + 'px';
+            tooltipEl.style.top = positionY + tooltip.caretY + 10 + 'px';
+            tooltipEl.style.zIndex = '10000';  // Explizit setzen
+        }
+        .chartjs-tooltip-content {
+             padding: 12px;
+        }
+        .dark-mode .chartjs-tooltip {
+            background: #1f2937;
+            border-color: #374151;
+            color: #f9fafb;
+        }
+    `;
+    document.head.appendChild(styleSheet);
+}
+ 

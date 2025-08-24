@@ -1222,7 +1222,7 @@ body.has-sync-bar .tab-navigation {
     padding: 12px;
     transition: all 0.2s ease;
     width: 250px;
-    z-index: 100;
+    z-index: 10000; /* Erhöhter z-index */
 }
 .tooltip-header {
     display: flex;
@@ -2008,30 +2008,12 @@ body.privacy-mode .dollar-value::after {
     overflow-y: auto;
 }
 
-/* ==================================
-   NEU: Stile für den verbesserten Chart-Tooltip
-   ================================== */
-.chartjs-tooltip {
-    background: rgba(31, 41, 55, 0.9) !important;
-    backdrop-filter: blur(5px) !important;
-    border-radius: 8px !important;
-    color: white !important;
-    opacity: 1 !important;
-    pointer-events: none !important;
-    position: absolute !important;
-    transform: translate(-50%, 0) !important;
-    transition: all .1s ease !important;
-    min-width: 280px !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 0 !important; /* Wichtig, da der innere Container das Padding hat */
+#portfolioChartContainer,
+.chart-container,
+.dashboard-card {
+    overflow: visible !important;
 }
 
-.chartjs-tooltip > div { /* Der innere Container, der vom JS erstellt wird */
-    padding: 10px 15px;
-}
-
-.chartjs-tooltip strong {
-    color: #94a3b8; /* Ein helles Grau für die Labels "Strategie:", "Protokoll:" */
-    display: block;
-    margin-bottom: 2px;
+#portfolioChartContainer, .section, .chart-container, #dashboardContent {
+    overflow: visible !important;
 }
