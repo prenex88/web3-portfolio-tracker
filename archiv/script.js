@@ -45,29 +45,30 @@ const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const ALPHA_VANTAGE_API = 'https://www.alphavantage.co/query';
-const ALPHA_VANTAGE_KEY = '6CEGANC4B4A0IN2D'; // Dein kostenloser Alpha Vantage API Key
+const ALPHA_VANTAGE_KEY = '6CEGANC4B4A0IN2D'; // Kostenloser Alpha Vantage API Key
+const FINNHUB_API = 'https://finnhub.io/api/v1';
+const FINNHUB_KEY = 'd2m1i4hr01qgtft6ohi0d2m1i4hr01qgtft6ohig'; // Dein Finnhub API Key
 
 // Feste Benchmark-Daten als Fallback
 const BENCHMARK_DATA = {
     'DAX': [
-        { date: '2025-02-14', value: 22513 },
-        { date: '2025-03-01', value: 22800 },
-        { date: '2025-04-01', value: 23100 },
-        { date: '2025-05-01', value: 23500 },
-        { date: '2025-06-01', value: 23900 },
-        { date: '2025-07-01', value: 24100 },
-        { date: '2025-08-01', value: 24200 },
-        { date: '2025-08-22', value: 24363 }
+        { date: '2025-02-14', value: 17046 },
+        { date: '2025-03-15', value: 17936 },
+        { date: '2025-04-15', value: 17737 },
+        { date: '2025-05-15', value: 18738 },
+        { date: '2025-06-14', value: 18265 },
+        { date: '2025-07-15', value: 18530 },
+        { date: '2025-08-23', value: 18130 }
     ],
     'SP500': [
-        { date: '2025-02-14', value: 5800 },
-        { date: '2025-03-01', value: 5850 },
-        { date: '2025-04-01', value: 5900 },
-        { date: '2025-05-01', value: 5950 },
-        { date: '2025-06-01', value: 6000 },
-        { date: '2025-07-01', value: 6100 },
-        { date: '2025-08-01', value: 6150 },
-        { date: '2025-08-22', value: 6200 }
+        // Hier könntest du die echten Werte für den S&P 500 eintragen
+        { date: '2025-02-14', value: 5029 },
+        { date: '2025-03-15', value: 5117 },
+        { date: '2025-04-15', value: 5061 },
+        { date: '2025-05-15', value: 5308 },
+        { date: '2025-06-14', value: 5431 },
+        { date: '2025-07-15', value: 5574 },
+        { date: '2025-08-23', value: 5460 }
     ]
 };
 
@@ -1225,6 +1226,13 @@ setInterval(updateLastSyncDisplay, 60000);
 // TAB MANAGEMENT
 // =================================================================================
 function switchTab(tabName) {
+    // NEU: Tooltip beim Tab-Wechsel ausblenden
+    const tooltipEl = document.querySelector('.chartjs-tooltip');
+    if (tooltipEl) {
+        tooltipEl.style.opacity = 0;
+        tooltipEl.style.pointerEvents = 'none';
+    }
+
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     const newTabContent = document.getElementById(tabName);
@@ -1873,6 +1881,18 @@ function updateStats() {
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
+    // NEU: Chart-Header aktualisieren
+    const chartHeaderValueEl = document.getElementById('chartHeaderValue');
+    const chartHeaderChangeEl = document.getElementById('chartHeaderChange');
+
+    if (chartHeaderValueEl) {
+        chartHeaderValueEl.textContent = formatDollar(endBalance);
+    }
+    if (chartHeaderChangeEl) {
+        chartHeaderChangeEl.innerHTML = `<span class="dollar-value">${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}</span> <span>(${periodRoiPercent.toFixed(2)}%)</span>`;
+        chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+    }
+
     updateCashflowStats();
 }
 
@@ -2338,21 +2358,49 @@ const externalTooltipHandler = (context) => {
         infoSection.innerHTML = infoHTML;
         tooltipContainer.appendChild(infoSection);
     }
+
     const benchmarksEl = document.createElement('div');
     benchmarksEl.style.marginTop = '8px';benchmarksEl.style.paddingTop = '8px';benchmarksEl.style.borderTop = '1px solid var(--border)';benchmarksEl.style.fontSize = '0.8em';
     let benchmarkHTML = '<div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">📈 Benchmarks</div>';
-    const sp500Performance = chart.data.datasets[1]?.data[dataIndex];
-    if (sp500Performance !== undefined && sp500Performance !== null) {
-        const sp500Color = sp500Performance >= 0 ? 'var(--success)' : 'var(--danger)';
-        benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">S&P 500:</span><span style="color: ${sp500Color}; font-weight: 500;">${sp500Performance >= 0 ? '+' : ''}${sp500Performance.toFixed(2)}%</span></div>`;
+
+    // S&P 500 (Index 1)
+    if (chart.isDatasetVisible(1)) {
+        const sp500Performance = chart.data.datasets[1]?.data[dataIndex];
+        if (sp500Performance !== undefined && sp500Performance !== null) {
+            const sp500Color = sp500Performance >= 0 ? 'var(--success)' : 'var(--danger)';
+            benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">S&P 500:</span><span style="color: ${sp500Color}; font-weight: 500;">${sp500Performance >= 0 ? '+' : ''}${sp500Performance.toFixed(2)}%</span></div>`;
+        }
     }
-    const daxPerformance = chart.data.datasets[2]?.data[dataIndex];
-    if (daxPerformance !== undefined && daxPerformance !== null) {
-        const daxColor = daxPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
-        benchmarkHTML += `<div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);">DAX:</span><span style="color: ${daxColor}; font-weight: 500;">${daxPerformance >= 0 ? '+' : ''}${daxPerformance.toFixed(2)}%</span></div>`;
+    // DAX (Index 2)
+    if (chart.isDatasetVisible(2)) {
+        const daxPerformance = chart.data.datasets[2]?.data[dataIndex];
+        if (daxPerformance !== undefined && daxPerformance !== null) {
+            const daxColor = daxPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
+            benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">DAX:</span><span style="color: ${daxColor}; font-weight: 500;">${daxPerformance >= 0 ? '+' : ''}${daxPerformance.toFixed(2)}%</span></div>`;
+        }
     }
-    benchmarksEl.innerHTML = benchmarkHTML;
-    tooltipContainer.appendChild(benchmarksEl);
+    // Bitcoin (Index 3)
+    if (chart.isDatasetVisible(3)) {
+        const btcPerformance = chart.data.datasets[3]?.data[dataIndex];
+        if (btcPerformance !== undefined && btcPerformance !== null) {
+            const btcColor = btcPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
+            benchmarkHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><span style="color: var(--text-secondary);">Bitcoin:</span><span style="color: ${btcColor}; font-weight: 500;">${btcPerformance >= 0 ? '+' : ''}${btcPerformance.toFixed(2)}%</span></div>`;
+        }
+    }
+    // Ethereum (Index 4)
+    if (chart.isDatasetVisible(4)) {
+        const ethPerformance = chart.data.datasets[4]?.data[dataIndex];
+        if (ethPerformance !== undefined && ethPerformance !== null) {
+            const ethColor = ethPerformance >= 0 ? 'var(--success)' : 'var(--danger)';
+            benchmarkHTML += `<div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);">Ethereum:</span><span style="color: ${ethColor}; font-weight: 500;">${ethPerformance >= 0 ? '+' : ''}${ethPerformance.toFixed(2)}%</span></div>`;
+        }
+    }
+
+    // Nur anzeigen, wenn es Benchmark-Daten gibt
+    if (benchmarkHTML.includes('</span>')) {
+        benchmarksEl.innerHTML = benchmarkHTML;
+        tooltipContainer.appendChild(benchmarksEl);
+    }
     
     // === FINALE, ROBUSTE POSITIONIERUNG FÜR ALLE GERÄTE ===
     tooltipEl.style.opacity = 1;
@@ -2538,12 +2586,20 @@ async function fetchWithCache(url, cacheKey, durationMinutes = 60) {
 // Interpolation für fehlende Tage
 function interpolateBenchmarkData(benchmarkKey, dates) {
     const benchmarkPoints = BENCHMARK_DATA[benchmarkKey];
-    if (!benchmarkPoints || benchmarkPoints.length === 0) return null;
+    if (!benchmarkPoints || benchmarkPoints.length < 2) return [];
+
+    const firstBenchmarkDate = new Date(benchmarkPoints[0].date);
+    const lastBenchmarkDate = new Date(benchmarkPoints[benchmarkPoints.length - 1].date);
     
     const result = [];
     
     for (const date of dates) {
         const dateObj = new Date(date);
+
+        if (dateObj < firstBenchmarkDate || dateObj > lastBenchmarkDate) {
+            result.push([dateObj.getTime(), null]);
+            continue;
+        }
         
         // Finde die zwei nächsten Stützpunkte
         let before = null;
@@ -2574,7 +2630,7 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
         } else if (after) {
             value = after.value;
         } else {
-            value = benchmarkPoints[0].value;
+            value = null; // Kein Wert, wenn außerhalb des Bereichs
         }
         
         result.push([dateObj.getTime(), value]);
@@ -2583,30 +2639,6 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
     return result;
 }
 
-async function fetchMarketData(ticker, from, to) {
-    const portfolioDates = portfolioChart.data.originalDates || [];
-    if (portfolioDates.length === 0) return [];
-
-    // Map tickers to BENCHMARK_DATA keys
-    const benchmarkMap = {
-        '%5EGDAXI': 'DAX',
-        '%5EGSPC': 'SP500'
-    };
-
-    const benchmarkKey = benchmarkMap[ticker];
-
-    if (benchmarkKey) {
-        console.log(`Using static fallback data for ${benchmarkKey}`);
-        // Use the interpolation function with the portfolio dates
-        return interpolateBenchmarkData(benchmarkKey, portfolioDates);
-    }
-    
-    // Fallback for other tickers if needed in the future
-    console.log(`No static data for ticker: ${ticker}. Returning empty array.`);
-    return [];
-}
-
-
 async function fetchCoinGeckoData(id, from, to) {
     const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
     try {
@@ -2614,7 +2646,7 @@ async function fetchCoinGeckoData(id, from, to) {
         return data.prices;
     } catch (error) {
         console.error(`Failed to fetch ${id} data, using fallback:`, error);
-        return 'fallback';
+        return [];
     }
 }
 
@@ -2683,17 +2715,61 @@ async function updateChartWithBenchmarks() {
         const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
         const toTs = Math.floor(new Date(sortedDates[sortedDates.length - 1]).getTime() / 1000) + 86400;
 
-        const calculateBenchmarkChange = (benchmarkPrices, dates) => {
-            if (!benchmarkPrices || benchmarkPrices.length === 0) return new Array(dates.length).fill(null);
-            const priceMap = new Map(benchmarkPrices.map(([ts, price]) => [new Date(ts).toISOString().split('T')[0], price]));
-            let baseline = benchmarkPrices[0][1];
-            if (baseline === null || baseline === 0) return new Array(dates.length).fill(0);
-            let lastKnownPrice = baseline;
-            return dates.map(date => {
-                const currentPrice = priceMap.get(date);
-                if (currentPrice !== undefined && currentPrice !== null) lastKnownPrice = currentPrice;
-                return ((lastKnownPrice - baseline) / baseline) * 100;
-            });
+        // Korrigierte Funktion zur Berechnung der Benchmark-Performance
+        const calculateBenchmarkChange = (benchmarkPrices, portfolioDates) => {
+            if (!benchmarkPrices || benchmarkPrices.length < 1 || !portfolioDates || portfolioDates.length < 1) {
+                return new Array(portfolioDates.length).fill(null);
+            }
+
+            // 1. Finde den Startwert (Baseline) für den Beginn des Portfolio-Zeitraums.
+            const portfolioStartTs = new Date(portfolioDates[0] + 'T00:00:00Z').getTime();
+            let baselinePrice = null;
+
+            // Finde den letzten verfügbaren Kurs am oder vor dem Startdatum des Portfolios.
+            let baselineCandidate = null;
+            for (const [ts, price] of benchmarkPrices) {
+                if (ts <= portfolioStartTs) {
+                    if (price !== null) baselineCandidate = price;
+                } else {
+                    // Da benchmarkPrices sortiert ist, können wir frühzeitig abbrechen.
+                    break;
+                }
+            }
+            
+            // Wenn kein Kurs vor dem Startdatum gefunden wurde, nimm den allerersten verfügbaren Kurs.
+            if (baselineCandidate !== null) {
+                baselinePrice = baselineCandidate;
+            } else if (benchmarkPrices.length > 0 && benchmarkPrices[0][1] !== null) {
+                baselinePrice = benchmarkPrices[0][1];
+            }
+
+            if (baselinePrice === null || baselinePrice === 0) {
+                console.warn(`Konnte keinen validen Startwert für die Benchmark-Berechnung finden für den Zeitraum beginnend am ${portfolioDates[0]}.`);
+                return new Array(portfolioDates.length).fill(null);
+            }
+
+            // 2. Berechne die prozentuale Veränderung für jeden Portfoliotag.
+            const results = [];
+            let benchmarkIndex = 0;
+
+            for (const dateStr of portfolioDates) {
+                const currentTs = new Date(dateStr + 'T00:00:00Z').getTime();
+
+                // Finde den letzten bekannten Benchmark-Kurs für das aktuelle Datum.
+                while (benchmarkIndex + 1 < benchmarkPrices.length && benchmarkPrices[benchmarkIndex + 1][0] <= currentTs) {
+                    benchmarkIndex++;
+                }
+
+                const currentPrice = benchmarkPrices[benchmarkIndex][1];
+                if (currentPrice !== null) {
+                    const change = ((currentPrice - baselinePrice) / baselinePrice) * 100;
+                    results.push(change);
+                } else {
+                    // Wenn kein Kurs gefunden wird, den letzten gültigen Wert weitertragen oder 0, wenn es der erste ist.
+                    results.push(results.length > 0 ? results[results.length - 1] : 0);
+                }
+            }
+            return results;
         };
 
         // Daten parallel laden
@@ -2716,6 +2792,26 @@ async function updateChartWithBenchmarks() {
     } catch (error) {
         console.error("Benchmarks konnten nicht geladen werden, Portfolio wird trotzdem angezeigt:", error);
     }
+}
+
+async function fetchMarketData(ticker, from, to) {
+    // Für DAX und S&P 500 IMMER die statischen Daten verwenden, da die API-Daten im Free-Plan nicht verfügbar sind.
+    if (ticker === '%5EGDAXI' || ticker === '%5EGSPC') {
+        const benchmarkMap = { '%5EGDAXI': 'DAX', '%5EGSPC': 'SP500' };
+        const benchmarkKey = benchmarkMap[ticker];
+        const portfolioDates = portfolioChart.data.originalDates || [];
+        
+        console.log(`Verwende kontrollierte, statische Daten für ${benchmarkKey}, da API-Zugriff eingeschränkt ist.`);
+        
+        if (benchmarkKey && portfolioDates.length > 0) {
+            return interpolateBenchmarkData(benchmarkKey, portfolioDates);
+        }
+        return [];
+    }
+
+    // Hier könnte in Zukunft Logik für andere, verfügbare Ticker stehen.
+    console.warn(`Keine Datenquelle für Ticker konfiguriert: ${ticker}.`);
+    return [];
 }
 
 
