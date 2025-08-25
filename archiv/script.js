@@ -44,15 +44,14 @@ const DEFAULT_PLATFORMS = [
 const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
-const ALPHA_VANTAGE_API = 'https://www.alphavantage.co/query';
-const ALPHA_VANTAGE_KEY = '6CEGANC4B4A0IN2D'; // Kostenloser Alpha Vantage API Key
-const FINNHUB_API = 'https://finnhub.io/api/v1';
-const FINNHUB_KEY = 'd2m1i4hr01qgtft6ohi0d2m1i4hr01qgtft6ohig'; // Dein Finnhub API Key
+const MIN_BENCHMARK_DATE = new Date('2025-02-14T00:00:00Z'); // Fallback-Startdatum für Benchmark-Daten
 
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
-    '%5EGSPC': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=2079448459&single=true&output=csv' // S&P 500
+    '%5EGSPC': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=2079448459&single=true&output=csv', // S&P 500
+    'bitcoin': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1446977156&single=true&output=csv',
+    'ethereum': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1255194063&single=true&output=csv'
 };
 
 // Feste Benchmark-Daten als Fallback
@@ -2684,28 +2683,10 @@ async function fetchAndCache(cacheKey, url, options, dataProcessor, cacheDuratio
                 return processedData;
             } catch (e) {
                 if (e.name === 'QuotaExceededError') {
-                    console.warn('QuotaExceededError caught. Attempting to free up space.');
-                    let retries = 5; // Try to free space up to 5 times
-                    while (retries > 0) {
-                        const evicted = clearOldestCacheEntry();
-                        if (!evicted) {
-                            console.warn('No more cache entries to evict.');
-                            break; 
-                        }
-                        try {
-                            localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: processedData }));
-                            console.log('Successfully saved to cache after eviction.');
-                            return processedData;
-                        } catch (e2) {
-                            if (e2.name !== 'QuotaExceededError') {
-                                console.error('Failed to save to cache with an unexpected error:', e2);
-                                throw e2;
-                            }
-                        }
-                        retries--;
-                    }
+                    console.warn(`QuotaExceededError: Could not cache data for ${cacheKey}. Data will not be persisted.`);
                     showNotification('Cache-Speicher voll. Daten nicht zwischengespeichert.', 'warning');
-                    return processedData; // Return data for this session even if caching fails
+                    // Return the processed data, but don't cache it.
+                    return processedData;
                 }
                 // Re-throw other types of errors from the initial setItem attempt
                 throw e;
@@ -2780,12 +2761,13 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
 
 async function fetchCoinGeckoData(id, from, to) {
     const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
-    const cacheKey = `${STORAGE_PREFIX}coingecko_${id}_${from}_${to}`;
     
-    const dataProcessor = (data) => data.prices || [];
-
     try {
-        return await fetchAndCache(cacheKey, url, {}, dataProcessor, 1440);
+        // Directly fetch from CoinGecko without caching in localStorage to avoid QuotaExceededError
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        return data.prices || [];
     } catch (error) {
         console.error(`Failed to fetch ${id} data, using fallback:`, error);
         return [];
@@ -2840,7 +2822,9 @@ async function updateChartWithBenchmarks() {
     portfolioChart.data.portfolioValues = portfolioValues;
 
     const maxLabels = window.innerWidth < 768 ? 4 : 8; 
-    const stepSize = Math.ceil(sortedDates.length / maxLabels);
+    // Sicherstellen, dass stepSize mindestens 1 ist, um Division durch Null zu vermeiden
+    const stepSize = Math.max(1, Math.ceil(sortedDates.length / maxLabels));
+
     portfolioChart.data.labels = sortedDates.map((d, i) => (i % stepSize === 0) ? new Date(d).toLocaleDateString('de-DE', { month: 'short', day: 'numeric' }) : '');
     
     // Eigene Portfolio-Linie berechnen und setzen
@@ -2857,7 +2841,10 @@ async function updateChartWithBenchmarks() {
 
     // *** SCHRITT 2: BENCHMARKS IM HINTERGRUND LADEN UND HINZUFÜGEN ***
     try {
-        const fromTs = Math.floor(new Date(sortedDates[0]).getTime() / 1000);
+        // Startdatum für Benchmark-Daten: Entweder frühestes Portfolio-Datum oder MIN_BENCHMARK_DATE, je nachdem, was später ist.
+        const portfolioStartDate = new Date(sortedDates[0] + 'T00:00:00Z');
+        const actualFromDate = portfolioStartDate > MIN_BENCHMARK_DATE ? portfolioStartDate : MIN_BENCHMARK_DATE;
+        const fromTs = Math.floor(actualFromDate.getTime() / 1000);
         const toTs = Math.floor(new Date(sortedDates[sortedDates.length - 1]).getTime() / 1000) + 86400;
 
         // Korrigierte Funktion zur Berechnung der Benchmark-Performance
@@ -2921,8 +2908,8 @@ async function updateChartWithBenchmarks() {
         const [sp500Prices, daxPrices, btcPrices, ethPrices, dpiPrices] = await Promise.all([
             fetchMarketData('%5EGSPC', fromTs, toTs),
             fetchMarketData('%5EGDAXI', fromTs, toTs),
-            fetchCoinGeckoData('bitcoin', fromTs, toTs),
-            fetchCoinGeckoData('ethereum', fromTs, toTs),
+            fetchMarketData('bitcoin', fromTs, toTs),
+            fetchMarketData('ethereum', fromTs, toTs),
             fetchCoinGeckoData('defipulse-index', fromTs, toTs)
         ]);
         
@@ -2955,45 +2942,58 @@ function useStaticFallback(ticker) {
 }
 
 async function fetchMarketData(ticker, from, to) {
-    const url = CORS_PROXY + GOOGLE_SHEET_URLS[ticker]; // Verwende den CORS-Proxy
-    if (!url || url.includes('YOUR_')) {
-        console.warn(`Google Sheet URL for ${decodeURIComponent(ticker)} is not configured. Using static fallback.`);
+    const sheetUrl = GOOGLE_SHEET_URLS[ticker];
+    const decodedTicker = decodeURIComponent(ticker);
+
+    if (!sheetUrl || sheetUrl.includes('YOUR_')) {
+        console.warn(`Google Sheet URL for ${decodedTicker} is not configured.`);
+        if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
+            console.log(`Falling back to CoinGecko for ${decodedTicker}.`);
+            return fetchCoinGeckoData(decodedTicker, from, to);
+        }
         return useStaticFallback(ticker);
     }
 
-    const cacheKey = `${STORAGE_PREFIX}googlesheet_${ticker}_${from}_${to}`;
+    const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
-    const dataProcessor = (result) => {
-        if (!result || typeof result !== 'string') return [];
-        
-        const lines = result.split(/\r\n|\n/);
-        const headerIndex = lines.findIndex(line => line.toLowerCase().startsWith('date,close'));
-        if (headerIndex === -1) {
-            console.warn(`Could not find header "Date,Close" in Google Sheet CSV for ${ticker}`);
-            return [];
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const csvText = await response.text();
+
+        const lines = csvText.split(/\r\n|\n/);
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+        const dateColIndex = headers.indexOf('date') !== -1 ? headers.indexOf('date') : headers.indexOf('datum');
+        const closeColIndex = headers.indexOf('close') !== -1 ? headers.indexOf('close') : headers.indexOf('schluss');
+
+        if (dateColIndex === -1 || closeColIndex === -1) {
+            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}`);
+            return useStaticFallback(ticker);
         }
 
-        const dataLines = lines.slice(headerIndex + 1);
         const prices = [];
-        
-        for (const line of dataLines) {
-            const [dateStr, priceStr] = line.split(',');
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line) continue;
+            const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
+            const dateStr = fields[dateColIndex];
+            const priceStr = fields[closeColIndex];
             if (dateStr && priceStr) {
-                const [month, day, year] = dateStr.split('/');
-                if (month && day && year) {
-                    const date = new Date(Date.UTC(year, month - 1, day));
-                    const price = parseFloat(priceStr);
-                    if (!isNaN(date.getTime()) && !isNaN(price)) {
+                const datePart = dateStr.split(' ')[0]; // Handle "DD.MM.YYYY HH:MM:SS"
+                const [day, month, year] = datePart.split('.');
+                // Zuerst Tausendertrennzeichen (Punkte) entfernen, dann Dezimalkomma durch Punkt ersetzen.
+                // "18.130,00" -> "18130,00" -> "18130.00"
+                const cleanedPriceStr = priceStr.replace(/\./g, '').replace(',', '.');
+                if (month && day && year) { // Ensure date components are valid
+                    const date = new Date(Date.UTC(year, month - 1, day)); // Month is 0-indexed
+                    const price = parseFloat(cleanedPriceStr);
+                    if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) { // Ensure valid date and positive price
                         prices.push([date.getTime(), price]);
                     }
                 }
             }
         }
         return prices;
-    };
-
-    try {
-        return await fetchAndCache(cacheKey, url, {}, dataProcessor, 1440, 'text');
     } catch (error) {
         console.error(`Failed to fetch or process Google Sheet for ${decodeURIComponent(ticker)}:`, error);
         return useStaticFallback(ticker);
