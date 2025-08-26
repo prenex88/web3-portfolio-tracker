@@ -106,6 +106,8 @@ let touchStartY = 0;
 let isPulling = false;
 let autocompleteIndex = -1;
 let autocompleteItems = [];
+let db;
+let cashflowViewMode = 'list';
 let biometricEnabled = false;
 let quickActionsVisible = false;
 
@@ -125,7 +127,7 @@ let showingCryptoBenchmarks = false;
 // =================================================================================
 // INITIALISIERUNG
 // =================================================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     Chart.register(ChartDataLabels);
     
     migrateV10toV11();
@@ -133,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isMobileDevice()) {
         checkBiometricAuth();
     }
+    setupIndexedDB();
     loadGitHubConfig();
     loadData();
     loadTheme();
@@ -159,6 +162,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function isMobileDevice() {
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+// =================================================================================
+// LOKALES BACKUP (INDEXEDDB)
+// =================================================================================
+function setupIndexedDB() {
+    const request = indexedDB.open('PortfolioDB', 1);
+
+    request.onupgradeneeded = (event) => {
+        const dbInstance = event.target.result;
+        if (!dbInstance.objectStoreNames.contains('backups')) {
+            dbInstance.createObjectStore('backups', { keyPath: 'id' });
+        }
+    };
+
+    request.onsuccess = (event) => {
+        db = event.target.result;
+        console.log('IndexedDB erfolgreich initialisiert.');
+    };
+
+    request.onerror = (event) => {
+        console.error('Fehler beim Initialisieren der IndexedDB:', event.target.error);
+    };
+}
+
+function saveBackupToIndexedDB() {
+    if (!db) return;
+    const backupData = {
+        id: 'latest_backup',
+        platforms,
+        entries,
+        cashflows,
+        dayStrategies,
+        favorites,
+        timestamp: new Date().toISOString()
+    };
+    const transaction = db.transaction(['backups'], 'readwrite');
+    const store = transaction.objectStore('backups');
+    store.put(backupData);
+}
+
+function loadBackupFromIndexedDB() {
+    return new Promise((resolve, reject) => {
+        if (!db) return resolve(null);
+        const transaction = db.transaction(['backups'], 'readonly');
+        const store = transaction.objectStore('backups');
+        const request = store.get('latest_backup');
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
 }
 
 // =================================================================================
@@ -736,6 +790,8 @@ function toggleCompactMode() {
     isCompactMode = !isCompactMode;
     document.body.classList.toggle('compact-mode');
     localStorage.setItem(`${STORAGE_PREFIX}compactMode`, isCompactMode);
+    const toggle = document.getElementById('compactModeToggle');
+    if (toggle) toggle.checked = isCompactMode;
     showNotification(isCompactMode ? 'Kompakte Ansicht aktiviert' : 'Normale Ansicht');
     if (portfolioChart) portfolioChart.resize();
     if (allocationChart) allocationChart.resize();
@@ -743,26 +799,51 @@ function toggleCompactMode() {
 
 function togglePrivacyMode() {
     document.body.classList.toggle('privacy-mode');
+    const isActive = document.body.classList.contains('privacy-mode');
+    document.getElementById('privacyToggle').innerHTML = isActive ? '🙈' : '👁️';
 
     if (portfolioChart) portfolioChart.update();
     if (allocationChart) allocationChart.update();
+    
+    showNotification(isActive ? 'Privacy Mode aktiviert' : 'Privacy Mode deaktiviert');
 }
 
 // =================================================================================
 // DATA HANDLING & FILTERING
 // =================================================================================
-function loadData() {
-    platforms = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms`)) || [...DEFAULT_PLATFORMS];
-    
+async function loadData() {
+    let platformsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms`));
+    let entriesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries`));
+    let cashflowsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows`));
+    let dayStrategiesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioDayStrategies`));
+    let favoritesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites`));
+
+    if (!entriesData || entriesData.length === 0) {
+        console.log("LocalStorage ist leer, versuche Wiederherstellung aus IndexedDB-Backup...");
+        try {
+            const backup = await loadBackupFromIndexedDB();
+            if (backup && backup.entries && backup.entries.length > 0) {
+                platformsData = backup.platforms;
+                entriesData = backup.entries;
+                cashflowsData = backup.cashflows;
+                dayStrategiesData = backup.dayStrategies;
+                favoritesData = backup.favorites;
+                showNotification("Daten aus dem letzten lokalen Backup wiederhergestellt!", "success");
+            }
+        } catch (error) {
+            console.error("Fehler beim Laden des IndexedDB-Backups:", error);
+        }
+    }
+
+    platforms = platformsData || [...DEFAULT_PLATFORMS];
     platforms = platforms.map(p => ({
         ...p,
         tags: p.tags || []
     }));
-    
-    entries = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries`)) || [];
-    cashflows = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows`)) || [];
-    dayStrategies = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioDayStrategies`)) || [];
-    favorites = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites`)) || [];
+    entries = entriesData || [];
+    cashflows = cashflowsData || [];
+    dayStrategies = dayStrategiesData || [];
+    favorites = favoritesData || [];
     applyDateFilter();
 }
 
@@ -773,6 +854,7 @@ function saveData(triggerSync = true) {
     localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
     localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
     localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
+    saveBackupToIndexedDB();
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
@@ -1271,22 +1353,25 @@ function switchTab(tabName) {
 function toggleTheme() {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     document.body.classList.toggle('dark-mode');
-    document.querySelector('.theme-toggle').textContent = currentTheme === 'light' ? '🌙' : '☀️';
+    document.querySelector('.theme-toggle').innerHTML = currentTheme === 'light' ? '🌙' : '☀️';
     localStorage.setItem(`${STORAGE_PREFIX}theme`, currentTheme);
     updateChartTheme();
+    showNotification(currentTheme === 'light' ? 'Light Mode' : 'Dark Mode');
 }
 
 function loadTheme() {
     currentTheme = localStorage.getItem(`${STORAGE_PREFIX}theme`) || 'light';
     if (currentTheme === 'dark') {
         document.body.classList.add('dark-mode');
-        document.querySelector('.theme-toggle').textContent = '☀️';
+        document.querySelector('.theme-toggle').innerHTML = '☀️';
     }
     
     isCompactMode = localStorage.getItem(`${STORAGE_PREFIX}compactMode`) === 'true';
     if (isCompactMode) {
         document.body.classList.add('compact-mode');
     }
+    const toggle = document.getElementById('compactModeToggle');
+    if (toggle) toggle.checked = isCompactMode;
 }
 
 function updateChartTheme() {
@@ -1328,7 +1413,7 @@ function renderPlatformButtons() {
     
     platforms.sort((a, b) => a.name.localeCompare(b.name));
     
-    const sortedFavorites = [...favorites].map(favName => platforms.find(p => p.name === favName)).filter(p => p);
+    const sortedFavorites = favorites.map(favName => platforms.find(p => p.name === favName)).filter(Boolean);
     let nonFavoritePlatforms = platforms.filter(p => !favorites.includes(p.name));
     
     if (activeCategory !== 'all') {
@@ -1347,7 +1432,7 @@ function renderPlatformButtons() {
         tile.className = 'platform-btn';
         tile.dataset.platform = p.name;
         
-        if (selectedPlatforms.includes(p.name)) tile.classList.add('selected');
+        if (selectedPlatforms.includes(p.name)) tile.classList.add('selected'); // Keep this for state restoration
         if (favorites.includes(p.name)) tile.classList.add('favorite');
         if (platformsWithLastBalance.has(p.name)) tile.classList.add('has-balance');
         
@@ -1777,6 +1862,27 @@ function makeNoteEditable(cell, entryId, type) {
 // =================================================================================
 // DISPLAY UPDATES
 // =================================================================================
+function updateBottomNavBadges() {
+    const entryTab = document.querySelector('.tab-btn[data-tab="entry"]');
+    if (!entryTab) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const todayEntriesCount = entries.filter(e => e.date === today).length;
+
+    if (todayEntriesCount > 0) {
+        entryTab.setAttribute('data-badge', todayEntriesCount);
+    } else {
+        entryTab.removeAttribute('data-badge');
+    }
+}
+
+function setCashflowView(mode) {
+    cashflowViewMode = mode;
+    document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`.view-switcher .view-btn[onclick="setCashflowView('${mode}')"]`).classList.add('active');
+    updateCashflowDisplay();
+}
+
 function updateDisplay() {
     updateStats();
     updateHistory();
@@ -1784,6 +1890,7 @@ function updateDisplay() {
     updateCashflowDisplay();
     updatePlatformDetails();
     updateKeyMetrics();
+    updateBottomNavBadges();
 }
 
 function updateStats() {
@@ -2177,8 +2284,100 @@ function updateSelectAllCheckbox() {
 // =================================================================================
 
 function updateCashflowDisplay() {
-    const tbody = document.getElementById('cashflowTableBody');
+    const container = document.getElementById('cashflowDisplayContainer');
+    if (!container) return;
+
+    if (cashflowViewMode === 'list') {
+        renderCashflowTable(container);
+    } else {
+        renderGroupedCashflow(container, cashflowViewMode);
+    }
+}
+
+function renderGroupedCashflow(container, groupBy) {
+    const grouped = filteredCashflows.reduce((acc, cf) => {
+        const date = new Date(cf.date);
+        let key;
+        if (groupBy === 'month') {
+            key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        } else { // quarter
+            const quarter = Math.floor(date.getMonth() / 3) + 1;
+            key = `${date.getFullYear()}-Q${quarter}`;
+        }
+
+        if (!acc[key]) {
+            acc[key] = { deposits: 0, withdrawals: 0, transactions: [] };
+        }
+
+        if (cf.type === 'deposit') {
+            acc[key].deposits += cf.amount;
+        } else {
+            acc[key].withdrawals += cf.amount;
+        }
+        acc[key].transactions.push(cf);
+        return acc;
+    }, {});
+
+    const sortedKeys = Object.keys(grouped).sort().reverse();
     
+    if (sortedKeys.length === 0) {
+        container.innerHTML = `<div class="empty-state">Keine Cashflows im ausgewählten Zeitraum.</div>`;
+        return;
+    }
+
+    let html = '<div class="cashflow-groups">';
+    sortedKeys.forEach(key => {
+        const group = grouped[key];
+        const net = group.deposits - group.withdrawals;
+        
+        let title = '';
+        if (groupBy === 'month') {
+            const [year, month] = key.split('-');
+            title = new Date(year, month - 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+        } else {
+            title = key.replace('-Q', ' - Quartal ');
+        }
+
+        html += `
+            <details class="cashflow-group">
+                <summary class="cashflow-group-summary">
+                    <div class="group-title">${title}</div>
+                    <div class="group-stats">
+                        <span class="positive">Ein: ${formatDollar(group.deposits)}</span>
+                        <span class="negative">Aus: ${formatDollar(group.withdrawals)}</span>
+                        <span class="${net >= 0 ? 'positive' : 'negative'}">Netto: ${formatDollar(net)}</span>
+                    </div>
+                </summary>
+                <div class="cashflow-group-details">
+                    ${group.transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(cf => `
+                        <div class="transaction-row">
+                            <div class="transaction-date">${formatDate(cf.date)}</div>
+                            <div class="transaction-type type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</div>
+                            <div class="transaction-platform">${cf.platform || '-'}</div>
+                            <div class="transaction-note">${cf.note || '...'}</div>
+                            <div class="transaction-amount ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</div>
+                            <button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">🗑️</button>
+                        </div>
+                    `).join('')}
+                </div>
+            </details>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderCashflowTable(container) {
+    container.innerHTML = `
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead><tr><th class="sortable" data-sort="date">Datum <span class="sort-arrow"></span></th><th class="sortable" data-sort="type">Typ <span class="sort-arrow"></span></th><th class="sortable" data-sort="amount">Betrag <span class="sort-arrow"></span></th><th>Plattform</th><th>Notiz</th><th>Aktionen</th></tr></thead>
+                <tbody id="cashflowTableBody"></tbody>
+            </table>
+        </div>
+    `;
+
+    const tbody = document.getElementById('cashflowTableBody');
     let dataToDisplay = [...filteredCashflows];
     dataToDisplay.sort((a, b) => {
         const aVal = a[cashflowSort.key] || 0;
@@ -2191,7 +2390,7 @@ function updateCashflowDisplay() {
 
     tbody.innerHTML = '';
     if (dataToDisplay.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Keine Cashflows gefunden</div></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Keine Cashflows gefunden</td></tr>`;
         return;
     }
 
@@ -3545,6 +3744,40 @@ function savePlatformEdit() {
     }
 }
 
+async function restoreFromLocalBackup() {
+    const confirmed = await showCustomPrompt({
+        title: 'Aus lokalem Backup wiederherstellen',
+        text: 'Dies überschreibt deine aktuellen Daten mit dem letzten automatischen Backup. Bist du sicher? Gib "RESTORE" ein, um fortzufahren.',
+        showInput: true,
+        actions: [
+            { text: 'Abbrechen' },
+            { text: 'Wiederherstellen', class: 'btn-warning', value: 'RESTORE' }
+        ]
+    });
+
+    if (confirmed && confirmed.toUpperCase() === 'RESTORE') {
+        try {
+            const backup = await loadBackupFromIndexedDB();
+            if (backup) {
+                platforms = backup.platforms;
+                entries = backup.entries;
+                cashflows = backup.cashflows;
+                dayStrategies = backup.dayStrategies;
+                favorites = backup.favorites;
+                
+                saveData(); // Speichert die wiederhergestellten Daten in localStorage und aktualisiert das Backup
+                applyDateFilter();
+                showNotification('Daten erfolgreich aus lokalem Backup wiederhergestellt!', 'success');
+            } else {
+                showNotification('Kein lokales Backup gefunden.', 'error');
+            }
+        } catch (error) {
+            showNotification('Fehler bei der Wiederherstellung.', 'error');
+            console.error("Fehler beim Wiederherstellen aus Backup:", error);
+        }
+    }
+}
+
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         const swCode = `
@@ -3636,7 +3869,158 @@ function addMissingStyles() {
             background: rgba(0,0,0,0.2);
             border-radius: 2px;
         }
+
+        /* Badge für Navigation */
+        .tab-btn[data-badge] {
+            position: relative;
+            overflow: visible;
+        }
+        .tab-btn[data-badge]::after {
+            content: attr(data-badge);
+            position: absolute;
+            top: 2px;
+            right: 5px;
+            background-color: var(--danger);
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--background);
+        }
+
+        /* Collapsible Section in Settings */
+        details {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--card-bg);
+            overflow: hidden; /* Prevents content from spilling out during animation */
+        }
+        .section-header-summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header-summary::-webkit-details-marker {
+            display: none;
+        }
+        .details-content {
+            padding: 0 16px 16px;
+        }
+        details[open] > .section-header-summary {
+            border-bottom: 1px solid var(--border);
+        }
+        .summary-arrow {
+            transition: transform 0.2s ease-in-out;
+            font-size: 1.2em;
+        }
+        details[open] .summary-arrow {
+            transform: rotate(180deg);
+        }
+
+        /* Mobile Header Menu */
+        .desktop-header-actions { display: inline-flex; gap: 8px; }
+        .mobile-header-actions { display: none; }
+
+        @media (max-width: 768px) {
+            .header-content h1 { font-size: 1.1em; }
+            .header-content .subtitle { display: none; }
+            .desktop-header-actions { display: none; }
+            .mobile-header-actions { display: block; position: relative; }
+            .more-actions-btn { padding: 6px 10px; }
+            .header-actions-dropdown {
+                display: none;
+                position: absolute;
+                top: calc(100% + 5px);
+                right: 0;
+                background-color: var(--card-bg);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                z-index: 100;
+                flex-direction: column;
+                align-items: stretch;
+                padding: 8px;
+                gap: 8px;
+                width: 180px;
+            }
+            .header-actions-dropdown.visible { display: flex; }
+            .header-actions-dropdown .btn { justify-content: flex-start; text-align: left; width: 100%; }
+        }
+
+        .view-switcher {
+            display: flex;
+            gap: 5px;
+            background-color: var(--background-alt);
+            padding: 5px;
+            border-radius: 8px;
+        }
+        .view-switcher .view-btn {
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .view-switcher .view-btn.active {
+            background-color: var(--card-bg);
+            color: var(--primary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .cashflow-groups { display: flex; flex-direction: column; gap: 12px; }
+        .cashflow-group { border: 1px solid var(--border); border-radius: 8px; }
+        .cashflow-group-summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer; list-style: none; }
+        .cashflow-group-summary::-webkit-details-marker { display: none; }
+        .group-title { font-weight: 600; font-size: 1.1em; color: var(--text-primary); }
+        .group-stats { display: flex; gap: 16px; font-size: 0.9em; }
+        .cashflow-group-details { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+        .transaction-row { display: grid; grid-template-columns: 100px 100px 1fr 1fr auto auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+        .transaction-row:last-child { border-bottom: none; }
+        .transaction-note { color: var(--text-secondary); font-style: italic; }
+        .transaction-platform { font-weight: 500; }
+        @media (max-width: 768px) {
+            .cashflow-group-summary { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .group-stats { flex-wrap: wrap; }
+            .transaction-row { grid-template-columns: 1fr 1fr; }
+            .transaction-date, .transaction-type { grid-column: 1 / 2; }
+            .transaction-platform, .transaction-note { grid-column: 2 / 3; }
+            .transaction-amount { grid-column: 1 / 2; font-size: 1.1em; font-weight: 600; }
+            .transaction-row button { grid-column: 2 / 3; justify-self: end; }
+        }
+
     `;
     document.head.appendChild(styleSheet);
 }
  
+// Header Dropdown Toggle
+function toggleHeaderMenu() {
+    const dropdown = document.getElementById('headerDropdown');
+    dropdown.classList.toggle('show');
+    
+    // Schließe Dropdown wenn außerhalb geklickt wird
+    if (dropdown.classList.contains('show')) {
+        setTimeout(() => {
+            document.addEventListener('click', closeHeaderMenuOnOutsideClick);
+        }, 0);
+    }
+}
+
+function closeHeaderMenuOnOutsideClick(e) {
+    const dropdown = document.getElementById('headerDropdown');
+    const menuButton = e.target.closest('.header-menu-dropdown');
+    
+    if (!menuButton && dropdown.classList.contains('show')) {
+        dropdown.classList.remove('show');
+        document.removeEventListener('click', closeHeaderMenuOnOutsideClick);
+    }
+}
