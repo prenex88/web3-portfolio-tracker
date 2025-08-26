@@ -540,7 +540,6 @@ function selectAutocompleteItem(platform) {
 // EVENT LISTENERS & SHORTCUTS
 // =================================================================================
 function addEventListeners() {
-    document.getElementById('privacyToggle').addEventListener('click', togglePrivacyMode);
     document.getElementById('globalSearchBtn').addEventListener('click', openGlobalSearch);
     document.getElementById('globalSearchInput').addEventListener('input', handleGlobalSearch);
     document.getElementById('globalSearchInput').addEventListener('keydown', handleGlobalSearchKeydown);

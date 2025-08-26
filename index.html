@@ -55,7 +55,6 @@
                 </div>
                 <div class="header-controls">
                 <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)">🔍</button>
-                <button id="privacyToggle" class="btn-icon" title="Privatsphäre-Modus">👁️</button>
                 <button class="theme-toggle btn-icon" onclick="toggleTheme()" title="Theme wechseln (Ctrl+D)">🌙</button>
                 
                 <!-- Dropdown Menü -->
@@ -77,6 +76,7 @@
                             <span id="activeFilterBadge" class="status-indicator-badge"></span>
                         </button>
                         <div class="dropdown-divider"></div>
+                        <button onclick="togglePrivacyMode(); toggleHeaderMenu();">👁️ Privatsphäre-Modus</button>
                         <button onclick="toggleCompactMode(); toggleHeaderMenu();">📱 Kompakte Ansicht</button>
                         <button onclick="toggleBiometric(); toggleHeaderMenu();">🔐 Bio Auth</button>
                         <button onclick="exportPDF(); toggleHeaderMenu();">📄 PDF Export</button>
