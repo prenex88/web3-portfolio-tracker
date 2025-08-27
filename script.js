@@ -452,6 +452,7 @@ let db;
 let cashflowViewMode = 'list';
 let biometricEnabled = false;
 let quickActionsVisible = false;
+let historyViewMode = 'list';
 let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
@@ -1808,7 +1809,7 @@ function switchTab(tabName, options = {}) {
             quickActionsVisible = false;
         }
     }
-    
+
     if (tabName === 'history') updateHistory();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
@@ -1816,7 +1817,7 @@ function switchTab(tabName, options = {}) {
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'history') {
         updateHistory();
-    }
+    } else if (tabName === 'platforms') updatePlatformDetails();
 }
 
 // =================================================================================
@@ -2628,12 +2629,24 @@ function updateKeyMetrics() {
 // =================================================================================
 // HISTORY TAB - BULK ACTIONS & DISPLAY
 // =================================================================================
+
+function setHistoryView(mode) {
+    historyViewMode = mode;
+    document.querySelectorAll('#history .view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`#history .view-switcher .view-btn[onclick="setHistoryView('${mode}')"]`).classList.add('active');
+    updateHistory();
+}
+
 function updateHistory() {
+    const listView = document.getElementById('historyListView');
+    const groupedView = document.getElementById('historyGroupedView');
+    const mobileCards = document.getElementById('historyMobileCards');
+    const searchInput = document.getElementById('historySearch');
+
     const tbody = document.getElementById('historyTableBody');
     const historySection = tbody.closest('.section');
     let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
     if (clearBtnContainer) clearBtnContainer.remove();
-
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
@@ -2642,12 +2655,25 @@ function updateHistory() {
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
         tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
     } else {
+        if (historyViewMode === 'grouped') {
+            listView.style.display = 'none';
+            mobileCards.style.display = 'none';
+            groupedView.style.display = 'block';
+            searchInput.style.visibility = 'hidden';
+            renderGroupedHistory();
+            return;
+        }
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
             (e.note && e.note.toLowerCase().includes(searchTerm))
         );
     }
+
+    listView.style.display = 'block';
+    groupedView.style.display = 'none';
+    searchInput.style.visibility = 'visible';
+    if (window.innerWidth <= 768) mobileCards.style.display = 'block';
 
     // Augment data with strategy for correct sorting
     const augmentedData = dataToDisplay.map(entry => ({
@@ -2703,6 +2729,83 @@ function updateHistory() {
     
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderGroupedHistory() {
+    const container = document.getElementById('historyGroupedView');
+    container.innerHTML = '';
+
+    const groupedByPlatform = filteredEntries.reduce((acc, entry) => {
+        if (!acc[entry.protocol]) {
+            acc[entry.protocol] = [];
+        }
+        acc[entry.protocol].push(entry);
+        return acc;
+    }, {});
+
+    const platformKeys = Object.keys(groupedByPlatform).sort();
+
+    if (platformKeys.length === 0) {
+        container.innerHTML = `<div class="empty-state">Keine Einträge im ausgewählten Zeitraum.</div>`;
+        return;
+    }
+
+    const isMobile = window.innerWidth <= 768;
+    let html = '<div class="cashflow-groups">'; // Re-use cashflow group styling
+    platformKeys.forEach(platformName => {
+        const entries = groupedByPlatform[platformName].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latestEntry = entries[0];
+        const latestValue = latestEntry ? latestEntry.balance : 0;
+
+        html += `
+            <details class="cashflow-group">
+                <summary class="cashflow-group-summary">
+                    <div class="group-title">${platformName}</div>
+                    <div class="group-stats">
+                        <span>Einträge: ${entries.length}</span>
+                        <span>Letzter Wert: <strong class="dollar-value">${formatDollar(latestValue)}</strong></span>
+                    </div>
+                </summary>
+                <div class="cashflow-group-details">`;
+
+        if (isMobile) {
+            html += `<div class="mobile-cards" style="padding: 0; max-height: 300px; overflow-y: auto;">
+                ${entries.map(entry => {
+                    const strategy = getStrategyForDate(entry.date) || '';
+                    return `
+                    <div class="history-card" style="margin-bottom: 8px; padding: 12px;">
+                        <div class="history-card-header" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+                            <div class="history-card-date">${formatDate(entry.date)}</div>
+                            <div class="history-card-balance dollar-value" style="font-size: 1.1em;">
+                                ${formatDollar(entry.balance)}
+                            </div>
+                        </div>
+                        ${strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                        ${entry.note ? `<div class="history-card-note" style="border-top: none; padding-top: 0; margin-top: 0;">${entry.note}</div>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>`;
+        } else {
+            html += `<div class="data-table-wrapper" style="max-height: 300px;">
+                        <table class="data-table">
+                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th></tr></thead>
+                            <tbody>
+                                ${entries.map(entry => `
+                                    <tr>
+                                        <td>${formatDate(entry.date)}</td>
+                                        <td class="dollar-value">${formatDollar(entry.balance)}</td>
+                                        <td>${getStrategyForDate(entry.date) || '-'}</td>
+                                        <td>${entry.note || '-'}</td>
+                                    </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+        }
+        html += `</div>
+            </details>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 function renderHistoryMobileCards(entries) {
