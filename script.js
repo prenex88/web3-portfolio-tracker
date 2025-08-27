@@ -492,6 +492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupBottomSheet();
     setupKeyboardShortcuts();
     setupTouchGestures();
+    setupMobileTitle();
     setupAutocomplete();
     setupQuickActions();
     updateCashflowTargets();
@@ -986,6 +987,20 @@ function addEventListeners() {
     });
 }
 
+function setupMobileTitle() {
+    // Change title on mobile devices
+    function updateTitle() {
+        const headerTitle = document.querySelector('.header-content h1');
+        if (headerTitle && window.innerWidth <= 768) {
+            headerTitle.innerHTML = '🚀 Web3 Portfolio';
+        }
+    }
+    
+    // Run on load and resize
+    updateTitle();
+    window.addEventListener('resize', updateTitle);
+}
+
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -997,7 +1012,7 @@ function setupKeyboardShortcuts() {
 
         if (e.altKey && e.key >= '1' && e.key <= '6') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'platforms', '5': 'history' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'history' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -1017,7 +1032,7 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             if (currentTab === 'dashboard') {
                 exportChart('portfolioChartContainer');
-            } else if (currentTab === 'platforms') {
+            } else if (currentTab === 'history') {
                 exportCSV();
             } else {
                 exportPDF();
@@ -1120,7 +1135,7 @@ function handleSwipeGesture(startX, endX, startY, endY) {
     const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
 
     if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
-        const tabs = ['dashboard', 'entry', 'cashflow', 'platforms', 'history'];
+        const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
         const currentIndex = tabs.indexOf(currentTab);
         if (navigator.vibrate) navigator.vibrate(30);
 
@@ -1139,7 +1154,7 @@ function handleSwipeGesture(startX, endX, startY, endY) {
 function showSwipeIndicator(tabName) {
     const indicator = document.getElementById('swipeIndicator');
     const swipeText = document.getElementById('swipeText');
-    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'platforms': '💼 Plattformen', 'history': '📜 Historie' };
+    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'history': '📜 Historie' };
 
     swipeText.textContent = tabNames[tabName];
     indicator.classList.add('show');
@@ -1794,7 +1809,7 @@ function switchTab(tabName, options = {}) {
         }
     }
     
-    if (tabName === 'platforms') updatePlatformDetails();
+    if (tabName === 'history') updateHistory();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
         updateCashflowStats();
@@ -4654,6 +4669,13 @@ function addMissingStyles() {
                 white-space: nowrap;
             }
             
+            /* Mobile title styling */
+            .header-content h1 {
+                font-size: 1em !important;
+                font-weight: 600 !important;
+                color: var(--text-primary) !important;
+            }
+            
             .header-content .subtitle { display: none !important; }
             
             .desktop-header-actions { display: none !important; }
@@ -4940,11 +4962,21 @@ function addMissingStyles() {
                 padding-top: 6px;
             }
             
-            /* Hide settings tab on mobile since it's in dropdown menu */
+            /* Hide settings and platforms tabs on mobile */
             .tab-btn[onclick="switchTab('settings')"],
-            .tab-btn[data-tab="settings"] {
+            .tab-btn[data-tab="settings"],
+            .tab-btn[onclick="switchTab('platforms')"],
+            .tab-btn[data-tab="platforms"] {
                 display: none !important;
             }
+        }
+        
+        /* Hide platforms tab content completely */
+        #platforms,
+        .tab-content#platforms,
+        [data-tab="platforms"],
+        .tab-btn[onclick*="platforms"] {
+            display: none !important;
         }
         
         /* Platform Grid Styling */
