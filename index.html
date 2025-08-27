@@ -17,6 +17,12 @@
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%23764ba2'/></linearGradient></defs><circle cx='50' cy='50' r='45' fill='url(%23g)'/><text x='50' y='65' text-anchor='middle' font-size='40' fill='white'>🚀</text></svg>">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Verhindert, dass der Browser scrollt, während wir das Bottom Sheet ziehen. */
+        .bottom-sheet-header {
+            touch-action: none;
+        }
+    </style>
 </head>
 <body>
 
@@ -264,17 +270,6 @@
                     <button class="btn btn-primary btn-small" onclick="loadLastEntries()">Letzte Einträge laden</button>
                 </div>
 
-                <div id="dayStrategyContainer" class="day-strategy-container" style="margin-bottom: 24px;">
-                    <div class="strategy-input-row">
-                        <label class="strategy-label">📋 Tages-Strategie:</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="dailyStrategy" class="strategy-input" 
-                                placeholder="z.B. Abgesichertes Liquidity Providing, Funding Rate Farming...">
-                        </div>
-                    </div>
-                </div>
-
-
                 <div style="margin-bottom: 24px;">
                     <h3 style="margin-bottom: 16px; color: var(--text-primary);">⭐ Favoriten-Zone</h3>
                     <p style="color: var(--text-secondary); font-size: 14px; margin-top: -12px; margin-bottom: 16px;">Plattformen hierher ziehen, um sie als Favorit zu markieren.</p>
@@ -308,6 +303,21 @@
                 <div id="autoZeroHint" class="auto-zero-hint">
                     💡 <b>Tipp:</b> Wenn du jetzt speicherst, kannst du nicht ausgewählte Plattformen, die vorher Kapital hatten, automatisch auf 0 setzen.
                 </div>
+                
+                <div id="dayStrategyContainer" class="day-strategy-container" style="display: none; margin-bottom: 24px;">
+                    <div class="strategy-input-row">
+                        <label class="strategy-label">📋 Tages-Strategie:</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="dailyStrategy" class="strategy-input"
+                                   placeholder="z.B. Abgesichertes Liquidity Providing, Funding Rate Farming..."
+                                   onkeydown="if(event.key === 'Enter') { event.preventDefault(); saveStrategyOnly(); }">
+                            <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">
+                                💾 Speichern
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="platformInputs" class="input-grid"></div>
             </div>
         </div>
@@ -439,6 +449,7 @@
                                 <th class="sortable" data-sort="date">Datum <span class="sort-arrow"></span></th>
                                 <th class="sortable" data-sort="protocol">Plattform <span class="sort-arrow"></span></th>
                                 <th class="sortable" data-sort="balance">Balance <span class="sort-arrow"></span></th>
+                                <th class="sortable" data-sort="strategy">Strategie <span class="sort-arrow"></span></th>
                                 <th>Notiz</th>
                                 <th>Aktionen</th>
                             </tr>
@@ -446,11 +457,17 @@
                         <tbody id="historyTableBody"></tbody>
                     </table>
                 </div>
+                <div id="historyMobileCards" class="mobile-cards">
+                    <!-- Mobile card layout wird hier von JavaScript eingefügt -->
+                </div>
                 <div id="historyBulkActions" class="bulk-actions-bar">
                     <span id="bulkSelectedCount">0 Einträge ausgewählt</span>
                     <div class="bulk-actions-buttons">
                         <button class="btn btn-primary btn-small" onclick="bulkChangeDate()">
                             <span>🗓️</span> Datum ändern
+                        </button>
+                        <button class="btn btn-primary btn-small" onclick="bulkChangeAmount()">
+                            <span>💰</span> Betrag ändern
                         </button>
                         <button class="btn btn-danger btn-small" onclick="deleteSelectedEntries()">
                             <span>🗑️</span> Auswahl löschen
@@ -647,7 +664,19 @@
         <div id="globalSearchModal" class="global-search-modal">
             <div class="search-input-wrapper">
                 <input type="text" id="globalSearchInput" placeholder="Suche nach Plattformen, Einträgen, Aktionen...">
+                <button class="btn btn-small" onclick="exportSearchResults()" title="Suchergebnisse exportieren">💾</button>
                 <span class="search-modal-close" onclick="closeGlobalSearch()">✕</span>
+            </div>
+            <div id="searchFilters" class="search-filters" style="display: none;">
+                <!-- Filter werden hier dynamisch eingefügt -->
+            </div>
+            <div class="search-quick-filters">
+                <button class="btn btn-small" onclick="setDateRangeFilter('heute')">📅 Heute</button>
+                <button class="btn btn-small" onclick="setDateRangeFilter('woche')">📅 Diese Woche</button>
+                <button class="btn btn-small" onclick="setDateRangeFilter('monat')">📅 Dieser Monat</button>
+                <button class="btn btn-small" onclick="toggleSearchFilter('category', 'Exchange')">🏦 Exchange</button>
+                <button class="btn btn-small" onclick="toggleSearchFilter('category', 'DeFi')">🔄 DeFi</button>
+                <button class="btn btn-small" onclick="toggleSearchFilter('tag', 'high-risk')">⚠️ High-Risk</button>
             </div>
             <div id="globalSearchResults" class="global-search-results">
                 <!-- Ergebnisse werden hier dynamisch eingefügt -->
@@ -656,5 +685,165 @@
     </div>
 
     <script src="script.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- Swipe-Logik für Tabs ---
+        const appContainer = document.getElementById('appContainer');
+        let touchStartX = 0;
+        let touchEndX = 0;
+        const swipeThreshold = 75; // Mindestdistanz für einen Swipe in Pixel
+
+        let touchMoveX = 0;
+        let isSwipeActive = false;
+        
+        appContainer.addEventListener('touchstart', (event) => {
+            // Ignoriere Swipes auf interaktiven oder scrollbaren Elementen
+            const path = event.composedPath();
+            const isInteractive = path.some(el => {
+                if (!el.tagName) return false;
+                const style = getComputedStyle(el);
+                return (
+                    (el.scrollHeight > el.clientHeight && ['auto', 'scroll'].includes(style.overflowY)) ||
+                    (el.scrollWidth > el.clientWidth && ['auto', 'scroll'].includes(style.overflowX)) ||
+                    ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'CANVAS'].includes(el.tagName) ||
+                    el.isContentEditable ||
+                    el.closest('.chart-controls') ||
+                    el.closest('.data-table-wrapper') ||
+                    el.closest('.bottom-sheet-content') ||
+                    el.closest('.platform-btn') ||
+                    el.closest('.input-field') ||
+                    el.closest('.note-input') ||
+                    el.closest('.global-search-overlay') ||
+                    el.closest('.search-suggestions') ||
+                    el.closest('.search-filters') ||
+                    el.closest('.search-quick-filters')
+                );
+            });
+
+            if (isInteractive) {
+                touchStartX = 0; // Verhindert, dass touchend einen Swipe auslöst
+                return;
+            }
+            
+            touchStartX = event.changedTouches[0].screenX;
+            isSwipeActive = false;
+        }, { passive: true });
+        
+        appContainer.addEventListener('touchmove', (event) => {
+            if (touchStartX === 0) return;
+            
+            touchMoveX = event.changedTouches[0].screenX;
+            const deltaX = touchMoveX - touchStartX;
+            
+            // Start visual feedback wenn Swipe stark genug ist
+            if (Math.abs(deltaX) > 30 && !isSwipeActive) {
+                isSwipeActive = true;
+                const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
+                const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));
+                
+                // Zeige Preview des nächsten Tabs
+                if (deltaX < 0 && currentTabIndex < tabButtons.length - 1) {
+                    // Nach links = nächster Tab
+                    tabButtons[currentTabIndex + 1].style.opacity = '0.7';
+                    tabButtons[currentTabIndex + 1].style.transform = 'scale(1.02)';
+                } else if (deltaX > 0 && currentTabIndex > 0) {
+                    // Nach rechts = vorheriger Tab
+                    tabButtons[currentTabIndex - 1].style.opacity = '0.7';
+                    tabButtons[currentTabIndex - 1].style.transform = 'scale(1.02)';
+                }
+            }
+        }, { passive: true });
+
+        appContainer.addEventListener('touchend', (event) => {
+            if (touchStartX === 0) return; // Swipe wurde auf einem interaktiven Element gestartet
+
+            touchEndX = event.changedTouches[0].screenX;
+            
+            // Reset visual feedback
+            const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
+            tabButtons.forEach(btn => {
+                if (!btn.classList.contains('active')) {
+                    btn.style.opacity = '';
+                    btn.style.transform = '';
+                }
+            });
+            
+            handleTabSwipe();
+            touchStartX = 0; // Zurücksetzen
+            isSwipeActive = false;
+        });
+
+        function handleTabSwipe() {
+            const deltaX = touchEndX - touchStartX;
+
+            if (Math.abs(deltaX) > swipeThreshold) {
+                // `switchTab` ist eine Funktion, die bereits in deiner script.js existieren sollte
+                if (typeof switchTab !== 'function') {
+                    console.error('Swipe-Funktion: switchTab() wurde nicht gefunden.');
+                    return;
+                }
+
+                const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
+                const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));
+                
+                if (deltaX < 0) { // Nach links wischen (nächster Tab)
+                    const nextTabIndex = (currentTabIndex + 1) % tabButtons.length;
+                    switchTab(tabButtons[nextTabIndex].dataset.tab);
+                } else { // Nach rechts wischen (vorheriger Tab)
+                    const prevTabIndex = (currentTabIndex - 1 + tabButtons.length) % tabButtons.length;
+                    switchTab(tabButtons[prevTabIndex].dataset.tab);
+                }
+            }
+        }
+
+        // --- Swipe-Logik zum Schließen des Bottom Sheet ---
+        const bottomSheetOverlay = document.getElementById('bottomSheet');
+        const bottomSheetContent = bottomSheetOverlay.querySelector('.bottom-sheet-content');
+        const bottomSheetHeader = bottomSheetOverlay.querySelector('.bottom-sheet-header');
+        
+        let bsTouchStartY = 0;
+        let bsCurrentTranslateY = 0;
+
+        if (bottomSheetHeader && bottomSheetContent) {
+            bottomSheetHeader.addEventListener('touchstart', (e) => {
+                bsTouchStartY = e.touches[0].clientY;
+                bottomSheetContent.style.transition = 'none'; // Deaktiviert die CSS-Transition während des Ziehens
+            }, { passive: true });
+
+            bottomSheetHeader.addEventListener('touchmove', (e) => {
+                const touchY = e.touches[0].clientY;
+                const deltaY = touchY - bsTouchStartY;
+                
+                if (deltaY > 0) { // Nur nach unten ziehen erlauben
+                    bsCurrentTranslateY = deltaY;
+                    bottomSheetContent.style.transform = `translateY(${bsCurrentTranslateY}px)`;
+                }
+            });
+
+            bottomSheetHeader.addEventListener('touchend', () => {
+                if (bsCurrentTranslateY === 0) return;
+
+                bottomSheetContent.style.transition = 'transform 0.3s ease-out';
+                const sheetHeight = bottomSheetContent.offsetHeight;
+
+                // Wenn mehr als 1/4 nach unten gezogen, schließen
+                if (bsCurrentTranslateY > sheetHeight / 4) {
+                    // Da wir die genaue Schließfunktion nicht kennen, verstecken wir das Element.
+                    // Dies ist eine sichere Methode, die in den meisten Fällen funktionieren sollte.
+                    // Idealerweise gäbe es eine Funktion wie `closeBottomSheet()`, die hier aufgerufen wird.
+                    bottomSheetOverlay.style.display = 'none';
+                    // Transform zurücksetzen für das nächste Öffnen
+                    bottomSheetContent.style.transform = 'translateY(0)';
+                } else {
+                    // Zurück zur Ausgangsposition schnappen
+                    bottomSheetContent.style.transform = 'translateY(0)';
+                }
+
+                bsCurrentTranslateY = 0;
+                bsTouchStartY = 0;
+            });
+        }
+    });
+    </script>
 </body>
 </html>

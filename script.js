@@ -2,6 +2,347 @@
 // KONFIGURATION & INITIALE DATEN
 // =================================================================================
 
+// =================================================================================
+// ERWEITERTE SUCHFUNKTIONALITÄT - KLASSEN UND UTILITIES
+// =================================================================================
+
+class SearchEngine {
+    constructor() {
+        this.searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+        this.searchCache = new Map();
+        this.debounceTimer = null;
+        this.activeFilters = {
+            dateRange: null,
+            categories: [],
+            platforms: [],
+            tags: []
+        };
+        this.savedSearches = JSON.parse(localStorage.getItem('savedSearches') || '[]');
+    }
+
+    // Fuzzy Search Implementation
+    fuzzyMatch(text, pattern, threshold = 0.6) {
+        if (!text || !pattern) return 0;
+        
+        text = text.toLowerCase();
+        pattern = pattern.toLowerCase();
+        
+        // Exact match gets highest score
+        if (text.includes(pattern)) return 1;
+        
+        // Calculate Levenshtein distance
+        const matrix = Array(pattern.length + 1).fill().map(() => Array(text.length + 1).fill(0));
+        
+        for (let i = 0; i <= pattern.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= text.length; j++) matrix[0][j] = j;
+        
+        for (let i = 1; i <= pattern.length; i++) {
+            for (let j = 1; j <= text.length; j++) {
+                const cost = pattern[i-1] === text[j-1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i-1][j] + 1,
+                    matrix[i][j-1] + 1,
+                    matrix[i-1][j-1] + cost
+                );
+            }
+        }
+        
+        const distance = matrix[pattern.length][text.length];
+        const maxLength = Math.max(pattern.length, text.length);
+        const similarity = (maxLength - distance) / maxLength;
+        
+        return similarity >= threshold ? similarity : 0;
+    }
+
+    // Debounced search function
+    debounceSearch(callback, delay = 300) {
+        return (...args) => {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = setTimeout(() => callback.apply(this, args), delay);
+        };
+    }
+
+    // Highlight search terms in text
+    highlightText(text, searchTerm) {
+        if (!searchTerm || !text) return text;
+        const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+    }
+
+    // Calculate search result relevance score
+    calculateRelevance(item, searchTerm) {
+        let score = 0;
+        const term = searchTerm.toLowerCase();
+        
+        // Title match (highest weight)
+        if (item.title) {
+            const titleMatch = this.fuzzyMatch(item.title, term);
+            score += titleMatch * 10;
+        }
+        
+        // Subtitle match (medium weight)
+        if (item.subtitle) {
+            const subtitleMatch = this.fuzzyMatch(item.subtitle, term);
+            score += subtitleMatch * 5;
+        }
+        
+        // Category match (low weight)
+        if (item.category) {
+            const categoryMatch = this.fuzzyMatch(item.category, term);
+            score += categoryMatch * 2;
+        }
+        
+        // Tags match (medium weight)
+        if (item.tags && Array.isArray(item.tags)) {
+            item.tags.forEach(tag => {
+                const tagMatch = this.fuzzyMatch(tag, term);
+                score += tagMatch * 3;
+            });
+        }
+        
+        return score;
+    }
+
+    // Add search to history
+    addToHistory(searchTerm) {
+        if (!searchTerm || searchTerm.length < 2) return;
+        
+        const normalizedTerm = searchTerm.toLowerCase().trim();
+        this.searchHistory = this.searchHistory.filter(term => term !== normalizedTerm);
+        this.searchHistory.unshift(normalizedTerm);
+        this.searchHistory = this.searchHistory.slice(0, 10); // Keep only last 10 searches
+        
+        localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
+    }
+
+    // Get search suggestions
+    getSuggestions(currentTerm) {
+        if (!currentTerm || currentTerm.length < 2) {
+            return this.searchHistory.slice(0, 5);
+        }
+        
+        return this.searchHistory
+            .filter(term => term.includes(currentTerm.toLowerCase()))
+            .slice(0, 3);
+    }
+
+    // Advanced search with filters
+    applyFilters(results) {
+        let filteredResults = [...results];
+
+        // Apply date range filter
+        if (this.activeFilters.dateRange) {
+            const { start, end } = this.activeFilters.dateRange;
+            filteredResults = filteredResults.filter(item => {
+                if (item.date) {
+                    const itemDate = new Date(item.date);
+                    return itemDate >= start && itemDate <= end;
+                }
+                return true; // Keep items without dates
+            });
+        }
+
+        // Apply category filters
+        if (this.activeFilters.categories.length > 0) {
+            filteredResults = filteredResults.filter(item =>
+                this.activeFilters.categories.includes(item.category)
+            );
+        }
+
+        // Apply platform filters
+        if (this.activeFilters.platforms.length > 0) {
+            filteredResults = filteredResults.filter(item =>
+                this.activeFilters.platforms.includes(item.title) ||
+                (item.protocol && this.activeFilters.platforms.includes(item.protocol))
+            );
+        }
+
+        // Apply tag filters
+        if (this.activeFilters.tags.length > 0) {
+            filteredResults = filteredResults.filter(item => {
+                if (item.tags && Array.isArray(item.tags)) {
+                    return this.activeFilters.tags.some(tag =>
+                        item.tags.some(itemTag => itemTag.toLowerCase().includes(tag.toLowerCase()))
+                    );
+                }
+                return false;
+            });
+        }
+
+        return filteredResults;
+    }
+
+    // Date range parsing
+    parseDateRange(input) {
+        const lowerInput = input.toLowerCase();
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+
+        // Relative dates
+        if (lowerInput.includes('heute') || lowerInput.includes('today')) {
+            return { start: today, end: tomorrow };
+        }
+        if (lowerInput.includes('gestern') || lowerInput.includes('yesterday')) {
+            const yesterday = new Date(today);
+            yesterday.setDate(today.getDate() - 1);
+            return { start: yesterday, end: today };
+        }
+        if (lowerInput.includes('woche') || lowerInput.includes('week')) {
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            return { start: weekAgo, end: tomorrow };
+        }
+        if (lowerInput.includes('monat') || lowerInput.includes('month')) {
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(today.getMonth() - 1);
+            return { start: monthAgo, end: tomorrow };
+        }
+
+        // Specific date patterns
+        const datePattern = /(\d{1,2})\.(\d{1,2})\.(\d{4})/;
+        const match = input.match(datePattern);
+        if (match) {
+            const [, day, month, year] = match;
+            const date = new Date(year, month - 1, day);
+            const nextDay = new Date(date);
+            nextDay.setDate(date.getDate() + 1);
+            return { start: date, end: nextDay };
+        }
+
+        return null;
+    }
+
+    // Save search
+    saveSearch(name, term, filters) {
+        const search = {
+            id: Date.now(),
+            name,
+            term,
+            filters: { ...filters },
+            createdAt: new Date().toISOString()
+        };
+        
+        this.savedSearches.unshift(search);
+        this.savedSearches = this.savedSearches.slice(0, 10); // Keep only 10 saved searches
+        
+        localStorage.setItem('savedSearches', JSON.stringify(this.savedSearches));
+    }
+
+    // Load saved search
+    loadSavedSearch(searchId) {
+        const search = this.savedSearches.find(s => s.id === searchId);
+        if (search) {
+            this.activeFilters = { ...search.filters };
+            return search.term;
+        }
+        return '';
+    }
+
+    // Clear filters
+    clearFilters() {
+        this.activeFilters = {
+            dateRange: null,
+            categories: [],
+            platforms: [],
+            tags: []
+        };
+        this.searchCache.clear(); // Clear cache when filters change
+    }
+}
+
+class SearchUI {
+    constructor(searchEngine) {
+        this.searchEngine = searchEngine;
+        this.selectedIndex = -1;
+        this.isNavigating = false;
+    }
+
+    // Initialize keyboard navigation
+    initKeyboardNavigation(searchInput, resultsContainer) {
+        searchInput.addEventListener('keydown', (e) => {
+            const items = resultsContainer.querySelectorAll('.search-result-item');
+            
+            switch(e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    this.selectedIndex = Math.min(this.selectedIndex + 1, items.length - 1);
+                    this.updateSelection(items);
+                    break;
+                    
+                case 'ArrowUp':
+                    e.preventDefault();
+                    this.selectedIndex = Math.max(this.selectedIndex - 1, -1);
+                    this.updateSelection(items);
+                    break;
+                    
+                case 'Enter':
+                    e.preventDefault();
+                    if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
+                        items[this.selectedIndex].click();
+                    }
+                    break;
+                    
+                case 'Escape':
+                    searchInput.blur();
+                    this.selectedIndex = -1;
+                    this.updateSelection(items);
+                    break;
+            }
+        });
+    }
+
+    // Update visual selection
+    updateSelection(items) {
+        items.forEach((item, index) => {
+            item.classList.toggle('selected', index === this.selectedIndex);
+        });
+        
+        if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
+            items[this.selectedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    // Show search suggestions
+    showSuggestions(searchInput, suggestions) {
+        let suggestionsContainer = document.getElementById('searchSuggestions');
+        
+        if (!suggestionsContainer) {
+            suggestionsContainer = document.createElement('div');
+            suggestionsContainer.id = 'searchSuggestions';
+            suggestionsContainer.className = 'search-suggestions';
+            searchInput.parentNode.appendChild(suggestionsContainer);
+        }
+        
+        if (suggestions.length === 0 || searchInput.value.length >= 2) {
+            suggestionsContainer.style.display = 'none';
+            return;
+        }
+        
+        suggestionsContainer.innerHTML = suggestions
+            .map(suggestion => `
+                <div class="suggestion-item" onclick="applySuggestion('${suggestion}')">
+                    <span class="suggestion-icon">🔍</span>
+                    <span class="suggestion-text">${suggestion}</span>
+                </div>
+            `).join('');
+        
+        suggestionsContainer.style.display = 'block';
+    }
+    
+    // Hide suggestions
+    hideSuggestions() {
+        const suggestionsContainer = document.getElementById('searchSuggestions');
+        if (suggestionsContainer) {
+            suggestionsContainer.style.display = 'none';
+        }
+    }
+}
+
+// Global search engine instance
+const globalSearchEngine = new SearchEngine();
+const searchUI = new SearchUI(globalSearchEngine);
+
 // *** HIER DEINE GIST-IDs EINTRAGEN ***
 const GIST_ID_DEFAULT = '73f61002574be57ec1dacb473046ae48'; // Für die Hauptversion
 const GIST_ID_FX = '753ec1f447c375c9a96c05feb66c05a6'; // Für die /fx Version
@@ -541,8 +882,43 @@ function selectAutocompleteItem(platform) {
 // =================================================================================
 function addEventListeners() {
     document.getElementById('globalSearchBtn').addEventListener('click', openGlobalSearch);
-    document.getElementById('globalSearchInput').addEventListener('input', handleGlobalSearch);
-    document.getElementById('globalSearchInput').addEventListener('keydown', handleGlobalSearchKeydown);
+    const globalSearchInput = document.getElementById('globalSearchInput');
+    
+    // Enhanced search with debouncing and suggestions
+    const debouncedSearch = globalSearchEngine.debounceSearch((e) => {
+        // Hide suggestions immediately when typing
+        if (e.target.value.length >= 1) {
+            searchUI.hideSuggestions();
+        }
+        handleGlobalSearch();
+    }, 300);
+    globalSearchInput.addEventListener('input', debouncedSearch);
+    globalSearchInput.addEventListener('keydown', handleGlobalSearchKeydown);
+    
+    // Initialize keyboard navigation for search results
+    const globalSearchResults = document.getElementById('globalSearchResults');
+    searchUI.initKeyboardNavigation(globalSearchInput, globalSearchResults);
+    
+    // Show suggestions on focus (only if no search term)
+    globalSearchInput.addEventListener('focus', () => {
+        const currentValue = globalSearchInput.value;
+        if (currentValue.length < 2) {
+            const suggestions = globalSearchEngine.getSuggestions(currentValue);
+            if (suggestions.length > 0) {
+                searchUI.showSuggestions(globalSearchInput, suggestions);
+            }
+        }
+    });
+    
+    // Hide suggestions on blur (with delay)
+    globalSearchInput.addEventListener('blur', () => {
+        setTimeout(() => {
+            const suggestionsContainer = document.getElementById('searchSuggestions');
+            if (suggestionsContainer) {
+                suggestionsContainer.style.display = 'none';
+            }
+        }, 200);
+    });
     document.getElementById('globalSearchOverlay').addEventListener('click', (e) => {
         if (e.target.id === 'globalSearchOverlay') closeGlobalSearch();
     });
@@ -775,15 +1151,20 @@ function showSwipeIndicator(tabName) {
 // =================================================================================
 function setupQuickActions() {
     if (window.innerWidth <= 768) {
-        setTimeout(() => {
-            document.getElementById('quickActionsBar').classList.add('visible');
-            quickActionsVisible = true;
-        }, 2000);
+        const quickActionsBar = document.getElementById('quickActionsBar');
+        if (quickActionsBar) {
+            setTimeout(() => {
+                quickActionsBar.classList.add('visible');
+                quickActionsVisible = true;
+            }, 2000);
+        }
     }
 }
 
 function toggleQuickActions() {
     const bar = document.getElementById('quickActionsBar');
+    if (!bar) return;
+    
     quickActionsVisible = !quickActionsVisible;
     bar.classList.toggle('visible', quickActionsVisible);
 }
@@ -1027,9 +1408,48 @@ function saveSingleEntry(inputElement) {
     
     saveData();
     applyDateFilter();
-
+    
+    // Verhalten aus deiner Referenz-Datei übernehmen: Feld leeren und Platzhalter setzen
+    inputElement.value = '';
+    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    showNotification(`${platformName} gespeichert!`);
+    
+    // Fokussiere das nächste Input-Feld
+    setTimeout(() => {
+        const currentInputId = inputElement.id;
+        const allInputs = Array.from(document.querySelectorAll('.input-field[data-platform]'));
+        const currentIndex = allInputs.findIndex(input => input.id === currentInputId);
+        
+        if (currentIndex !== -1 && currentIndex < allInputs.length - 1) {
+            const nextInput = allInputs[currentIndex + 1];
+            nextInput.focus();
+            nextInput.select();
+        } else if (allInputs.length > 0) {
+            // Wenn es das letzte Feld war, gehe zum ersten zurück
+            allInputs[0].focus();
+            allInputs[0].select();
+        }
+    }, 100);
 }
 
+function saveStrategyOnly() {
+    const date = document.getElementById('entryDate').value;
+    const strategy = document.getElementById('dailyStrategy')?.value || '';
+    
+    if (!date) {
+        showNotification('Bitte Datum wählen!', 'error');
+        return;
+    }
+    
+    if (!strategy.trim()) {
+        showNotification('Bitte Strategie eingeben!', 'error');
+        return;
+    }
+    
+    saveStrategyForDate(date, strategy.trim());
+    saveData();
+    showNotification(`Strategie für ${formatDate(date)} gespeichert! ✅`);
+}
 
 // =================================================================================
 // GITHUB SYNC & SKELETONS
@@ -1364,10 +1784,13 @@ function switchTab(tabName, options = {}) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     const quickActionsBar = document.getElementById('quickActionsBar');
-    if (window.innerWidth <= 768) {
+    if (quickActionsBar && window.innerWidth <= 768) {
         if (['entry', 'cashflow'].includes(tabName)) {
             quickActionsBar.classList.add('visible');
             quickActionsVisible = true;
+        } else {
+            quickActionsBar.classList.remove('visible');
+            quickActionsVisible = false;
         }
     }
     
@@ -1594,6 +2017,18 @@ function addPlatformInput(platformName) {
     const inputId = platformName.replace(/\s+/g, '_');
     if (document.getElementById(`input_${inputId}`)) return;
     
+    // Strategie-Container anzeigen, wenn es der erste Input ist
+    if (container.children.length === 0) {
+        const strategyContainer = document.getElementById('dayStrategyContainer');
+        if (strategyContainer) {
+            strategyContainer.style.display = 'block';
+            // Strategie für das aktuelle Datum laden
+            const date = document.getElementById('entryDate').value;
+            const strategyInput = document.getElementById('dailyStrategy');
+            if (strategyInput) strategyInput.value = getStrategyForDate(date);
+        }
+    }
+
     const lastEntry = getLastEntryForPlatform(platformName);
     const lastValue = lastEntry ? lastEntry.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
     const lastNote = lastEntry ? lastEntry.note : '';
@@ -1627,6 +2062,13 @@ function removePlatformInput(platformName) {
     const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => btn.querySelector('.name')?.textContent === platformName);
     if (button) button.classList.remove('selected');
     updateAutoZeroHint();
+
+    // Strategie-Container ausblenden, wenn keine Inputs mehr vorhanden sind
+    const container = document.getElementById('platformInputs');
+    if (container.children.length === 0) {
+        const strategyContainer = document.getElementById('dayStrategyContainer');
+        if (strategyContainer) strategyContainer.style.display = 'none';
+    }
 }
 
 
@@ -1752,6 +2194,12 @@ async function saveAllEntries() {
     applyDateFilter();
     document.getElementById('platformInputs').innerHTML = '';
     
+    // Strategie-Container nach dem Speichern ausblenden
+    const strategyContainer = document.getElementById('dayStrategyContainer');
+    if (strategyContainer) {
+        strategyContainer.style.display = 'none';
+    }
+    
     document.getElementById('autoZeroHint').classList.remove('visible');
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
@@ -1870,6 +2318,61 @@ function makeNoteEditable(cell, entryId, type) {
         } else if (e.key === 'Escape') {
             cell.innerHTML = originalContent;
             cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        }
+    };
+}
+
+function makeBalanceEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry || cell.querySelector('input')) return;
+    
+    const currentBalance = type === 'entry' ? entry.balance : entry.amount;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.className = 'input-field';
+    input.value = currentBalance.toString();
+    input.style.width = '100%';
+    
+    const originalContent = cell.innerHTML;
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+    
+    const save = () => {
+        const newValue = parseFloat(input.value.replace(',', '.'));
+        if (isNaN(newValue) || newValue < 0) {
+            showNotification('Ungültiger Betrag eingegeben!', 'error');
+            cell.innerHTML = originalContent;
+            cell.onclick = () => makeBalanceEditable(cell, entryId, type);
+            return;
+        }
+        
+        if (type === 'entry') {
+            entry.balance = newValue;
+        } else {
+            entry.amount = newValue;
+        }
+        
+        saveData();
+        applyDateFilter();
+        
+        cell.innerHTML = formatDollar(newValue);
+        cell.classList.add('dollar-value', 'editable');
+        cell.onclick = () => makeBalanceEditable(cell, entryId, type);
+        showNotification('Betrag aktualisiert!');
+    };
+    
+    input.onblur = save;
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            save();
+        } else if (e.key === 'Escape') {
+            cell.innerHTML = originalContent;
+            cell.onclick = () => makeBalanceEditable(cell, entryId, type);
         }
     };
 }
@@ -2131,9 +2634,15 @@ function updateHistory() {
         );
     }
 
-    dataToDisplay.sort((a, b) => {
-        const aVal = a[historySort.key];
-        const bVal = b[historySort.key];
+    // Augment data with strategy for correct sorting
+    const augmentedData = dataToDisplay.map(entry => ({
+        ...entry,
+        strategy: getStrategyForDate(entry.date) || ''
+    }));
+
+    augmentedData.sort((a, b) => {
+        const aVal = a[historySort.key] || '';
+        const bVal = b[historySort.key] || '';
 
         if (historySort.order === 'asc') {
             if (historySort.key === 'date') return new Date(aVal) - new Date(bVal);
@@ -2147,12 +2656,12 @@ function updateHistory() {
     });
 
     tbody.innerHTML = '';
-    if (dataToDisplay.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
+    if (augmentedData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
         return;
     }
 
-    dataToDisplay.forEach((entry, index) => {
+    augmentedData.forEach((entry, index) => {
         const row = document.createElement('tr');
         row.dataset.id = entry.id;
         row.dataset.index = index;
@@ -2166,14 +2675,80 @@ function updateHistory() {
             <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
             <td>${formatDate(entry.date)}</td>
             <td style="font-weight: 600;">${entry.protocol}</td>
-            <td class="dollar-value">${formatDollar(entry.balance)}</td>
+            <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+            <td>${entry.strategy || '-'}</td>
             <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
+    
+    // Render mobile cards
+    renderHistoryMobileCards(augmentedData);
+    
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderHistoryMobileCards(entries) {
+    const mobileCardsContainer = document.getElementById('historyMobileCards');
+    if (!mobileCardsContainer) return;
+    
+    mobileCardsContainer.innerHTML = '';
+    
+    if (entries.length === 0) {
+        mobileCardsContainer.innerHTML = `<div class="empty-state">Keine Einträge gefunden</div>`;
+        return;
+    }
+    
+    entries.forEach((entry, index) => {
+        const card = document.createElement('div');
+        card.className = 'history-card';
+        card.dataset.id = entry.id;
+        card.dataset.index = index;
+        
+        if (selectedHistoryEntries.has(entry.id)) {
+            card.classList.add('multi-selected-row');
+        }
+        
+        card.onclick = (e) => {
+            if (e.target.type !== 'checkbox' && !e.target.closest('.history-card-actions')) {
+                handleHistoryRowClick(e, card, entry.id, index);
+            }
+        };
+        
+        const balanceColor = entry.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+        
+        card.innerHTML = `
+            <input type="checkbox" class="history-card-checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''} 
+                   onclick="event.stopPropagation(); toggleHistorySelection(${entry.id}, this.checked)">
+            
+            <div class="history-card-header">
+                <div>
+                    <div class="history-card-platform">${entry.protocol}</div>
+                    <div class="history-card-date">${formatDate(entry.date)}</div>
+                </div>
+                <div class="history-card-balance" style="color: ${balanceColor}">
+                    ${formatDollar(entry.balance)}
+                </div>
+            </div>
+            
+            ${entry.strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Strategie:</strong> ${entry.strategy}</div>` : ''}
+            
+            <div class="history-card-details">
+                <div class="history-card-note" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
+                    ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz hinzufügen...</span>'}
+                </div>
+                <div class="history-card-actions">
+                    <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        mobileCardsContainer.appendChild(card);
+    });
 }
 
 async function deleteSingleEntryWithConfirmation(entryId) {
@@ -2222,6 +2797,40 @@ async function bulkChangeDate() {
     }
 }
 
+async function bulkChangeAmount() {
+    if (selectedHistoryEntries.size === 0) {
+        return showNotification('Keine Einträge ausgewählt', 'warning');
+    }
+    const selectionSize = selectedHistoryEntries.size;
+
+    const result = await showCustomPrompt({
+        title: 'Betrag für Auswahl ändern',
+        text: `Gib einen neuen Betrag für die ${selectionSize} ausgewählten Einträge ein.`,
+        showInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
+    });
+
+    if (result === 'change') {
+        const amountValue = document.getElementById('bottomSheet_input').value;
+        const newAmount = parseFloat(amountValue.replace(',', '.'));
+
+        if (isNaN(newAmount) || newAmount < 0) {
+            return showNotification('Ungültiger Betrag eingegeben!', 'error');
+        }
+
+        entries.forEach(entry => {
+            if (selectedHistoryEntries.has(entry.id)) {
+                entry.balance = newAmount;
+            }
+        });
+
+        selectedHistoryEntries.clear();
+        saveData();
+        applyDateFilter();
+        showNotification(`Betrag für ${selectionSize} Einträge auf ${formatDollar(newAmount)} geändert.`);
+    }
+}
+
 async function deleteSelectedEntries() {
     if (selectedHistoryEntries.size === 0) {
         return showNotification('Keine Einträge ausgewählt', 'warning');
@@ -2264,19 +2873,36 @@ function isSelected(entryId) {
 }
 
 function toggleHistorySelection(entryId, shouldBeSelected) {
+    // Update table row
     const row = document.querySelector(`#historyTableBody tr[data-id='${entryId}']`);
-    if (!row) return;
-
-    const checkbox = row.querySelector('input[type="checkbox"]');
-    if (shouldBeSelected) {
-        selectedHistoryEntries.add(entryId);
-        row.classList.add('multi-selected-row');
-        checkbox.checked = true;
-    } else {
-        selectedHistoryEntries.delete(entryId);
-        row.classList.remove('multi-selected-row');
-        checkbox.checked = false;
+    if (row) {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if (shouldBeSelected) {
+            selectedHistoryEntries.add(entryId);
+            row.classList.add('multi-selected-row');
+            checkbox.checked = true;
+        } else {
+            selectedHistoryEntries.delete(entryId);
+            row.classList.remove('multi-selected-row');
+            checkbox.checked = false;
+        }
     }
+    
+    // Update mobile card
+    const card = document.querySelector(`.history-card[data-id='${entryId}']`);
+    if (card) {
+        const cardCheckbox = card.querySelector('input[type="checkbox"]');
+        if (shouldBeSelected) {
+            selectedHistoryEntries.add(entryId);
+            card.classList.add('multi-selected-row');
+            cardCheckbox.checked = true;
+        } else {
+            selectedHistoryEntries.delete(entryId);
+            card.classList.remove('multi-selected-row');
+            cardCheckbox.checked = false;
+        }
+    }
+    
     updateSelectAllCheckbox();
     updateBulkActionsBar();
 }
@@ -2294,16 +2920,28 @@ function toggleSelectAllHistory(e) {
 
 function updateSelectAllCheckbox() {
     const selectAllCheckbox = document.getElementById('selectAllHistory');
+    if (!selectAllCheckbox) return;
+    
+    // Check both table rows and mobile cards
     const allVisibleRows = document.querySelectorAll('#historyTableBody tr[data-id]');
-    if (allVisibleRows.length > 0 && Array.from(allVisibleRows).every(row => selectedHistoryEntries.has(parseFloat(row.dataset.id)))) {
-        selectAllCheckbox.checked = true;
-        selectAllCheckbox.indeterminate = false;
-    } else if (selectedHistoryEntries.size > 0) {
-        selectAllCheckbox.checked = false;
-        selectAllCheckbox.indeterminate = true;
-    } else {
-        selectAllCheckbox.checked = false;
-        selectAllCheckbox.indeterminate = false;
+    const allVisibleCards = document.querySelectorAll('.history-card[data-id]');
+    const totalVisibleItems = allVisibleRows.length + allVisibleCards.length;
+    
+    if (totalVisibleItems > 0) {
+        const allSelected = [...allVisibleRows, ...allVisibleCards].every(item => 
+            selectedHistoryEntries.has(parseFloat(item.dataset.id))
+        );
+        
+        if (allSelected) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else if (selectedHistoryEntries.size > 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
     }
 }
 // =================================================================================
@@ -4005,44 +4643,184 @@ function addMissingStyles() {
 
         .view-switcher {
             display: flex;
-            gap: 5px;
+            gap: 4px;
             background-color: var(--background-alt);
-            padding: 5px;
-            border-radius: 8px;
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border-light);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+            width: fit-content;
         }
         .view-switcher .view-btn {
             border: none;
             background: transparent;
             color: var(--text-secondary);
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 500;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            min-width: 70px;
+            text-align: center;
+        }
+        .view-switcher .view-btn:hover:not(.active) {
+            color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.1);
         }
         .view-switcher .view-btn.active {
             background-color: var(--card-bg);
             color: var(--primary);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            transform: translateY(-1px);
         }
-        .cashflow-groups { display: flex; flex-direction: column; gap: 12px; }
-        .cashflow-group { border: 1px solid var(--border); border-radius: 8px; }
-        .cashflow-group-summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer; list-style: none; }
+        .cashflow-groups { display: flex; flex-direction: column; gap: 16px; }
+        .cashflow-group { 
+            border: 1px solid var(--border); 
+            border-radius: 12px; 
+            background-color: var(--card-bg);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .cashflow-group:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .cashflow-group-summary { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 16px 20px; 
+            cursor: pointer; 
+            list-style: none;
+            background-color: transparent;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+        .cashflow-group-summary::after {
+            content: '▼';
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%) rotate(0deg);
+            transition: transform 0.2s ease;
+            color: var(--text-secondary);
+            font-size: 0.8em;
+        }
+        .cashflow-group[open] .cashflow-group-summary::after {
+            transform: translateY(-50%) rotate(180deg);
+        }
+        .cashflow-group-summary:hover {
+            background-color: var(--background-alt);
+        }
         .cashflow-group-summary::-webkit-details-marker { display: none; }
-        .group-title { font-weight: 600; font-size: 1.1em; color: var(--text-primary); }
-        .group-stats { display: flex; gap: 16px; font-size: 0.9em; }
-        .cashflow-group-details { padding: 0 16px 16px; border-top: 1px solid var(--border); }
-        .transaction-row { display: grid; grid-template-columns: 100px 100px 1fr 1fr auto auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+        .group-title { font-weight: 600; font-size: 1.15em; color: var(--text-primary); }
+        .group-stats { display: flex; gap: 20px; font-size: 0.9em; margin-right: 30px; }
+        .cashflow-group-details { 
+            padding: 0 20px 20px; 
+            border-top: 1px solid var(--border-light);
+            background-color: var(--background);
+        }
+        .transaction-row { 
+            display: grid; 
+            grid-template-columns: 100px 100px 1fr 1fr auto auto; 
+            align-items: center; 
+            gap: 16px; 
+            padding: 12px 0; 
+            border-bottom: 1px solid var(--border-light); 
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+            border-radius: 8px;
+            margin: 0 -8px;
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+        .transaction-row:hover {
+            background-color: var(--background-alt);
+        }
         .transaction-row:last-child { border-bottom: none; }
         .transaction-note { color: var(--text-secondary); font-style: italic; }
         .transaction-platform { font-weight: 500; }
+        .transaction-date { font-weight: 500; color: var(--text-secondary); }
+        .transaction-type { 
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 500;
+            text-align: center;
+        }
+        .transaction-type.type-deposit {
+            background-color: rgba(34, 197, 94, 0.1);
+            color: #059669;
+        }
+        .transaction-type.type-withdrawal {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
         @media (max-width: 768px) {
-            .cashflow-group-summary { flex-direction: column; align-items: flex-start; gap: 8px; }
-            .group-stats { flex-wrap: wrap; }
-            .transaction-row { grid-template-columns: 1fr 1fr; }
-            .transaction-date, .transaction-type { grid-column: 1 / 2; }
-            .transaction-platform, .transaction-note { grid-column: 2 / 3; }
-            .transaction-amount { grid-column: 1 / 2; font-size: 1.1em; font-weight: 600; }
-            .transaction-row button { grid-column: 2 / 3; justify-self: end; }
+            .view-switcher {
+                width: 100%;
+                justify-content: center;
+            }
+            .view-switcher .view-btn {
+                flex: 1;
+                min-width: auto;
+            }
+            .cashflow-group-summary { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 12px;
+                padding: 16px;
+            }
+            .cashflow-group-summary::after {
+                right: 16px;
+            }
+            .group-stats { 
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-right: 20px;
+            }
+            .cashflow-group-details {
+                padding: 0 16px 16px;
+            }
+            .transaction-row { 
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                padding: 12px 8px;
+                margin: 0;
+            }
+            .transaction-date {
+                grid-column: 1;
+                font-size: 0.9em;
+            }
+            .transaction-type {
+                grid-column: 2;
+                grid-row: 1;
+            }
+            .transaction-platform {
+                grid-column: 1;
+                font-size: 0.9em;
+                margin-top: 4px;
+            }
+            .transaction-note {
+                grid-column: 1;
+                font-size: 0.85em;
+                margin-top: 2px;
+            }
+            .transaction-amount { 
+                grid-column: 1;
+                font-size: 1.1em; 
+                font-weight: 600;
+                margin-top: 8px;
+            }
+            .transaction-row button { 
+                grid-column: 2;
+                grid-row: 2 / span 3;
+                align-self: center;
+                justify-self: end;
+            }
         }
 
     `;
@@ -4093,11 +4871,32 @@ function closeGlobalSearch() {
 
 function handleGlobalSearch() {
     const term = document.getElementById('globalSearchInput').value;
+    
+    // Hide suggestions when actively searching
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    if (suggestionsContainer && term.length >= 1) {
+        suggestionsContainer.style.display = 'none';
+    }
+    
     performGlobalSearch(term);
 }
 
+// Enhanced search function with fuzzy matching and relevance scoring
 function performGlobalSearch(term) {
     const lowerTerm = term.toLowerCase();
+
+    // Add to search history
+    if (term.length >= 2) {
+        globalSearchEngine.addToHistory(term);
+    }
+
+    // Check cache first
+    const cacheKey = `search_${lowerTerm}`;
+    if (globalSearchEngine.searchCache.has(cacheKey)) {
+        globalSearchResults = globalSearchEngine.searchCache.get(cacheKey);
+        renderGlobalSearchResults();
+        return;
+    }
 
     if (lowerTerm.length < 1) {
         globalSearchResults = [
@@ -4111,28 +4910,41 @@ function performGlobalSearch(term) {
     }
 
     const results = [];
-    const addedIds = new Set(); // Verhindert doppelte Ergebnisse
+    const addedIds = new Set();
 
-    // 1. Aktionen durchsuchen
+    // 1. Enhanced Actions search with fuzzy matching
     const actions = [
-        { title: 'Theme wechseln', icon: '🎨', category: 'Aktion', type: 'action', action: () => toggleTheme() },
-        { title: 'Cloud Sync starten', icon: '☁️', category: 'Aktion', type: 'action', action: () => syncNow() },
-        { title: 'JSON exportieren', icon: '💾', category: 'Aktion', type: 'action', action: () => exportJSON() },
-        { title: 'Dashboard', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard') },
-        { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry') },
-        { title: 'Cashflow', icon: '💸', category: 'Navigation', type: 'action', action: () => switchTab('cashflow') },
-        { title: 'Historie', icon: '📜', category: 'Navigation', type: 'action', action: () => switchTab('history') },
-        { title: 'Einstellungen', icon: '⚙️', category: 'Navigation', type: 'action', action: () => switchTab('settings') },
+        { title: 'Theme wechseln', icon: '🎨', category: 'Aktion', type: 'action', action: () => toggleTheme(), tags: ['theme', 'design', 'aussehen'] },
+        { title: 'Cloud Sync starten', icon: '☁️', category: 'Aktion', type: 'action', action: () => syncNow(), tags: ['sync', 'cloud', 'backup'] },
+        { title: 'JSON exportieren', icon: '💾', category: 'Aktion', type: 'action', action: () => exportJSON(), tags: ['export', 'download', 'backup'] },
+        { title: 'Dashboard', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard'), tags: ['overview', 'start', 'home'] },
+        { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry'), tags: ['new', 'add', 'create'] },
+        { title: 'Cashflow', icon: '💸', category: 'Navigation', type: 'action', action: () => switchTab('cashflow'), tags: ['money', 'transactions', 'flow'] },
+        { title: 'Historie', icon: '📜', category: 'Navigation', type: 'action', action: () => switchTab('history'), tags: ['history', 'past', 'records'] },
+        { title: 'Einstellungen', icon: '⚙️', category: 'Navigation', type: 'action', action: () => switchTab('settings'), tags: ['settings', 'config', 'options'] },
     ];
-    actions.forEach(a => { if (a.title.toLowerCase().includes(lowerTerm)) results.push(a); });
 
-    // 2. Plattformen durchsuchen
+    actions.forEach(action => {
+        const relevance = globalSearchEngine.calculateRelevance(action, term);
+        if (relevance > 0) {
+            results.push({ ...action, relevance });
+        }
+    });
+
+    // 2. Enhanced Platforms search with fuzzy matching
     platforms.forEach(p => {
-        if (p.name.toLowerCase().includes(lowerTerm) || (p.tags && p.tags.some(t => t.includes(lowerTerm)))) {
+        const relevance = globalSearchEngine.calculateRelevance(p, term);
+        if (relevance > 0) {
             const id = `platform-${p.name}`;
             if (!addedIds.has(id)) {
                 results.push({
-                    title: p.name, subtitle: p.type, icon: p.icon, category: 'Plattform', type: 'platform',
+                    title: p.name, 
+                    subtitle: p.type, 
+                    icon: p.icon, 
+                    category: 'Plattform', 
+                    type: 'platform',
+                    relevance,
+                    tags: p.tags,
                     action: () => { 
                         switchTab('entry'); 
                         setTimeout(() => { 
@@ -4297,32 +5109,52 @@ function performGlobalSearch(term) {
         }
     }
 
-    // 7. Tages-Strategien durchsuchen
-    dayStrategies.forEach(ds => {
-        if (ds.strategy && ds.strategy.toLowerCase().includes(lowerTerm)) {
-            const id = `strategy-${ds.date}`;
-            if (!addedIds.has(id)) {
-                results.push({
-                    title: `Strategie: "${ds.strategy.substring(0, 30)}${ds.strategy.length > 30 ? '...' : ''}"`,
-                    subtitle: `Am ${formatDate(ds.date)}`,
-                    icon: '🎯',
-                    category: 'Strategie',
-                    type: 'strategy',
-                    action: () => {
-                        switchTab('entry');
-                        setTimeout(() => {
-                            document.getElementById('entryDate').value = ds.date;
-                            document.getElementById('entryDate').dispatchEvent(new Event('change'));
-                            highlightElement('#dayStrategyContainer');
-                        }, 100);
-                    }
-                });
-                addedIds.add(id);
-            }
+    // 7. Tages-Strategien durchsuchen (gruppiert)
+    const matchingStrategyTexts = [...new Set(
+        dayStrategies
+            .filter(ds => ds.strategy && ds.strategy.toLowerCase().includes(lowerTerm))
+            .map(ds => ds.strategy)
+    )];
+
+    matchingStrategyTexts.forEach(strategyText => {
+        const matchingDates = dayStrategies.filter(ds => ds.strategy === strategyText).map(ds => ds.date);
+        const count = matchingDates.length;
+        const id = `strategy-group-${strategyText.replace(/\s/g, '_')}`;
+
+        if (!addedIds.has(id)) {
+            results.push({
+                title: `Strategie: "${strategyText.substring(0, 30)}${strategyText.length > 30 ? '...' : ''}"`,
+                subtitle: `An ${count} Tag(en) verwendet`,
+                icon: '📂',
+                category: 'Strategie',
+                type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'history', filterFunction: e => matchingDates.includes(e.date) };
+                    switchTab('history', { preserveFilter: true });
+                }
+            });
+            addedIds.add(id);
         }
     });
 
-    globalSearchResults = results.slice(0, 20); // Mehr Ergebnisse anzeigen
+    // Apply advanced filters
+    const filteredResults = globalSearchEngine.applyFilters(results);
+    
+    // Sort results by relevance score (highest first)
+    filteredResults.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));
+    
+    globalSearchResults = filteredResults.slice(0, 20);
+    
+    // Cache results for performance (limit cache size)
+    if (lowerTerm.length >= 2) {
+        if (globalSearchEngine.searchCache.size > 50) {
+            // Clear oldest entries when cache gets too large
+            const firstKey = globalSearchEngine.searchCache.keys().next().value;
+            globalSearchEngine.searchCache.delete(firstKey);
+        }
+        globalSearchEngine.searchCache.set(cacheKey, globalSearchResults);
+    }
+    
     renderGlobalSearchResults();
 }
 
@@ -4336,15 +5168,23 @@ function renderGlobalSearchResults() {
         return;
     }
 
-    globalSearchResults.forEach((item, index) => {
+    const searchTerm = document.getElementById('globalSearchInput').value;
+
+    globalSearchResults.forEach((item) => {
         const el = document.createElement('div');
         el.className = 'search-result-item';
         el.onclick = () => executeSearchResult(item);
+        
+        // Highlight search terms in title and subtitle
+        const highlightedTitle = globalSearchEngine.highlightText(item.title, searchTerm);
+        const highlightedSubtitle = item.subtitle ? globalSearchEngine.highlightText(item.subtitle, searchTerm) : '';
+        
         el.innerHTML = `
             <div class="search-result-icon">${item.icon}</div>
             <div class="search-result-text">
-                <div class="title">${item.title}</div>
-                ${item.subtitle ? `<div class="subtitle">${item.subtitle}</div>` : ''}
+                <div class="title">${highlightedTitle}</div>
+                ${highlightedSubtitle ? `<div class="subtitle">${highlightedSubtitle}</div>` : ''}
+                ${item.relevance ? `<div class="relevance-score" style="font-size: 0.7em; opacity: 0.6;">Score: ${item.relevance.toFixed(2)}</div>` : ''}
             </div>
             <div class="search-result-category">${item.category}</div>
         `;
@@ -4368,6 +5208,167 @@ function handleGlobalSearchKeydown(e) {
             item.classList.toggle('selected', index === globalSearchIndex);
         });
     }
+}
+
+// Apply search suggestion
+function applySuggestion(suggestion) {
+    const globalSearchInput = document.getElementById('globalSearchInput');
+    globalSearchInput.value = suggestion;
+    handleGlobalSearch();
+    
+    // Hide suggestions
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    if (suggestionsContainer) {
+        suggestionsContainer.style.display = 'none';
+    }
+    
+    globalSearchInput.focus();
+}
+
+// Advanced search filter functions
+function toggleSearchFilter(type, value) {
+    const filters = globalSearchEngine.activeFilters;
+    
+    switch(type) {
+        case 'category':
+            const categoryIndex = filters.categories.indexOf(value);
+            if (categoryIndex > -1) {
+                filters.categories.splice(categoryIndex, 1);
+            } else {
+                filters.categories.push(value);
+            }
+            break;
+            
+        case 'platform':
+            const platformIndex = filters.platforms.indexOf(value);
+            if (platformIndex > -1) {
+                filters.platforms.splice(platformIndex, 1);
+            } else {
+                filters.platforms.push(value);
+            }
+            break;
+            
+        case 'tag':
+            const tagIndex = filters.tags.indexOf(value);
+            if (tagIndex > -1) {
+                filters.tags.splice(tagIndex, 1);
+            } else {
+                filters.tags.push(value);
+            }
+            break;
+    }
+    
+    // Clear cache and re-search
+    globalSearchEngine.searchCache.clear();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    
+    updateFilterDisplay();
+}
+
+function setDateRangeFilter(range) {
+    if (range === 'clear') {
+        globalSearchEngine.activeFilters.dateRange = null;
+    } else {
+        const dateRange = globalSearchEngine.parseDateRange(range);
+        if (dateRange) {
+            globalSearchEngine.activeFilters.dateRange = dateRange;
+        }
+    }
+    
+    // Clear cache and re-search
+    globalSearchEngine.searchCache.clear();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    
+    updateFilterDisplay();
+}
+
+function clearAllSearchFilters() {
+    globalSearchEngine.clearFilters();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    updateFilterDisplay();
+}
+
+function updateFilterDisplay() {
+    const filtersContainer = document.getElementById('searchFilters');
+    if (!filtersContainer) return;
+    
+    const filters = globalSearchEngine.activeFilters;
+    let filterHtml = '';
+    
+    // Date range filter
+    if (filters.dateRange) {
+        const startStr = filters.dateRange.start.toLocaleDateString('de-DE');
+        const endStr = filters.dateRange.end.toLocaleDateString('de-DE');
+        filterHtml += `<span class="search-filter-tag active" onclick="setDateRangeFilter('clear')">📅 ${startStr} - ${endStr} ✕</span>`;
+    }
+    
+    // Category filters
+    filters.categories.forEach(category => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('category', '${category}')">${category} ✕</span>`;
+    });
+    
+    // Platform filters
+    filters.platforms.forEach(platform => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('platform', '${platform}')">${platform} ✕</span>`;
+    });
+    
+    // Tag filters
+    filters.tags.forEach(tag => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('tag', '${tag}')">#${tag} ✕</span>`;
+    });
+    
+    // Clear all button
+    if (filterHtml) {
+        filterHtml += `<span class="search-filter-tag" onclick="clearAllSearchFilters()" style="background: var(--danger);">Alle löschen</span>`;
+    }
+    
+    filtersContainer.innerHTML = filterHtml;
+    filtersContainer.style.display = filterHtml ? 'flex' : 'none';
+}
+
+// Export search results
+function exportSearchResults() {
+    if (globalSearchResults.length === 0) {
+        showNotification('Keine Suchergebnisse zum Exportieren vorhanden.', 'warning');
+        return;
+    }
+    
+    const searchTerm = document.getElementById('globalSearchInput').value;
+    const timestamp = new Date().toISOString();
+    
+    const exportData = {
+        searchTerm,
+        timestamp,
+        filters: globalSearchEngine.activeFilters,
+        results: globalSearchResults.map(result => ({
+            title: result.title,
+            subtitle: result.subtitle,
+            category: result.category,
+            relevance: result.relevance,
+            type: result.type
+        }))
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `search-results-${searchTerm || 'all'}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showNotification('Suchergebnisse exportiert!', 'success');
 }
 
 function executeSearchResult(item) {
