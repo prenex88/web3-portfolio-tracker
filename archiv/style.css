@@ -950,6 +950,40 @@ body.has-sync-bar .tab-navigation {
 
 .data-table th:first-child { border-radius: 12px 0 0 12px; }
 .data-table th:last-child { border-radius: 0 12px 12px 0; }
+
+/* History table column width optimization */
+#history .data-table {
+    table-layout: fixed;
+}
+
+#history .data-table th:nth-child(1) { width: 50px; } /* Checkbox */
+#history .data-table th:nth-child(2) { width: 110px; } /* Datum */
+#history .data-table th:nth-child(3) { width: 20%; } /* Plattform */
+#history .data-table th:nth-child(4) { width: 120px; } /* Balance */
+#history .data-table th:nth-child(5) { width: 15%; max-width: 200px; } /* Strategie - optimiert */
+#history .data-table th:nth-child(6) { width: 25%; } /* Notiz */
+#history .data-table th:nth-child(7) { width: 100px; } /* Aktionen */
+
+/* Strategy column content optimization */
+#history .data-table td:nth-child(5) {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+}
+
+#history .data-table td:nth-child(5):hover {
+    overflow: visible;
+    white-space: normal;
+    word-break: break-word;
+    background: var(--light);
+    z-index: 10;
+    position: relative;
+    box-shadow: var(--shadow);
+    border-radius: 6px;
+    padding: 12px;
+}
 .data-table td {
     background: var(--white);
     color: var(--text-primary);
@@ -2485,5 +2519,25 @@ body.dark-mode .search-quick-filters .btn {
     .search-quick-filters .btn {
         font-size: 11px;
         padding: 4px 8px;
+    }
+    
+    /* History table responsive optimizations */
+    #history .data-table th:nth-child(2) { width: 90px; } /* Datum smaller */
+    #history .data-table th:nth-child(5) { width: 12%; max-width: 150px; } /* Strategie even smaller */
+    #history .data-table th:nth-child(6) { width: 20%; } /* Notiz smaller */
+    
+    #history .data-table td:nth-child(5) {
+        max-width: 150px;
+        font-size: 12px;
+    }
+    
+    /* Hide strategy column on very small screens */
+    @media (max-width: 480px) {
+        #history .data-table th:nth-child(5),
+        #history .data-table td:nth-child(5) {
+            display: none;
+        }
+        
+        #history .data-table th:nth-child(6) { width: 35%; } /* Give more space to notes */
     }
 }
