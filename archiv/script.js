@@ -2,6 +2,347 @@
 // KONFIGURATION & INITIALE DATEN
 // =================================================================================
 
+// =================================================================================
+// ERWEITERTE SUCHFUNKTIONALITÄT - KLASSEN UND UTILITIES
+// =================================================================================
+
+class SearchEngine {
+    constructor() {
+        this.searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+        this.searchCache = new Map();
+        this.debounceTimer = null;
+        this.activeFilters = {
+            dateRange: null,
+            categories: [],
+            platforms: [],
+            tags: []
+        };
+        this.savedSearches = JSON.parse(localStorage.getItem('savedSearches') || '[]');
+    }
+
+    // Fuzzy Search Implementation
+    fuzzyMatch(text, pattern, threshold = 0.6) {
+        if (!text || !pattern) return 0;
+        
+        text = text.toLowerCase();
+        pattern = pattern.toLowerCase();
+        
+        // Exact match gets highest score
+        if (text.includes(pattern)) return 1;
+        
+        // Calculate Levenshtein distance
+        const matrix = Array(pattern.length + 1).fill().map(() => Array(text.length + 1).fill(0));
+        
+        for (let i = 0; i <= pattern.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= text.length; j++) matrix[0][j] = j;
+        
+        for (let i = 1; i <= pattern.length; i++) {
+            for (let j = 1; j <= text.length; j++) {
+                const cost = pattern[i-1] === text[j-1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i-1][j] + 1,
+                    matrix[i][j-1] + 1,
+                    matrix[i-1][j-1] + cost
+                );
+            }
+        }
+        
+        const distance = matrix[pattern.length][text.length];
+        const maxLength = Math.max(pattern.length, text.length);
+        const similarity = (maxLength - distance) / maxLength;
+        
+        return similarity >= threshold ? similarity : 0;
+    }
+
+    // Debounced search function
+    debounceSearch(callback, delay = 300) {
+        return (...args) => {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = setTimeout(() => callback.apply(this, args), delay);
+        };
+    }
+
+    // Highlight search terms in text
+    highlightText(text, searchTerm) {
+        if (!searchTerm || !text) return text;
+        const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+    }
+
+    // Calculate search result relevance score
+    calculateRelevance(item, searchTerm) {
+        let score = 0;
+        const term = searchTerm.toLowerCase();
+        
+        // Title match (highest weight)
+        if (item.title) {
+            const titleMatch = this.fuzzyMatch(item.title, term);
+            score += titleMatch * 10;
+        }
+        
+        // Subtitle match (medium weight)
+        if (item.subtitle) {
+            const subtitleMatch = this.fuzzyMatch(item.subtitle, term);
+            score += subtitleMatch * 5;
+        }
+        
+        // Category match (low weight)
+        if (item.category) {
+            const categoryMatch = this.fuzzyMatch(item.category, term);
+            score += categoryMatch * 2;
+        }
+        
+        // Tags match (medium weight)
+        if (item.tags && Array.isArray(item.tags)) {
+            item.tags.forEach(tag => {
+                const tagMatch = this.fuzzyMatch(tag, term);
+                score += tagMatch * 3;
+            });
+        }
+        
+        return score;
+    }
+
+    // Add search to history
+    addToHistory(searchTerm) {
+        if (!searchTerm || searchTerm.length < 2) return;
+        
+        const normalizedTerm = searchTerm.toLowerCase().trim();
+        this.searchHistory = this.searchHistory.filter(term => term !== normalizedTerm);
+        this.searchHistory.unshift(normalizedTerm);
+        this.searchHistory = this.searchHistory.slice(0, 10); // Keep only last 10 searches
+        
+        localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
+    }
+
+    // Get search suggestions
+    getSuggestions(currentTerm) {
+        if (!currentTerm || currentTerm.length < 2) {
+            return this.searchHistory.slice(0, 5);
+        }
+        
+        return this.searchHistory
+            .filter(term => term.includes(currentTerm.toLowerCase()))
+            .slice(0, 3);
+    }
+
+    // Advanced search with filters
+    applyFilters(results) {
+        let filteredResults = [...results];
+
+        // Apply date range filter
+        if (this.activeFilters.dateRange) {
+            const { start, end } = this.activeFilters.dateRange;
+            filteredResults = filteredResults.filter(item => {
+                if (item.date) {
+                    const itemDate = new Date(item.date);
+                    return itemDate >= start && itemDate <= end;
+                }
+                return true; // Keep items without dates
+            });
+        }
+
+        // Apply category filters
+        if (this.activeFilters.categories.length > 0) {
+            filteredResults = filteredResults.filter(item =>
+                this.activeFilters.categories.includes(item.category)
+            );
+        }
+
+        // Apply platform filters
+        if (this.activeFilters.platforms.length > 0) {
+            filteredResults = filteredResults.filter(item =>
+                this.activeFilters.platforms.includes(item.title) ||
+                (item.protocol && this.activeFilters.platforms.includes(item.protocol))
+            );
+        }
+
+        // Apply tag filters
+        if (this.activeFilters.tags.length > 0) {
+            filteredResults = filteredResults.filter(item => {
+                if (item.tags && Array.isArray(item.tags)) {
+                    return this.activeFilters.tags.some(tag =>
+                        item.tags.some(itemTag => itemTag.toLowerCase().includes(tag.toLowerCase()))
+                    );
+                }
+                return false;
+            });
+        }
+
+        return filteredResults;
+    }
+
+    // Date range parsing
+    parseDateRange(input) {
+        const lowerInput = input.toLowerCase();
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+
+        // Relative dates
+        if (lowerInput.includes('heute') || lowerInput.includes('today')) {
+            return { start: today, end: tomorrow };
+        }
+        if (lowerInput.includes('gestern') || lowerInput.includes('yesterday')) {
+            const yesterday = new Date(today);
+            yesterday.setDate(today.getDate() - 1);
+            return { start: yesterday, end: today };
+        }
+        if (lowerInput.includes('woche') || lowerInput.includes('week')) {
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            return { start: weekAgo, end: tomorrow };
+        }
+        if (lowerInput.includes('monat') || lowerInput.includes('month')) {
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(today.getMonth() - 1);
+            return { start: monthAgo, end: tomorrow };
+        }
+
+        // Specific date patterns
+        const datePattern = /(\d{1,2})\.(\d{1,2})\.(\d{4})/;
+        const match = input.match(datePattern);
+        if (match) {
+            const [, day, month, year] = match;
+            const date = new Date(year, month - 1, day);
+            const nextDay = new Date(date);
+            nextDay.setDate(date.getDate() + 1);
+            return { start: date, end: nextDay };
+        }
+
+        return null;
+    }
+
+    // Save search
+    saveSearch(name, term, filters) {
+        const search = {
+            id: Date.now(),
+            name,
+            term,
+            filters: { ...filters },
+            createdAt: new Date().toISOString()
+        };
+        
+        this.savedSearches.unshift(search);
+        this.savedSearches = this.savedSearches.slice(0, 10); // Keep only 10 saved searches
+        
+        localStorage.setItem('savedSearches', JSON.stringify(this.savedSearches));
+    }
+
+    // Load saved search
+    loadSavedSearch(searchId) {
+        const search = this.savedSearches.find(s => s.id === searchId);
+        if (search) {
+            this.activeFilters = { ...search.filters };
+            return search.term;
+        }
+        return '';
+    }
+
+    // Clear filters
+    clearFilters() {
+        this.activeFilters = {
+            dateRange: null,
+            categories: [],
+            platforms: [],
+            tags: []
+        };
+        this.searchCache.clear(); // Clear cache when filters change
+    }
+}
+
+class SearchUI {
+    constructor(searchEngine) {
+        this.searchEngine = searchEngine;
+        this.selectedIndex = -1;
+        this.isNavigating = false;
+    }
+
+    // Initialize keyboard navigation
+    initKeyboardNavigation(searchInput, resultsContainer) {
+        searchInput.addEventListener('keydown', (e) => {
+            const items = resultsContainer.querySelectorAll('.search-result-item');
+            
+            switch(e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    this.selectedIndex = Math.min(this.selectedIndex + 1, items.length - 1);
+                    this.updateSelection(items);
+                    break;
+                    
+                case 'ArrowUp':
+                    e.preventDefault();
+                    this.selectedIndex = Math.max(this.selectedIndex - 1, -1);
+                    this.updateSelection(items);
+                    break;
+                    
+                case 'Enter':
+                    e.preventDefault();
+                    if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
+                        items[this.selectedIndex].click();
+                    }
+                    break;
+                    
+                case 'Escape':
+                    searchInput.blur();
+                    this.selectedIndex = -1;
+                    this.updateSelection(items);
+                    break;
+            }
+        });
+    }
+
+    // Update visual selection
+    updateSelection(items) {
+        items.forEach((item, index) => {
+            item.classList.toggle('selected', index === this.selectedIndex);
+        });
+        
+        if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
+            items[this.selectedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    // Show search suggestions
+    showSuggestions(searchInput, suggestions) {
+        let suggestionsContainer = document.getElementById('searchSuggestions');
+        
+        if (!suggestionsContainer) {
+            suggestionsContainer = document.createElement('div');
+            suggestionsContainer.id = 'searchSuggestions';
+            suggestionsContainer.className = 'search-suggestions';
+            searchInput.parentNode.appendChild(suggestionsContainer);
+        }
+        
+        if (suggestions.length === 0 || searchInput.value.length >= 2) {
+            suggestionsContainer.style.display = 'none';
+            return;
+        }
+        
+        suggestionsContainer.innerHTML = suggestions
+            .map(suggestion => `
+                <div class="suggestion-item" onclick="applySuggestion('${suggestion}')">
+                    <span class="suggestion-icon">🔍</span>
+                    <span class="suggestion-text">${suggestion}</span>
+                </div>
+            `).join('');
+        
+        suggestionsContainer.style.display = 'block';
+    }
+    
+    // Hide suggestions
+    hideSuggestions() {
+        const suggestionsContainer = document.getElementById('searchSuggestions');
+        if (suggestionsContainer) {
+            suggestionsContainer.style.display = 'none';
+        }
+    }
+}
+
+// Global search engine instance
+const globalSearchEngine = new SearchEngine();
+const searchUI = new SearchUI(globalSearchEngine);
+
 // *** HIER DEINE GIST-IDs EINTRAGEN ***
 const GIST_ID_DEFAULT = '73f61002574be57ec1dacb473046ae48'; // Für die Hauptversion
 const GIST_ID_FX = '753ec1f447c375c9a96c05feb66c05a6'; // Für die /fx Version
@@ -50,8 +391,8 @@ const MIN_BENCHMARK_DATE = new Date('2025-02-14T00:00:00Z'); // Fallback-Startda
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
     '%5EGSPC': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=2079448459&single=true&output=csv', // S&P 500
-    'bitcoin': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1446977156&single=true&output=csv',
-    'ethereum': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1255194063&single=true&output=csv'
+    'bitcoin': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1446977156&single=true&output=csv', // Bitcoin
+    'ethereum': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=1255194063&single=true&output=csv' // Ethereum
 };
 
 // Feste Benchmark-Daten als Fallback
@@ -100,6 +441,7 @@ let currentTheme = 'light';
 let activeCategory = 'all';
 let currentTab = 'dashboard';
 let searchTerm = '';
+let activeFilterPeriod = 'all'; // NEU: Globaler Status für den Filter
 let isCompactMode = false;
 let touchStartX = 0;
 let touchStartY = 0;
@@ -110,6 +452,9 @@ let db;
 let cashflowViewMode = 'list';
 let biometricEnabled = false;
 let quickActionsVisible = false;
+let globalSearchIndex = -1;
+let singleItemFilter = null;
+let globalSearchResults = [];
 
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
@@ -139,9 +484,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadGitHubConfig();
     loadData();
     loadTheme();
-    setToToday();
-    setDateFilter('all');
-    document.getElementById('dateFilterBar').classList.add('collapsed');
+    setToToday(); // Setzt das Datum im Eingabe-Tab
+    setDateFilter('all'); // Setzt den initialen Filter für die gesamte App
     renderPlatformButtons();
     initializeCharts();
     addEventListeners();
@@ -537,7 +881,47 @@ function selectAutocompleteItem(platform) {
 // EVENT LISTENERS & SHORTCUTS
 // =================================================================================
 function addEventListeners() {
-    document.getElementById('privacyToggle').addEventListener('click', togglePrivacyMode);
+    document.getElementById('globalSearchBtn').addEventListener('click', openGlobalSearch);
+    const globalSearchInput = document.getElementById('globalSearchInput');
+    
+    // Enhanced search with debouncing and suggestions
+    const debouncedSearch = globalSearchEngine.debounceSearch((e) => {
+        // Hide suggestions immediately when typing
+        if (e.target.value.length >= 1) {
+            searchUI.hideSuggestions();
+        }
+        handleGlobalSearch();
+    }, 300);
+    globalSearchInput.addEventListener('input', debouncedSearch);
+    globalSearchInput.addEventListener('keydown', handleGlobalSearchKeydown);
+    
+    // Initialize keyboard navigation for search results
+    const globalSearchResults = document.getElementById('globalSearchResults');
+    searchUI.initKeyboardNavigation(globalSearchInput, globalSearchResults);
+    
+    // Show suggestions on focus (only if no search term)
+    globalSearchInput.addEventListener('focus', () => {
+        const currentValue = globalSearchInput.value;
+        if (currentValue.length < 2) {
+            const suggestions = globalSearchEngine.getSuggestions(currentValue);
+            if (suggestions.length > 0) {
+                searchUI.showSuggestions(globalSearchInput, suggestions);
+            }
+        }
+    });
+    
+    // Hide suggestions on blur (with delay)
+    globalSearchInput.addEventListener('blur', () => {
+        setTimeout(() => {
+            const suggestionsContainer = document.getElementById('searchSuggestions');
+            if (suggestionsContainer) {
+                suggestionsContainer.style.display = 'none';
+            }
+        }, 200);
+    });
+    document.getElementById('globalSearchOverlay').addEventListener('click', (e) => {
+        if (e.target.id === 'globalSearchOverlay') closeGlobalSearch();
+    });
     
     document.getElementById('entryDate').addEventListener('change', (e) => {
         const date = e.target.value;
@@ -545,10 +929,6 @@ function addEventListeners() {
         const strategyInput = document.getElementById('dailyStrategy');
         if (strategyInput) {
             strategyInput.value = strategyEntry ? strategyEntry.strategy : '';
-        }
-        const dynamicStrategyInput = document.getElementById('dailyStrategyDynamic');
-        if (dynamicStrategyInput) {
-            dynamicStrategyInput.value = strategyEntry ? strategyEntry.strategy : '';
         }
     });
     
@@ -654,8 +1034,14 @@ function setupKeyboardShortcuts() {
             toggleQuickActions();
         }
 
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            openGlobalSearch();
+        }
+
         if (e.key === 'Escape') {
             closeBottomSheet();
+            closeGlobalSearch();
         }
     });
 }
@@ -863,6 +1249,7 @@ function saveData(triggerSync = true) {
 }
 
 function applyDateFilter() {
+    singleItemFilter = null;
     const startDateStr = document.getElementById('filterStartDate').value;
     const endDateStr = document.getElementById('filterEndDate').value;
 
@@ -885,48 +1272,28 @@ function applyDateFilter() {
     updateDisplay();
 }
 
-function toggleFilter() {
-    document.getElementById('dateFilterBar').classList.toggle('collapsed');
-}
-
 function setDateFilter(period) {
-    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.chart-controls .chart-timeframe-btn').forEach(b => b.classList.remove('active'));
-
-    const mainFilterButton = document.querySelector(`.filter-presets .filter-btn[onclick="setDateFilter('${period}')"]`);
-    if (mainFilterButton) {
-        mainFilterButton.classList.add('active');
-        document.getElementById('activeFilterDisplay').textContent = mainFilterButton.textContent;
-    }
-
     const chartFilterButton = document.querySelector(`.chart-controls .chart-timeframe-btn[onclick="setDateFilter('${period}')"]`);
-    if (chartFilterButton) chartFilterButton.classList.add('active');
-
+    if (chartFilterButton) {
+        document.querySelectorAll('.chart-controls .chart-timeframe-btn').forEach(b => b.classList.remove('active'));
+        chartFilterButton.classList.add('active');
+    }
 
     const endDate = new Date();
     let startDate = new Date();
 
-    document.getElementById('filterEndDate').value = '';
-    document.getElementById('filterStartDate').value = '';
-
     switch (period) {
-        case '7d':
-            startDate.setDate(endDate.getDate() - 7);
-            break;
-        case '30d':
-            startDate.setDate(endDate.getDate() - 30);
-            break;
-        case '90d':
-            startDate.setDate(endDate.getDate() - 90);
-            break;
-        case 'ytd':
-            startDate = new Date(endDate.getFullYear(), 0, 1);
-            break;
-        case '1y':
-            startDate.setFullYear(endDate.getFullYear() - 1);
-            break;
+        case '7d': startDate.setDate(endDate.getDate() - 7); break;
+        case '30d': startDate.setDate(endDate.getDate() - 30); break;
+        case '90d': startDate.setDate(endDate.getDate() - 90); break;
+        case 'ytd': startDate = new Date(endDate.getFullYear(), 0, 1); break;
+        case '1y': startDate.setFullYear(endDate.getFullYear() - 1); break;
         case 'all':
+            document.getElementById('filterStartDate').value = '';
+            document.getElementById('filterEndDate').value = '';
+            activeFilterPeriod = 'all';
             applyDateFilter();
+            updateFilterBadge();
             return;
     }
     document.getElementById('filterStartDate').value = startDate.toISOString().split('T')[0];
@@ -936,16 +1303,76 @@ function setDateFilter(period) {
 
 
 function applyAndSetCustomDateFilter() {
-    document.querySelectorAll('.filter-presets .filter-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('activeFilterDisplay').textContent = 'Custom';
+    activeFilterPeriod = 'custom';
     applyDateFilter();
+    updateFilterBadge();
+}
+
+function clearSingleItemFilter() {
+    singleItemFilter = null;
+    if (currentTab === 'cashflow') {
+        updateCashflowDisplay();
+    } else if (currentTab === 'history') {
+        updateHistory();
+    }
 }
 
 function resetDateFilter() {
     document.getElementById('filterStartDate').value = '';
     document.getElementById('filterEndDate').value = '';
-    document.getElementById('activeFilterDisplay').textContent = 'Alles';
     setDateFilter('all');
+}
+
+function openDateFilterModal() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">🗓️ Zeitraum filtern</h2></div>
+        <div class="modal-body">
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">Wähle einen vordefinierten Zeitraum oder lege einen eigenen fest.</p>
+            <div class="filter-presets" style="margin-bottom: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button class="btn" onclick="setDateFilter('all'); closeBottomSheet();">Alles</button>
+                <button class="btn" onclick="setDateFilter('7d'); closeBottomSheet();">7 Tage</button>
+                <button class="btn" onclick="setDateFilter('30d'); closeBottomSheet();">30 Tage</button>
+                <button class="btn" onclick="setDateFilter('90d'); closeBottomSheet();">90 Tage</button>
+                <button class="btn" onclick="setDateFilter('ytd'); closeBottomSheet();">YTD</button>
+                <button class="btn" onclick="setDateFilter('1y'); closeBottomSheet();">1 Jahr</button>
+            </div>
+            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; border-top: 1px solid var(--border); padding-top: 16px;">Eigener Zeitraum</h3>
+            <div class="custom-date-range" style="display: flex; flex-direction: column; gap: 16px;">
+                <div class="github-input-group" style="margin-bottom: 0;">
+                    <label for="modalFilterStartDate">Von:</label>
+                    <input type="date" id="modalFilterStartDate" class="date-input" style="width: 100%;" value="${document.getElementById('filterStartDate').value}">
+                </div>
+                <div class="github-input-group" style="margin-bottom: 0;">
+                    <label for="modalFilterEndDate">Bis:</label>
+                    <input type="date" id="modalFilterEndDate" class="date-input" style="width: 100%;" value="${document.getElementById('filterEndDate').value}">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="resetDateFilter(); closeBottomSheet();">Zurücksetzen</button>
+            <button class="btn btn-success" onclick="applyAndSetCustomDateFilterFromModal()">Anwenden</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+}
+
+function applyAndSetCustomDateFilterFromModal() {
+    const startDate = document.getElementById('modalFilterStartDate').value;
+    const endDate = document.getElementById('modalFilterEndDate').value;
+    document.getElementById('filterStartDate').value = startDate;
+    document.getElementById('filterEndDate').value = endDate;
+    
+    applyAndSetCustomDateFilter();
+    closeBottomSheet();
+}
+
+function updateFilterBadge() {
+    const filterBtn = document.getElementById('dateFilterBtn');
+    const badge = document.getElementById('activeFilterBadge'); // ID is kept for the badge in the dropdown
+    const presets = { 'all': '', '7d': '7T', '30d': '30T', '90d': '90T', 'ytd': 'YTD', '1y': '1J', 'custom': '...' };
+    const badgeText = presets[activeFilterPeriod] || '';
+    if (badge) badge.textContent = badgeText;
+    if (badge) badge.style.display = badgeText ? 'inline-block' : 'none';
 }
 
 function saveStrategyForDate(date, strategy) {
@@ -961,9 +1388,48 @@ function saveStrategyForDate(date, strategy) {
     }
 }
 
+function saveSingleEntry(inputElement) {
+    const date = document.getElementById('entryDate').value;
+    if (!date) return showNotification('Bitte Datum wählen!', 'error');
+
+    const platformName = inputElement.dataset.platform;
+    const balance = parseFloat(inputElement.value.replace(',', '.'));
+    const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
+
+    if (!inputElement.value || isNaN(balance)) return;
+
+    entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
+    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
+    
+    saveData();
+    applyDateFilter();
+    
+    // Verhalten aus deiner Referenz-Datei übernehmen: Feld leeren und Platzhalter setzen
+    inputElement.value = '';
+    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    showNotification(`${platformName} gespeichert!`);
+    
+    // Fokussiere das nächste Input-Feld
+    setTimeout(() => {
+        const currentInputId = inputElement.id;
+        const allInputs = Array.from(document.querySelectorAll('.input-field[data-platform]'));
+        const currentIndex = allInputs.findIndex(input => input.id === currentInputId);
+        
+        if (currentIndex !== -1 && currentIndex < allInputs.length - 1) {
+            const nextInput = allInputs[currentIndex + 1];
+            nextInput.focus();
+            nextInput.select();
+        } else if (allInputs.length > 0) {
+            // Wenn es das letzte Feld war, gehe zum ersten zurück
+            allInputs[0].focus();
+            allInputs[0].select();
+        }
+    }, 100);
+}
+
 function saveStrategyOnly() {
     const date = document.getElementById('entryDate').value;
-    const strategy = document.getElementById('dailyStrategyDynamic')?.value || '';
+    const strategy = document.getElementById('dailyStrategy')?.value || '';
     
     if (!date) {
         showNotification('Bitte Datum wählen!', 'error');
@@ -979,38 +1445,6 @@ function saveStrategyOnly() {
     saveData();
     showNotification(`Strategie für ${formatDate(date)} gespeichert! ✅`);
 }
-
-function saveSingleEntry(inputElement) {
-    const date = document.getElementById('entryDate').value;
-    if (!date) return showNotification('Bitte Datum wählen!', 'error');
-
-    const platformName = inputElement.dataset.platform;
-    const balance = parseFloat(inputElement.value.replace(',', '.'));
-    const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
-
-    if (!inputElement.value || isNaN(balance)) return;
-
-    entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
-    
-    const dayStrategy = document.getElementById('dailyStrategyDynamic')?.value || '';
-    saveStrategyForDate(date, dayStrategy);
-    
-    saveData();
-    applyDateFilter();
-
-    inputElement.value = '';
-    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    showNotification(`${platformName} gespeichert!`);
-
-    const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field[data-platform]'));
-    const currentIndex = allInputs.indexOf(inputElement);
-
-    if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
-        allInputs[currentIndex + 1].focus();
-    }
-}
-
 
 // =================================================================================
 // GITHUB SYNC & SKELETONS
@@ -1053,11 +1487,11 @@ async function syncNow() {
                 switchTab('settings');
             }
         });
-        return;
+        return false;
     }
     if (syncInProgress) {
         showNotification('Sync läuft bereits...', 'warning');
-        return;
+        return false;
     }
 
     syncInProgress = true;
@@ -1085,10 +1519,12 @@ async function syncNow() {
 
         showNotification('Erfolgreich synchronisiert! ✨');
         updateSyncUI('connected');
+        return true;
     } catch (error) {
         console.error('Sync error:', error);
         showNotification('Sync fehlgeschlagen: ' + error.message, 'error');
         updateSyncUI('error');
+        return false;
     } finally {
         syncInProgress = false;
         setTimeout(hideSkeletons, 300);
@@ -1206,7 +1642,14 @@ async function testConnection() {
 
 async function checkConnectionOnStartup() {
     if (githubToken && gistId) {
-        await syncNow();
+        const success = await syncNow();
+        if (success) {
+            setTimeout(() => {
+                const bar = document.getElementById('syncStatusBar');
+                // Nur ausblenden, wenn der Benutzer sie nicht bereits manuell geschlossen hat.
+                if (bar.classList.contains('visible')) toggleSyncBar();
+            },3000);
+        }
     }
 }
 
@@ -1218,20 +1661,20 @@ function toggleAutoSync() {
 
 function updateSyncStatus() {
     const hasConfig = githubToken && gistId;
-    const badge = document.getElementById('cloudStatusBadge');
+    const indicator = document.getElementById('cloudStatusIndicator');
     const icon = document.getElementById('cloudIcon');
     const text = document.getElementById('cloudText');
     
     if (hasConfig) {
         syncStatus = 'connected';
-        badge.className = 'cloud-status-badge';
-        icon.textContent = '☁️';
-        text.textContent = 'Cloud Sync';
+        if (indicator) indicator.className = 'status-indicator connected';
+        if (icon) icon.textContent = '☁️';
+        if (text) text.textContent = 'Cloud Sync';
     } else {
         syncStatus = 'offline';
-        badge.className = 'cloud-status-badge disconnected';
-        icon.textContent = '🔌';
-        text.textContent = 'Offline';
+        if (indicator) indicator.className = 'status-indicator disconnected';
+        if (icon) icon.textContent = '🔌';
+        if (text) text.textContent = 'Offline';
     }
 }
 
@@ -1241,7 +1684,7 @@ function updateSyncUI(status) {
     const syncBtn = document.getElementById('syncNowBtn');
     const syncBtnIcon = document.getElementById('syncBtnIcon');
     const syncBtnText = document.getElementById('syncBtnText');
-    const cloudBadge = document.getElementById('cloudStatusBadge');
+    const dropdownIndicator = document.getElementById('cloudStatusIndicator');
     
     switch(status) {
         case 'syncing':
@@ -1250,8 +1693,8 @@ function updateSyncUI(status) {
             syncBtnIcon.innerHTML = '<span class="spinner"></span>';
             syncBtnText.textContent = 'Syncing...';
             syncBtn.disabled = true;
-            cloudBadge.className = 'cloud-status-badge syncing';
-            document.getElementById('cloudText').textContent = 'Syncing...';
+            if (dropdownIndicator) dropdownIndicator.className = 'status-indicator syncing';
+            if (document.getElementById('cloudText')) document.getElementById('cloudText').textContent = 'Syncing...';
             break;
         case 'connected':
             indicator.className = 'sync-indicator synced';
@@ -1259,10 +1702,10 @@ function updateSyncUI(status) {
             syncBtnIcon.textContent = '✅';
             syncBtnText.textContent = 'Sync';
             syncBtn.disabled = false;
-            cloudBadge.className = 'cloud-status-badge';
-            document.getElementById('cloudText').textContent = 'Synced';
+            if (dropdownIndicator) dropdownIndicator.className = 'status-indicator connected';
+            if (document.getElementById('cloudText')) document.getElementById('cloudText').textContent = 'Synced';
             setTimeout(() => {
-                document.getElementById('cloudText').textContent = 'Cloud Sync';
+                if (document.getElementById('cloudText')) document.getElementById('cloudText').textContent = 'Cloud Sync';
             }, 3000);
             break;
         case 'error':
@@ -1271,8 +1714,8 @@ function updateSyncUI(status) {
             syncBtnIcon.textContent = '⚠️';
             syncBtnText.textContent = 'Retry';
             syncBtn.disabled = false;
-            cloudBadge.className = 'cloud-status-badge error';
-            document.getElementById('cloudText').textContent = 'Error';
+            if (dropdownIndicator) dropdownIndicator.className = 'status-indicator error';
+            if (document.getElementById('cloudText')) document.getElementById('cloudText').textContent = 'Error';
             break;
         default:
             indicator.className = 'sync-indicator offline';
@@ -1313,7 +1756,11 @@ setInterval(updateLastSyncDisplay, 60000);
 // =================================================================================
 // TAB MANAGEMENT
 // =================================================================================
-function switchTab(tabName) {
+function switchTab(tabName, options = {}) {
+    if (currentTab !== tabName && !options.preserveFilter) {
+        singleItemFilter = null;
+    }
+
     // NEU: Tooltip beim Tab-Wechsel ausblenden
     const tooltipEl = document.querySelector('.chartjs-tooltip');
     if (tooltipEl) {
@@ -1344,6 +1791,8 @@ function switchTab(tabName) {
         updateCashflowDisplay();
         updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
+    } else if (tabName === 'history') {
+        updateHistory();
     }
 }
 
@@ -1560,25 +2009,16 @@ function addPlatformInput(platformName) {
     const inputId = platformName.replace(/\s+/g, '_');
     if (document.getElementById(`input_${inputId}`)) return;
     
-    if (!document.getElementById('dayStrategyContainer')) {
-        const strategyDiv = document.createElement('div');
-        strategyDiv.id = 'dayStrategyContainer';
-        strategyDiv.className = 'day-strategy-container';
-        strategyDiv.innerHTML = `
-            <div class="strategy-input-row">
-                <label class="strategy-label">📋 Tages-Strategie (gilt für alle Einträge):</label>
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" id="dailyStrategyDynamic" class="strategy-input" 
-                        placeholder="z.B. Abgesichertes Liquidity Providing, Funding Rate Farming..."
-                        value="${getStrategyForDate(document.getElementById('entryDate').value)}"
-                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); saveStrategyOnly(); }">
-                    <button class="btn btn-primary" onclick="saveStrategyOnly()" style="white-space: nowrap;">
-                        💾 Speichern
-                    </button>
-                </div>
-            </div>
-        `;
-        container.parentElement.insertBefore(strategyDiv, container);
+    // Strategie-Container anzeigen, wenn es der erste Input ist
+    if (container.children.length === 0) {
+        const strategyContainer = document.getElementById('dayStrategyContainer');
+        if (strategyContainer) {
+            strategyContainer.style.display = 'block';
+            // Strategie für das aktuelle Datum laden
+            const date = document.getElementById('entryDate').value;
+            const strategyInput = document.getElementById('dailyStrategy');
+            if (strategyInput) strategyInput.value = getStrategyForDate(date);
+        }
     }
 
     const lastEntry = getLastEntryForPlatform(platformName);
@@ -1614,10 +2054,12 @@ function removePlatformInput(platformName) {
     const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => btn.querySelector('.name')?.textContent === platformName);
     if (button) button.classList.remove('selected');
     updateAutoZeroHint();
-    
-    if (selectedPlatforms.length === 0) {
+
+    // Strategie-Container ausblenden, wenn keine Inputs mehr vorhanden sind
+    const container = document.getElementById('platformInputs');
+    if (container.children.length === 0) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
-        if (strategyContainer) strategyContainer.remove();
+        if (strategyContainer) strategyContainer.style.display = 'none';
     }
 }
 
@@ -1647,6 +2089,11 @@ function loadLastEntries() {
             togglePlatform(button, platformName);
         }
     });
+
+    const lastStrategy = getStrategyForDate(lastEntryDate);
+    if (lastStrategy) {
+        document.getElementById('dailyStrategy').value = lastStrategy;
+    }
 
     showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`);
 }
@@ -1687,9 +2134,14 @@ async function saveAllEntries() {
 
     let newEntriesCount = 0;
     let zeroedCount = 0;
+    let strategyChanged = false;
 
-    const dayStrategy = document.getElementById('dailyStrategyDynamic')?.value || document.getElementById('dailyStrategy')?.value || '';
-    saveStrategyForDate(date, dayStrategy.trim());
+    const dayStrategy = document.getElementById('dailyStrategy')?.value || '';
+    const oldStrategy = getStrategyForDate(date);
+    if (dayStrategy.trim() !== oldStrategy.trim()) {
+        saveStrategyForDate(date, dayStrategy.trim());
+        strategyChanged = true;
+    }
     
     const platformsToZero = getPlatformsToAutoZero();
     if (platformsToZero.length > 0) {
@@ -1726,25 +2178,28 @@ async function saveAllEntries() {
         }
     });
 
-    if (newEntriesCount === 0 && zeroedCount === 0 && !dayStrategy.trim()) {
-        return showNotification('Keine Daten zum Speichern!', 'error');
+    if (newEntriesCount === 0 && zeroedCount === 0 && !strategyChanged) {
+        return showNotification('Keine Änderungen zum Speichern!', 'error');
     }
 
     saveData();
     applyDateFilter();
     document.getElementById('platformInputs').innerHTML = '';
     
+    // Strategie-Container nach dem Speichern ausblenden
     const strategyContainer = document.getElementById('dayStrategyContainer');
-    if (strategyContainer) strategyContainer.remove();
-
+    if (strategyContainer) {
+        strategyContainer.style.display = 'none';
+    }
+    
     document.getElementById('autoZeroHint').classList.remove('visible');
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
 
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
-    if (zeroedCount > 0) message += `${zeroedCount} Plattformen auf 0 gesetzt.`;
-    if (dayStrategy.trim()) message += `Tages-Strategie gespeichert.`;
+    if (zeroedCount > 0) message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+    if (strategyChanged) message += `Tages-Strategie gespeichert.`;
     showNotification(message.trim());
 }
 
@@ -1855,6 +2310,61 @@ function makeNoteEditable(cell, entryId, type) {
         } else if (e.key === 'Escape') {
             cell.innerHTML = originalContent;
             cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        }
+    };
+}
+
+function makeBalanceEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry || cell.querySelector('input')) return;
+    
+    const currentBalance = type === 'entry' ? entry.balance : entry.amount;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.className = 'input-field';
+    input.value = currentBalance.toString();
+    input.style.width = '100%';
+    
+    const originalContent = cell.innerHTML;
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+    
+    const save = () => {
+        const newValue = parseFloat(input.value.replace(',', '.'));
+        if (isNaN(newValue) || newValue < 0) {
+            showNotification('Ungültiger Betrag eingegeben!', 'error');
+            cell.innerHTML = originalContent;
+            cell.onclick = () => makeBalanceEditable(cell, entryId, type);
+            return;
+        }
+        
+        if (type === 'entry') {
+            entry.balance = newValue;
+        } else {
+            entry.amount = newValue;
+        }
+        
+        saveData();
+        applyDateFilter();
+        
+        cell.innerHTML = formatDollar(newValue);
+        cell.classList.add('dollar-value', 'editable');
+        cell.onclick = () => makeBalanceEditable(cell, entryId, type);
+        showNotification('Betrag aktualisiert!');
+    };
+    
+    input.onblur = save;
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            save();
+        } else if (e.key === 'Escape') {
+            cell.innerHTML = originalContent;
+            cell.onclick = () => makeBalanceEditable(cell, entryId, type);
         }
     };
 }
@@ -2097,16 +2607,34 @@ function updateKeyMetrics() {
 // =================================================================================
 function updateHistory() {
     const tbody = document.getElementById('historyTableBody');
-    const searchTerm = document.getElementById('historySearch').value.toLowerCase();
-    let dataToDisplay = filteredEntries.filter(e => 
-        e.protocol.toLowerCase().includes(searchTerm) || 
-        e.date.toLowerCase().includes(searchTerm) ||
-        (e.note && e.note.toLowerCase().includes(searchTerm))
-    );
+    const historySection = tbody.closest('.section');
+    let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
+    if (clearBtnContainer) clearBtnContainer.remove();
 
-    dataToDisplay.sort((a, b) => {
-        const aVal = a[historySort.key];
-        const bVal = b[historySort.key];
+    const searchTerm = document.getElementById('historySearch').value.toLowerCase();
+    let dataToDisplay;
+
+    if (singleItemFilter && singleItemFilter.type === 'history') {
+        dataToDisplay = entries.filter(singleItemFilter.filterFunction);
+        const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
+        tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
+    } else {
+        dataToDisplay = filteredEntries.filter(e => 
+            e.protocol.toLowerCase().includes(searchTerm) || 
+            e.date.toLowerCase().includes(searchTerm) ||
+            (e.note && e.note.toLowerCase().includes(searchTerm))
+        );
+    }
+
+    // Augment data with strategy for correct sorting
+    const augmentedData = dataToDisplay.map(entry => ({
+        ...entry,
+        strategy: getStrategyForDate(entry.date) || ''
+    }));
+
+    augmentedData.sort((a, b) => {
+        const aVal = a[historySort.key] || '';
+        const bVal = b[historySort.key] || '';
 
         if (historySort.order === 'asc') {
             if (historySort.key === 'date') return new Date(aVal) - new Date(bVal);
@@ -2120,12 +2648,12 @@ function updateHistory() {
     });
 
     tbody.innerHTML = '';
-    if (dataToDisplay.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
+    if (augmentedData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
         return;
     }
 
-    dataToDisplay.forEach((entry, index) => {
+    augmentedData.forEach((entry, index) => {
         const row = document.createElement('tr');
         row.dataset.id = entry.id;
         row.dataset.index = index;
@@ -2139,7 +2667,8 @@ function updateHistory() {
             <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
             <td>${formatDate(entry.date)}</td>
             <td style="font-weight: 600;">${entry.protocol}</td>
-            <td class="dollar-value">${formatDollar(entry.balance)}</td>
+            <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+            <td>${entry.strategy || '-'}</td>
             <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
             <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
         `;
@@ -2192,6 +2721,40 @@ async function bulkChangeDate() {
             applyDateFilter();
             showNotification('Datum für ausgewählte Einträge geändert.');
         }
+    }
+}
+
+async function bulkChangeAmount() {
+    if (selectedHistoryEntries.size === 0) {
+        return showNotification('Keine Einträge ausgewählt', 'warning');
+    }
+    const selectionSize = selectedHistoryEntries.size;
+
+    const result = await showCustomPrompt({
+        title: 'Betrag für Auswahl ändern',
+        text: `Gib einen neuen Betrag für die ${selectionSize} ausgewählten Einträge ein.`,
+        showInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
+    });
+
+    if (result === 'change') {
+        const amountValue = document.getElementById('bottomSheet_input').value;
+        const newAmount = parseFloat(amountValue.replace(',', '.'));
+
+        if (isNaN(newAmount) || newAmount < 0) {
+            return showNotification('Ungültiger Betrag eingegeben!', 'error');
+        }
+
+        entries.forEach(entry => {
+            if (selectedHistoryEntries.has(entry.id)) {
+                entry.balance = newAmount;
+            }
+        });
+
+        selectedHistoryEntries.clear();
+        saveData();
+        applyDateFilter();
+        showNotification(`Betrag für ${selectionSize} Einträge auf ${formatDollar(newAmount)} geändert.`);
     }
 }
 
@@ -2287,15 +2850,31 @@ function updateCashflowDisplay() {
     const container = document.getElementById('cashflowDisplayContainer');
     if (!container) return;
 
-    if (cashflowViewMode === 'list') {
-        renderCashflowTable(container);
+    if (singleItemFilter && singleItemFilter.type === 'cashflow') {
+        const dataForDisplay = cashflows.filter(singleItemFilter.filterFunction);
+        
+        // Manuell auf Listenansicht umschalten, um Rekursion zu vermeiden
+        cashflowViewMode = 'list';
+        document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = true); // Deaktiviert Umschalter
+        document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
+        const listBtn = document.querySelector('.view-switcher .view-btn[onclick="setCashflowView(\'list\')"]');
+        if (listBtn) listBtn.classList.add('active');
+
+        renderCashflowTable(container, dataForDisplay);
+        const clearButtonHtml = `<div style="margin-bottom: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Cashflows anzeigen</button></div>`;
+        container.insertAdjacentHTML('afterbegin', clearButtonHtml);
     } else {
-        renderGroupedCashflow(container, cashflowViewMode);
+        document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = false);
+        if (cashflowViewMode === 'list') {
+            renderCashflowTable(container, filteredCashflows);
+        } else {
+            renderGroupedCashflow(container, cashflowViewMode, filteredCashflows);
+        }
     }
 }
 
-function renderGroupedCashflow(container, groupBy) {
-    const grouped = filteredCashflows.reduce((acc, cf) => {
+function renderGroupedCashflow(container, groupBy, dataToDisplay) {
+    const grouped = dataToDisplay.reduce((acc, cf) => {
         const date = new Date(cf.date);
         let key;
         if (groupBy === 'month') {
@@ -2350,7 +2929,7 @@ function renderGroupedCashflow(container, groupBy) {
                 </summary>
                 <div class="cashflow-group-details">
                     ${group.transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(cf => `
-                        <div class="transaction-row">
+                        <div class="transaction-row" data-id="${cf.id}">
                             <div class="transaction-date">${formatDate(cf.date)}</div>
                             <div class="transaction-type type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</div>
                             <div class="transaction-platform">${cf.platform || '-'}</div>
@@ -2367,7 +2946,7 @@ function renderGroupedCashflow(container, groupBy) {
     container.innerHTML = html;
 }
 
-function renderCashflowTable(container) {
+function renderCashflowTable(container, dataToDisplay) {
     container.innerHTML = `
         <div class="data-table-wrapper">
             <table class="data-table">
@@ -2378,7 +2957,6 @@ function renderCashflowTable(container) {
     `;
 
     const tbody = document.getElementById('cashflowTableBody');
-    let dataToDisplay = [...filteredCashflows];
     dataToDisplay.sort((a, b) => {
         const aVal = a[cashflowSort.key] || 0;
         const bVal = b[cashflowSort.key] || 0;
@@ -2396,6 +2974,7 @@ function renderCashflowTable(container) {
 
     dataToDisplay.forEach(cf => {
         const row = document.createElement('tr');
+        row.dataset.id = cf.id;
         row.innerHTML = `
             <td>${formatDate(cf.date)}</td>
             <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
@@ -3141,18 +3720,18 @@ function useStaticFallback(ticker) {
 }
 
 async function fetchMarketData(ticker, from, to) {
-    const sheetUrl = GOOGLE_SHEET_URLS[ticker];
     const decodedTicker = decodeURIComponent(ticker);
 
-    if (!sheetUrl || sheetUrl.includes('YOUR_')) {
-        console.warn(`Google Sheet URL for ${decodedTicker} is not configured.`);
-        if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
-            console.log(`Falling back to CoinGecko for ${decodedTicker}.`);
-            return fetchCoinGeckoData(decodedTicker, from, to);
-        }
-        return useStaticFallback(ticker);
+    // Direkte Weiterleitung zu CoinGecko für Kryptowährungen, da dies zuverlässiger als Google Docs ist.
+    if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
+        return fetchCoinGeckoData(decodedTicker, from, to);
     }
 
+    const sheetUrl = GOOGLE_SHEET_URLS[ticker];
+    if (!sheetUrl || sheetUrl.includes('YOUR_')) {
+        console.warn(`Google Sheet URL for ${decodedTicker} is not configured.`);
+        return useStaticFallback(ticker);
+    }
     const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
     try {
@@ -3180,9 +3759,20 @@ async function fetchMarketData(ticker, from, to) {
             if (dateStr && priceStr) {
                 const datePart = dateStr.split(' ')[0]; // Handle "DD.MM.YYYY HH:MM:SS"
                 const [day, month, year] = datePart.split('.');
-                // Zuerst Tausendertrennzeichen (Punkte) entfernen, dann Dezimalkomma durch Punkt ersetzen.
-                // "18.130,00" -> "18130,00" -> "18130.00"
-                const cleanedPriceStr = priceStr.replace(/\./g, '').replace(',', '.');
+                
+                // Verbesserte, robustere Preis-Umwandlung, die deutsche und amerikanische Formate handhaben kann.
+                const lastComma = priceStr.lastIndexOf(',');
+                const lastDot = priceStr.lastIndexOf('.');
+                let cleanedPriceStr;
+
+                if (lastComma > lastDot) {
+                    // Annahme: Deutsches Format (z.B. "1.234,56")
+                    cleanedPriceStr = priceStr.replace(/\./g, '').replace(',', '.');
+                } else {
+                    // Annahme: US/ISO Format (z.B. "1,234.56" oder "1234.56")
+                    cleanedPriceStr = priceStr.replace(/,/g, '');
+                }
+
                 if (month && day && year) { // Ensure date components are valid
                     const date = new Date(Date.UTC(year, month - 1, day)); // Month is 0-indexed
                     const price = parseFloat(cleanedPriceStr);
@@ -3494,13 +4084,6 @@ function setToToday() {
 function setToYesterday() {
     const d = new Date();
     d.setDate(d.getDate() - 1);
-    const dateInput = document.getElementById('entryDate');
-    dateInput.valueAsDate = d;
-    dateInput.dispatchEvent(new Event('change'));
-}
-function setToLastSunday() {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay());
     const dateInput = document.getElementById('entryDate');
     dateInput.valueAsDate = d;
     dateInput.dispatchEvent(new Event('change'));
@@ -4022,5 +4605,538 @@ function closeHeaderMenuOnOutsideClick(e) {
     if (!menuButton && dropdown.classList.contains('show')) {
         dropdown.classList.remove('show');
         document.removeEventListener('click', closeHeaderMenuOnOutsideClick);
+    }
+}
+
+// =================================================================================
+// GLOBALE SUCHE (COMMAND PALETTE)
+// =================================================================================
+function openGlobalSearch() {
+    document.getElementById('globalSearchOverlay').classList.add('visible');
+    // Ein kurzes Timeout ist der zuverlässigste Weg, um sicherzustellen, dass das Element fokussierbar ist.
+    setTimeout(() => {
+        document.getElementById('globalSearchInput').focus();
+    }, 50);
+    handleGlobalSearch(); // Initial render
+}
+
+function closeGlobalSearch() {
+    document.getElementById('globalSearchOverlay').classList.remove('visible');
+    document.getElementById('globalSearchInput').value = '';
+    globalSearchResults = [];
+    globalSearchIndex = -1;
+}
+
+function handleGlobalSearch() {
+    const term = document.getElementById('globalSearchInput').value;
+    
+    // Hide suggestions when actively searching
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    if (suggestionsContainer && term.length >= 1) {
+        suggestionsContainer.style.display = 'none';
+    }
+    
+    performGlobalSearch(term);
+}
+
+// Enhanced search function with fuzzy matching and relevance scoring
+function performGlobalSearch(term) {
+    const lowerTerm = term.toLowerCase();
+
+    // Add to search history
+    if (term.length >= 2) {
+        globalSearchEngine.addToHistory(term);
+    }
+
+    // Check cache first
+    const cacheKey = `search_${lowerTerm}`;
+    if (globalSearchEngine.searchCache.has(cacheKey)) {
+        globalSearchResults = globalSearchEngine.searchCache.get(cacheKey);
+        renderGlobalSearchResults();
+        return;
+    }
+
+    if (lowerTerm.length < 1) {
+        globalSearchResults = [
+            { title: 'Dashboard anzeigen', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard') },
+            { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry') },
+            { title: 'Cloud Sync starten', icon: '☁️', category: 'Aktion', type: 'action', action: () => syncNow() },
+            { title: 'Theme wechseln', icon: '🎨', category: 'Aktion', type: 'action', action: () => toggleTheme() },
+        ];
+        renderGlobalSearchResults();
+        return;
+    }
+
+    const results = [];
+    const addedIds = new Set();
+
+    // 1. Enhanced Actions search with fuzzy matching
+    const actions = [
+        { title: 'Theme wechseln', icon: '🎨', category: 'Aktion', type: 'action', action: () => toggleTheme(), tags: ['theme', 'design', 'aussehen'] },
+        { title: 'Cloud Sync starten', icon: '☁️', category: 'Aktion', type: 'action', action: () => syncNow(), tags: ['sync', 'cloud', 'backup'] },
+        { title: 'JSON exportieren', icon: '💾', category: 'Aktion', type: 'action', action: () => exportJSON(), tags: ['export', 'download', 'backup'] },
+        { title: 'Dashboard', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard'), tags: ['overview', 'start', 'home'] },
+        { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry'), tags: ['new', 'add', 'create'] },
+        { title: 'Cashflow', icon: '💸', category: 'Navigation', type: 'action', action: () => switchTab('cashflow'), tags: ['money', 'transactions', 'flow'] },
+        { title: 'Historie', icon: '📜', category: 'Navigation', type: 'action', action: () => switchTab('history'), tags: ['history', 'past', 'records'] },
+        { title: 'Einstellungen', icon: '⚙️', category: 'Navigation', type: 'action', action: () => switchTab('settings'), tags: ['settings', 'config', 'options'] },
+    ];
+
+    actions.forEach(action => {
+        const relevance = globalSearchEngine.calculateRelevance(action, term);
+        if (relevance > 0) {
+            results.push({ ...action, relevance });
+        }
+    });
+
+    // 2. Enhanced Platforms search with fuzzy matching
+    platforms.forEach(p => {
+        const relevance = globalSearchEngine.calculateRelevance(p, term);
+        if (relevance > 0) {
+            const id = `platform-${p.name}`;
+            if (!addedIds.has(id)) {
+                results.push({
+                    title: p.name, 
+                    subtitle: p.type, 
+                    icon: p.icon, 
+                    category: 'Plattform', 
+                    type: 'platform',
+                    relevance,
+                    tags: p.tags,
+                    action: () => { 
+                        switchTab('entry'); 
+                        setTimeout(() => { 
+                            document.getElementById('platformSearch').value = p.name; 
+                            filterPlatforms(); 
+                            const platformBtn = Array.from(document.querySelectorAll('.platform-btn')).find(btn => btn.dataset.platform === p.name);
+                            if (platformBtn && !platformBtn.classList.contains('selected')) {
+                                togglePlatform(platformBtn, p.name);
+                            }
+                            highlightElement(`#input_${p.name.replace(/\s+/g, '_')}`);
+                        }, 100); 
+                    }
+                });
+                addedIds.add(id);
+            }
+        }
+    });
+
+    // NEU: "Alle anzeigen" für passende Protokolle in der Historie hinzufügen
+    const matchingProtocolsInHistory = [...new Set(
+        entries.filter(e => e.protocol && e.protocol.toLowerCase().includes(lowerTerm)).map(e => e.protocol)
+    )];
+
+    matchingProtocolsInHistory.forEach(protocolName => {
+        const count = entries.filter(e => e.protocol === protocolName).length;
+        const id = `history-all-${protocolName}`;
+        if (!addedIds.has(id)) {
+            results.push({
+                title: `Alle Einträge für "${protocolName}" anzeigen`,
+                subtitle: `${count} Eintrag/Einträge gefunden`,
+                icon: '📂',
+                category: 'Historie',
+                type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'history', filterFunction: e => e.protocol === protocolName };
+                    switchTab('history', { preserveFilter: true });
+                }
+            });
+            addedIds.add(id);
+        }
+    });
+
+    // 3. Eintrags-Historie durchsuchen (nach Protokoll oder Notiz)
+    entries.forEach(e => {
+        const protocolMatch = e.protocol && e.protocol.toLowerCase().includes(lowerTerm);
+        const noteMatch = e.note && e.note.toLowerCase().includes(lowerTerm);
+
+        if (protocolMatch || noteMatch) {
+            if (!addedIds.has(e.id)) {
+                let subtitle = `Eintrag vom ${formatDate(e.date)}`;
+                if (noteMatch) {
+                    subtitle = `Notiz: ${e.note}`;
+                }
+
+                results.push({
+                    title: `${e.protocol}: ${formatDollar(e.balance)}`,
+                    subtitle: subtitle,
+                    icon: '📜',
+                    category: 'Historie',
+                    type: 'history',
+                    action: () => {
+                        singleItemFilter = { type: 'history', filterFunction: entry => entry.id === e.id };
+                        switchTab('history', { preserveFilter: true });
+                        highlightElement(`#historyTableBody tr[data-id='${e.id}']`);
+                    }
+                });
+                addedIds.add(e.id);
+            }
+        }
+    });
+
+    // 4. Cashflows durchsuchen (nach Notiz)
+    cashflows.forEach(c => {
+        if (c.note && c.note.toLowerCase().includes(lowerTerm)) {
+            if (!addedIds.has(c.id)) {
+                const typeText = c.type === 'deposit' ? 'Einzahlung' : 'Auszahlung';
+                results.push({
+                    title: `${typeText}: ${formatDollar(c.amount)}`,
+                    subtitle: `Notiz: ${c.note}`,
+                    icon: '💸',
+                    category: 'Cashflow',
+                    type: 'cashflow',
+                    action: () => { 
+                        singleItemFilter = { type: 'cashflow', filterFunction: (cf) => cf.id === c.id };
+                        switchTab('cashflow', { preserveFilter: true }); 
+                        highlightElement(`.transaction-row[data-id='${c.id}'], #cashflowTableBody tr[data-id='${c.id}']`); 
+                    }
+                });
+                addedIds.add(c.id);
+            }
+        }
+    });
+
+    // 5. Cashflows nach Typ durchsuchen
+    if ('einzahlung'.includes(lowerTerm)) {
+        const count = cashflows.filter(c => c.type === 'deposit').length;
+        if (count > 0) {
+            results.push({
+                title: 'Alle Einzahlungen anzeigen',
+                subtitle: `${count} Transaktion(en) gefunden`,
+                icon: '➕',
+                category: 'Aktion',
+                type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'cashflow', filterFunction: cf => cf.type === 'deposit' };
+                    switchTab('cashflow', { preserveFilter: true });
+                }
+            });
+        }
+    }
+    if ('auszahlung'.includes(lowerTerm)) {
+        const count = cashflows.filter(c => c.type === 'withdraw').length;
+        if (count > 0) {
+            results.push({
+                title: 'Alle Auszahlungen anzeigen',
+                subtitle: `${count} Transaktion(en) gefunden`,
+                icon: '➖',
+                category: 'Aktion',
+                type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'cashflow', filterFunction: cf => cf.type === 'withdraw' };
+                    switchTab('cashflow', { preserveFilter: true });
+                }
+            });
+        }
+    }
+
+    // 6. Nach Datum suchen (Format DD.MM.YYYY oder YYYY-MM-DD)
+    let searchDate = null;
+    const dateMatch = lowerTerm.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (dateMatch) {
+        const [, day, month, year] = dateMatch;
+        searchDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    } else if (lowerTerm.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        searchDate = lowerTerm;
+    }
+
+    if (searchDate) {
+        const entriesOnDate = entries.filter(e => e.date === searchDate);
+        if (entriesOnDate.length > 0) {
+            results.push({
+                title: `Alle Einträge vom ${formatDate(searchDate)} anzeigen`,
+                subtitle: `${entriesOnDate.length} Eintrag/Einträge gefunden`,
+                icon: '📜', category: 'Historie', type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'history', filterFunction: e => e.date === searchDate };
+                    switchTab('history', { preserveFilter: true });
+                }
+            });
+        }
+        const cashflowsOnDate = cashflows.filter(c => c.date === searchDate);
+        if (cashflowsOnDate.length > 0) {
+            results.push({
+                title: `Alle Cashflows vom ${formatDate(searchDate)} anzeigen`,
+                subtitle: `${cashflowsOnDate.length} Transaktion(en) gefunden`,
+                icon: '💸', category: 'Cashflow', type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'cashflow', filterFunction: cf => cf.date === searchDate };
+                    switchTab('cashflow', { preserveFilter: true });
+                }
+            });
+        }
+    }
+
+    // 7. Tages-Strategien durchsuchen (gruppiert)
+    const matchingStrategyTexts = [...new Set(
+        dayStrategies
+            .filter(ds => ds.strategy && ds.strategy.toLowerCase().includes(lowerTerm))
+            .map(ds => ds.strategy)
+    )];
+
+    matchingStrategyTexts.forEach(strategyText => {
+        const matchingDates = dayStrategies.filter(ds => ds.strategy === strategyText).map(ds => ds.date);
+        const count = matchingDates.length;
+        const id = `strategy-group-${strategyText.replace(/\s/g, '_')}`;
+
+        if (!addedIds.has(id)) {
+            results.push({
+                title: `Strategie: "${strategyText.substring(0, 30)}${strategyText.length > 30 ? '...' : ''}"`,
+                subtitle: `An ${count} Tag(en) verwendet`,
+                icon: '📂',
+                category: 'Strategie',
+                type: 'action',
+                action: () => {
+                    singleItemFilter = { type: 'history', filterFunction: e => matchingDates.includes(e.date) };
+                    switchTab('history', { preserveFilter: true });
+                }
+            });
+            addedIds.add(id);
+        }
+    });
+
+    // Apply advanced filters
+    const filteredResults = globalSearchEngine.applyFilters(results);
+    
+    // Sort results by relevance score (highest first)
+    filteredResults.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));
+    
+    globalSearchResults = filteredResults.slice(0, 20);
+    
+    // Cache results for performance (limit cache size)
+    if (lowerTerm.length >= 2) {
+        if (globalSearchEngine.searchCache.size > 50) {
+            // Clear oldest entries when cache gets too large
+            const firstKey = globalSearchEngine.searchCache.keys().next().value;
+            globalSearchEngine.searchCache.delete(firstKey);
+        }
+        globalSearchEngine.searchCache.set(cacheKey, globalSearchResults);
+    }
+    
+    renderGlobalSearchResults();
+}
+
+function renderGlobalSearchResults() {
+    const resultsContainer = document.getElementById('globalSearchResults');
+    resultsContainer.innerHTML = '';
+    globalSearchIndex = -1;
+
+    if (globalSearchResults.length === 0) {
+        resultsContainer.innerHTML = `<div class="search-result-item"><div class="search-result-text"><div class="title">Keine Ergebnisse</div></div></div>`;
+        return;
+    }
+
+    const searchTerm = document.getElementById('globalSearchInput').value;
+
+    globalSearchResults.forEach((item) => {
+        const el = document.createElement('div');
+        el.className = 'search-result-item';
+        el.onclick = () => executeSearchResult(item);
+        
+        // Highlight search terms in title and subtitle
+        const highlightedTitle = globalSearchEngine.highlightText(item.title, searchTerm);
+        const highlightedSubtitle = item.subtitle ? globalSearchEngine.highlightText(item.subtitle, searchTerm) : '';
+        
+        el.innerHTML = `
+            <div class="search-result-icon">${item.icon}</div>
+            <div class="search-result-text">
+                <div class="title">${highlightedTitle}</div>
+                ${highlightedSubtitle ? `<div class="subtitle">${highlightedSubtitle}</div>` : ''}
+                ${item.relevance ? `<div class="relevance-score" style="font-size: 0.7em; opacity: 0.6;">Score: ${item.relevance.toFixed(2)}</div>` : ''}
+            </div>
+            <div class="search-result-category">${item.category}</div>
+        `;
+        resultsContainer.appendChild(el);
+    });
+}
+
+function handleGlobalSearchKeydown(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+        e.preventDefault();
+        if (e.key === 'ArrowDown') {
+            globalSearchIndex = Math.min(globalSearchIndex + 1, globalSearchResults.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            globalSearchIndex = Math.max(globalSearchIndex - 1, 0);
+        } else if (e.key === 'Enter' && globalSearchIndex > -1) {
+            executeSearchResult(globalSearchResults[globalSearchIndex]);
+        }
+        
+        const items = document.querySelectorAll('.search-result-item');
+        items.forEach((item, index) => {
+            item.classList.toggle('selected', index === globalSearchIndex);
+        });
+    }
+}
+
+// Apply search suggestion
+function applySuggestion(suggestion) {
+    const globalSearchInput = document.getElementById('globalSearchInput');
+    globalSearchInput.value = suggestion;
+    handleGlobalSearch();
+    
+    // Hide suggestions
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    if (suggestionsContainer) {
+        suggestionsContainer.style.display = 'none';
+    }
+    
+    globalSearchInput.focus();
+}
+
+// Advanced search filter functions
+function toggleSearchFilter(type, value) {
+    const filters = globalSearchEngine.activeFilters;
+    
+    switch(type) {
+        case 'category':
+            const categoryIndex = filters.categories.indexOf(value);
+            if (categoryIndex > -1) {
+                filters.categories.splice(categoryIndex, 1);
+            } else {
+                filters.categories.push(value);
+            }
+            break;
+            
+        case 'platform':
+            const platformIndex = filters.platforms.indexOf(value);
+            if (platformIndex > -1) {
+                filters.platforms.splice(platformIndex, 1);
+            } else {
+                filters.platforms.push(value);
+            }
+            break;
+            
+        case 'tag':
+            const tagIndex = filters.tags.indexOf(value);
+            if (tagIndex > -1) {
+                filters.tags.splice(tagIndex, 1);
+            } else {
+                filters.tags.push(value);
+            }
+            break;
+    }
+    
+    // Clear cache and re-search
+    globalSearchEngine.searchCache.clear();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    
+    updateFilterDisplay();
+}
+
+function setDateRangeFilter(range) {
+    if (range === 'clear') {
+        globalSearchEngine.activeFilters.dateRange = null;
+    } else {
+        const dateRange = globalSearchEngine.parseDateRange(range);
+        if (dateRange) {
+            globalSearchEngine.activeFilters.dateRange = dateRange;
+        }
+    }
+    
+    // Clear cache and re-search
+    globalSearchEngine.searchCache.clear();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    
+    updateFilterDisplay();
+}
+
+function clearAllSearchFilters() {
+    globalSearchEngine.clearFilters();
+    const currentTerm = document.getElementById('globalSearchInput').value;
+    if (currentTerm) {
+        performGlobalSearch(currentTerm);
+    }
+    updateFilterDisplay();
+}
+
+function updateFilterDisplay() {
+    const filtersContainer = document.getElementById('searchFilters');
+    if (!filtersContainer) return;
+    
+    const filters = globalSearchEngine.activeFilters;
+    let filterHtml = '';
+    
+    // Date range filter
+    if (filters.dateRange) {
+        const startStr = filters.dateRange.start.toLocaleDateString('de-DE');
+        const endStr = filters.dateRange.end.toLocaleDateString('de-DE');
+        filterHtml += `<span class="search-filter-tag active" onclick="setDateRangeFilter('clear')">📅 ${startStr} - ${endStr} ✕</span>`;
+    }
+    
+    // Category filters
+    filters.categories.forEach(category => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('category', '${category}')">${category} ✕</span>`;
+    });
+    
+    // Platform filters
+    filters.platforms.forEach(platform => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('platform', '${platform}')">${platform} ✕</span>`;
+    });
+    
+    // Tag filters
+    filters.tags.forEach(tag => {
+        filterHtml += `<span class="search-filter-tag active" onclick="toggleSearchFilter('tag', '${tag}')">#${tag} ✕</span>`;
+    });
+    
+    // Clear all button
+    if (filterHtml) {
+        filterHtml += `<span class="search-filter-tag" onclick="clearAllSearchFilters()" style="background: var(--danger);">Alle löschen</span>`;
+    }
+    
+    filtersContainer.innerHTML = filterHtml;
+    filtersContainer.style.display = filterHtml ? 'flex' : 'none';
+}
+
+// Export search results
+function exportSearchResults() {
+    if (globalSearchResults.length === 0) {
+        showNotification('Keine Suchergebnisse zum Exportieren vorhanden.', 'warning');
+        return;
+    }
+    
+    const searchTerm = document.getElementById('globalSearchInput').value;
+    const timestamp = new Date().toISOString();
+    
+    const exportData = {
+        searchTerm,
+        timestamp,
+        filters: globalSearchEngine.activeFilters,
+        results: globalSearchResults.map(result => ({
+            title: result.title,
+            subtitle: result.subtitle,
+            category: result.category,
+            relevance: result.relevance,
+            type: result.type
+        }))
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `search-results-${searchTerm || 'all'}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showNotification('Suchergebnisse exportiert!', 'success');
+}
+
+function executeSearchResult(item) {
+    if (item && typeof item.action === 'function') {
+        try {
+            item.action();
+        } catch (e) {
+            console.error("Error executing search action:", e);
+        } finally {
+            closeGlobalSearch();
+        }
     }
 }
