@@ -3858,11 +3858,13 @@ async function fetchMarketData(ticker, from, to) {
 
         const lines = csvText.split(/\r\n|\n/);
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        const dateColIndex = headers.indexOf('date') !== -1 ? headers.indexOf('date') : headers.indexOf('datum');
-        const closeColIndex = headers.indexOf('close') !== -1 ? headers.indexOf('close') : headers.indexOf('schluss');
+        
+        // Flexiblere Spaltenerkennung, die auf Schlüsselwörtern basiert
+        const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
+        const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
         if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}`);
+            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}. Headers found:`, headers);
             return useStaticFallback(ticker);
         }
 
