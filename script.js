@@ -2300,6 +2300,29 @@ async function clearAllData() {
     }
 }
 
+async function makeDateEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry) return;
+
+    const result = await showCustomPrompt({
+        title: 'Datum ändern',
+        text: `Wähle ein neues Datum für den Eintrag vom ${formatDate(entry.date)}.`,
+        showDateInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
+    });
+
+    if (result === 'change') {
+        const dateValue = document.getElementById('bottomSheet_date_input').value;
+        if (dateValue) {
+            entry.date = dateValue;
+            saveData();
+            applyDateFilter();
+            showNotification('Datum geändert.');
+        }
+    }
+}
+
 function makeNoteEditable(cell, entryId, type) {
     const dataArray = type === 'entry' ? entries : cashflows;
     const entry = dataArray.find(e => e.id == entryId);
@@ -2321,8 +2344,7 @@ function makeNoteEditable(cell, entryId, type) {
     const save = () => {
         entry.note = input.value;
         saveData();
-        cell.innerHTML = entry.note || `<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>`;
-        cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        applyDateFilter(); // Re-render the entire view for consistency
         showNotification('Notiz aktualisiert!');
     };
     
@@ -2659,8 +2681,9 @@ function updateHistory() {
             listView.style.display = 'none';
             mobileCards.style.display = 'none';
             groupedView.style.display = 'block';
-            searchInput.style.visibility = 'hidden';
-            renderGroupedHistory();
+            searchInput.style.visibility = 'visible';
+            searchInput.placeholder = "Gruppe suchen...";
+            renderGroupedHistory(searchTerm);
             return;
         }
         dataToDisplay = filteredEntries.filter(e => 
@@ -2672,7 +2695,8 @@ function updateHistory() {
 
     listView.style.display = 'block';
     groupedView.style.display = 'none';
-    searchInput.style.visibility = 'visible';
+    searchInput.placeholder = "In Liste suchen...";
+    searchInput.style.visibility = 'visible'; // Sicherstellen, dass es sichtbar ist
     if (window.innerWidth <= 768) mobileCards.style.display = 'block';
 
     // Augment data with strategy for correct sorting
@@ -2731,7 +2755,7 @@ function updateHistory() {
     updateBulkActionsBar();
 }
 
-function renderGroupedHistory() {
+function renderGroupedHistory(searchTerm = '') {
     const container = document.getElementById('historyGroupedView');
     container.innerHTML = '';
 
@@ -2743,10 +2767,17 @@ function renderGroupedHistory() {
         return acc;
     }, {});
 
-    const platformKeys = Object.keys(groupedByPlatform).sort();
+    let platformKeys = Object.keys(groupedByPlatform).sort();
+
+    if (searchTerm) {
+        platformKeys = platformKeys.filter(key => key.toLowerCase().includes(searchTerm));
+    }
 
     if (platformKeys.length === 0) {
-        container.innerHTML = `<div class="empty-state">Keine Einträge im ausgewählten Zeitraum.</div>`;
+        const emptyMessage = searchTerm
+            ? `Keine Gruppen für "${searchTerm}" gefunden.`
+            : "Keine Einträge im ausgewählten Zeitraum.";
+        container.innerHTML = `<div class="empty-state">${emptyMessage}</div>`;
         return;
     }
 
@@ -2775,28 +2806,39 @@ function renderGroupedHistory() {
                     return `
                     <div class="history-card" style="margin-bottom: 8px; padding: 12px;">
                         <div class="history-card-header" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
-                            <div class="history-card-date">${formatDate(entry.date)}</div>
-                            <div class="history-card-balance dollar-value" style="font-size: 1.1em;">
+                            <div class="history-card-date editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</div>
+                            <div class="history-card-balance dollar-value editable" style="font-size: 1.1em;" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">
                                 ${formatDollar(entry.balance)}
                             </div>
                         </div>
                         ${strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;"><strong>Strategie:</strong> ${strategy}</div>` : ''}
-                        ${entry.note ? `<div class="history-card-note" style="border-top: none; padding-top: 0; margin-top: 0;">${entry.note}</div>` : ''}
+                        <div class="history-card-details" style="border-top: none; padding-top: 0; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="history-card-note editable" style="flex-grow: 1;" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
+                                ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}
+                            </div>
+                            <div class="history-card-actions">
+                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
                     </div>`;
                 }).join('')}
             </div>`;
         } else {
-            html += `<div class="data-table-wrapper" style="max-height: 300px;">
-                        <table class="data-table">
-                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th></tr></thead>
+            html += `<div class="data-table-wrapper" style="max-height: 400px;">
+                        <table class="data-table" style="table-layout: auto;">
+                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th><th>Aktion</th></tr></thead>
                             <tbody>
                                 ${entries.map(entry => `
                                     <tr>
-                                        <td>${formatDate(entry.date)}</td>
-                                        <td class="dollar-value">${formatDollar(entry.balance)}</td>
+                                        <td class="editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</td>
+                                        <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
                                         <td>${getStrategyForDate(entry.date) || '-'}</td>
-                                        <td>${entry.note || '-'}</td>
-                                    </tr>`).join('')}
+                                        <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">🗑️</button></td>
+                                    </tr>
+                                `).join('')}
                             </tbody>
                         </table>
                     </div>`;
