@@ -457,6 +457,9 @@
                         <tbody id="historyTableBody"></tbody>
                     </table>
                 </div>
+                <div id="historyMobileCards" class="mobile-cards">
+                    <!-- Mobile card layout wird hier von JavaScript eingefügt -->
+                </div>
                 <div id="historyBulkActions" class="bulk-actions-bar">
                     <span id="bulkSelectedCount">0 Einträge ausgewählt</span>
                     <div class="bulk-actions-buttons">
@@ -688,7 +691,7 @@
         const appContainer = document.getElementById('appContainer');
         let touchStartX = 0;
         let touchEndX = 0;
-        const swipeThreshold = 75; // Mindestdistanz für einen Swipe in Pixel
+        const swipeThreshold = 40; // Einfacheres Swipen - reduzierte Mindestdistanz
 
         let touchMoveX = 0;
         let isSwipeActive = false;
@@ -733,7 +736,7 @@
             const deltaX = touchMoveX - touchStartX;
             
             // Start visual feedback wenn Swipe stark genug ist
-            if (Math.abs(deltaX) > 30 && !isSwipeActive) {
+            if (Math.abs(deltaX) > 20 && !isSwipeActive) {
                 isSwipeActive = true;
                 const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
                 const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));

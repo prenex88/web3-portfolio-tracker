@@ -2682,8 +2682,73 @@ function updateHistory() {
         `;
         tbody.appendChild(row);
     });
+    
+    // Render mobile cards
+    renderHistoryMobileCards(augmentedData);
+    
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderHistoryMobileCards(entries) {
+    const mobileCardsContainer = document.getElementById('historyMobileCards');
+    if (!mobileCardsContainer) return;
+    
+    mobileCardsContainer.innerHTML = '';
+    
+    if (entries.length === 0) {
+        mobileCardsContainer.innerHTML = `<div class="empty-state">Keine Einträge gefunden</div>`;
+        return;
+    }
+    
+    entries.forEach((entry, index) => {
+        const card = document.createElement('div');
+        card.className = 'history-card';
+        card.dataset.id = entry.id;
+        card.dataset.index = index;
+        
+        if (selectedHistoryEntries.has(entry.id)) {
+            card.classList.add('multi-selected-row');
+        }
+        
+        card.onclick = (e) => {
+            if (e.target.type !== 'checkbox' && !e.target.closest('.history-card-actions')) {
+                handleHistoryRowClick(e, card, entry.id, index);
+            }
+        };
+        
+        const balanceColor = entry.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+        
+        card.innerHTML = `
+            <input type="checkbox" class="history-card-checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''} 
+                   onclick="event.stopPropagation(); toggleHistorySelection(${entry.id}, this.checked)">
+            
+            <div class="history-card-header">
+                <div>
+                    <div class="history-card-platform">${entry.protocol}</div>
+                    <div class="history-card-date">${formatDate(entry.date)}</div>
+                </div>
+                <div class="history-card-balance" style="color: ${balanceColor}">
+                    ${formatDollar(entry.balance)}
+                </div>
+            </div>
+            
+            ${entry.strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Strategie:</strong> ${entry.strategy}</div>` : ''}
+            
+            <div class="history-card-details">
+                <div class="history-card-note" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
+                    ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz hinzufügen...</span>'}
+                </div>
+                <div class="history-card-actions">
+                    <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        mobileCardsContainer.appendChild(card);
+    });
 }
 
 async function deleteSingleEntryWithConfirmation(entryId) {
@@ -2808,19 +2873,36 @@ function isSelected(entryId) {
 }
 
 function toggleHistorySelection(entryId, shouldBeSelected) {
+    // Update table row
     const row = document.querySelector(`#historyTableBody tr[data-id='${entryId}']`);
-    if (!row) return;
-
-    const checkbox = row.querySelector('input[type="checkbox"]');
-    if (shouldBeSelected) {
-        selectedHistoryEntries.add(entryId);
-        row.classList.add('multi-selected-row');
-        checkbox.checked = true;
-    } else {
-        selectedHistoryEntries.delete(entryId);
-        row.classList.remove('multi-selected-row');
-        checkbox.checked = false;
+    if (row) {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if (shouldBeSelected) {
+            selectedHistoryEntries.add(entryId);
+            row.classList.add('multi-selected-row');
+            checkbox.checked = true;
+        } else {
+            selectedHistoryEntries.delete(entryId);
+            row.classList.remove('multi-selected-row');
+            checkbox.checked = false;
+        }
     }
+    
+    // Update mobile card
+    const card = document.querySelector(`.history-card[data-id='${entryId}']`);
+    if (card) {
+        const cardCheckbox = card.querySelector('input[type="checkbox"]');
+        if (shouldBeSelected) {
+            selectedHistoryEntries.add(entryId);
+            card.classList.add('multi-selected-row');
+            cardCheckbox.checked = true;
+        } else {
+            selectedHistoryEntries.delete(entryId);
+            card.classList.remove('multi-selected-row');
+            cardCheckbox.checked = false;
+        }
+    }
+    
     updateSelectAllCheckbox();
     updateBulkActionsBar();
 }
@@ -2838,16 +2920,28 @@ function toggleSelectAllHistory(e) {
 
 function updateSelectAllCheckbox() {
     const selectAllCheckbox = document.getElementById('selectAllHistory');
+    if (!selectAllCheckbox) return;
+    
+    // Check both table rows and mobile cards
     const allVisibleRows = document.querySelectorAll('#historyTableBody tr[data-id]');
-    if (allVisibleRows.length > 0 && Array.from(allVisibleRows).every(row => selectedHistoryEntries.has(parseFloat(row.dataset.id)))) {
-        selectAllCheckbox.checked = true;
-        selectAllCheckbox.indeterminate = false;
-    } else if (selectedHistoryEntries.size > 0) {
-        selectAllCheckbox.checked = false;
-        selectAllCheckbox.indeterminate = true;
-    } else {
-        selectAllCheckbox.checked = false;
-        selectAllCheckbox.indeterminate = false;
+    const allVisibleCards = document.querySelectorAll('.history-card[data-id]');
+    const totalVisibleItems = allVisibleRows.length + allVisibleCards.length;
+    
+    if (totalVisibleItems > 0) {
+        const allSelected = [...allVisibleRows, ...allVisibleCards].every(item => 
+            selectedHistoryEntries.has(parseFloat(item.dataset.id))
+        );
+        
+        if (allSelected) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else if (selectedHistoryEntries.size > 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
     }
 }
 // =================================================================================
