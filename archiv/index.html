@@ -690,6 +690,9 @@
         let touchEndX = 0;
         const swipeThreshold = 75; // Mindestdistanz für einen Swipe in Pixel
 
+        let touchMoveX = 0;
+        let isSwipeActive = false;
+        
         appContainer.addEventListener('touchstart', (event) => {
             // Ignoriere Swipes auf interaktiven oder scrollbaren Elementen
             const path = event.composedPath();
@@ -720,14 +723,51 @@
             }
             
             touchStartX = event.changedTouches[0].screenX;
+            isSwipeActive = false;
+        }, { passive: true });
+        
+        appContainer.addEventListener('touchmove', (event) => {
+            if (touchStartX === 0) return;
+            
+            touchMoveX = event.changedTouches[0].screenX;
+            const deltaX = touchMoveX - touchStartX;
+            
+            // Start visual feedback wenn Swipe stark genug ist
+            if (Math.abs(deltaX) > 30 && !isSwipeActive) {
+                isSwipeActive = true;
+                const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
+                const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));
+                
+                // Zeige Preview des nächsten Tabs
+                if (deltaX < 0 && currentTabIndex < tabButtons.length - 1) {
+                    // Nach links = nächster Tab
+                    tabButtons[currentTabIndex + 1].style.opacity = '0.7';
+                    tabButtons[currentTabIndex + 1].style.transform = 'scale(1.02)';
+                } else if (deltaX > 0 && currentTabIndex > 0) {
+                    // Nach rechts = vorheriger Tab
+                    tabButtons[currentTabIndex - 1].style.opacity = '0.7';
+                    tabButtons[currentTabIndex - 1].style.transform = 'scale(1.02)';
+                }
+            }
         }, { passive: true });
 
         appContainer.addEventListener('touchend', (event) => {
             if (touchStartX === 0) return; // Swipe wurde auf einem interaktiven Element gestartet
 
             touchEndX = event.changedTouches[0].screenX;
+            
+            // Reset visual feedback
+            const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
+            tabButtons.forEach(btn => {
+                if (!btn.classList.contains('active')) {
+                    btn.style.opacity = '';
+                    btn.style.transform = '';
+                }
+            });
+            
             handleTabSwipe();
             touchStartX = 0; // Zurücksetzen
+            isSwipeActive = false;
         });
 
         function handleTabSwipe() {

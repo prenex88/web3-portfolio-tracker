@@ -272,7 +272,7 @@ body.has-sync-bar .tab-navigation {
     border: 2px solid transparent;
     border-radius: 10px;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.2s ease;
     white-space: nowrap;
     font-weight: 600;
     position: relative;
