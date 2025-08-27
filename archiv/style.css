@@ -2521,23 +2521,79 @@ body.dark-mode .search-quick-filters .btn {
         padding: 4px 8px;
     }
     
-    /* History table responsive optimizations */
-    #history .data-table th:nth-child(2) { width: 90px; } /* Datum smaller */
-    #history .data-table th:nth-child(5) { width: 12%; max-width: 150px; } /* Strategie even smaller */
-    #history .data-table th:nth-child(6) { width: 20%; } /* Notiz smaller */
-    
-    #history .data-table td:nth-child(5) {
-        max-width: 150px;
-        font-size: 12px;
+    /* Mobile table optimizations */
+    .data-table {
+        font-size: 13px;
     }
     
-    /* Hide strategy column on very small screens */
+    .data-table th, .data-table td {
+        padding: 10px 8px;
+    }
+    
+    /* History table mobile layout */
+    #history .data-table th:nth-child(1) { width: 40px; } /* Checkbox smaller */
+    #history .data-table th:nth-child(2) { width: 80px; } /* Datum smaller */
+    #history .data-table th:nth-child(3) { width: 25%; } /* Plattform */
+    #history .data-table th:nth-child(4) { width: 100px; } /* Balance */
+    #history .data-table th:nth-child(5) { display: none; } /* Hide Strategie on mobile */
+    #history .data-table th:nth-child(6) { width: 30%; } /* Notiz more space */
+    #history .data-table th:nth-child(7) { width: 80px; } /* Aktionen smaller */
+    
+    #history .data-table td:nth-child(5) { display: none; } /* Hide Strategie content */
+    
+    /* Platform table mobile layout */
+    #platforms .data-table th:nth-child(3), 
+    #platforms .data-table td:nth-child(3),
+    #platforms .data-table th:nth-child(4), 
+    #platforms .data-table td:nth-child(4) { display: none; } /* Hide first/last entry dates */
+    
+    #platforms .data-table th:nth-child(1) { width: 35%; } /* Plattform */
+    #platforms .data-table th:nth-child(2) { width: 20%; } /* Einträge */
+    #platforms .data-table th:nth-child(5) { width: 25%; } /* Avg Balance */
+    #platforms .data-table th:nth-child(6) { width: 20%; } /* Total Return */
+    
+    /* Very small screens - hide even more */
     @media (max-width: 480px) {
-        #history .data-table th:nth-child(5),
-        #history .data-table td:nth-child(5) {
-            display: none;
+        #history .data-table th:nth-child(6),
+        #history .data-table td:nth-child(6) { display: none; } /* Hide notes on very small screens */
+        
+        #history .data-table th:nth-child(3) { width: 40%; } /* More space for platform */
+        #history .data-table th:nth-child(4) { width: 35%; } /* More space for balance */
+        
+        /* Platforms - hide avg balance on very small screens */
+        #platforms .data-table th:nth-child(5), 
+        #platforms .data-table td:nth-child(5) { display: none; }
+        
+        #platforms .data-table th:nth-child(1) { width: 50%; }
+        #platforms .data-table th:nth-child(2) { width: 25%; }
+        #platforms .data-table th:nth-child(6) { width: 25%; }
+    }
+    
+    /* Ultra small screens - card-like layout */
+    @media (max-width: 380px) {
+        .data-table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
-        #history .data-table th:nth-child(6) { width: 35%; } /* Give more space to notes */
+        .data-table {
+            min-width: 600px; /* Force horizontal scroll on tiny screens */
+        }
+        
+        /* Show scrollbar hint */
+        .data-table-wrapper::after {
+            content: "← Zum Scrollen wischen →";
+            display: block;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 8px;
+            background: var(--light);
+            border-radius: 0 0 8px 8px;
+        }
+        
+        body.dark-mode .data-table-wrapper::after {
+            background: rgba(31, 41, 55, 0.5);
+        }
     }
 }

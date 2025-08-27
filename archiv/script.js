@@ -1151,15 +1151,20 @@ function showSwipeIndicator(tabName) {
 // =================================================================================
 function setupQuickActions() {
     if (window.innerWidth <= 768) {
-        setTimeout(() => {
-            document.getElementById('quickActionsBar').classList.add('visible');
-            quickActionsVisible = true;
-        }, 2000);
+        const quickActionsBar = document.getElementById('quickActionsBar');
+        if (quickActionsBar) {
+            setTimeout(() => {
+                quickActionsBar.classList.add('visible');
+                quickActionsVisible = true;
+            }, 2000);
+        }
     }
 }
 
 function toggleQuickActions() {
     const bar = document.getElementById('quickActionsBar');
+    if (!bar) return;
+    
     quickActionsVisible = !quickActionsVisible;
     bar.classList.toggle('visible', quickActionsVisible);
 }
@@ -1779,10 +1784,13 @@ function switchTab(tabName, options = {}) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     const quickActionsBar = document.getElementById('quickActionsBar');
-    if (window.innerWidth <= 768) {
+    if (quickActionsBar && window.innerWidth <= 768) {
         if (['entry', 'cashflow'].includes(tabName)) {
             quickActionsBar.classList.add('visible');
             quickActionsVisible = true;
+        } else {
+            quickActionsBar.classList.remove('visible');
+            quickActionsVisible = false;
         }
     }
     
