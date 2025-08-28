@@ -499,6 +499,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker();
+    initializeMobileNavigation();
 
     addMissingStyles();
 
@@ -5838,6 +5839,38 @@ function executeSearchResult(item) {
             console.error("Error executing search action:", e);
         } finally {
             closeGlobalSearch();
+        }
+    }
+}
+// Initialize Mobile Navigation
+function initializeMobileNavigation() {
+    if (window.innerWidth <= 768) {
+        document.body.classList.add("has-mobile-nav");
+        
+        // Sync mobile nav with current active tab
+        const activeTab = document.querySelector(".tab-btn.active");
+        if (activeTab && activeTab.dataset.tab) {
+            const mobileNavItem = document.querySelector(`.mobile-nav-item[data-tab="${activeTab.dataset.tab}"]`);
+            if (mobileNavItem) {
+                document.querySelectorAll(".mobile-nav-item").forEach(btn => btn.classList.remove("active"));
+                mobileNavItem.classList.add("active");
+            }
+        }
+        
+        // Update badges
+        updateMobileNavBadges();
+    }
+}
+
+// Update Mobile Navigation Badges
+function updateMobileNavBadges() {
+    const mobileNavEntry = document.querySelector(".mobile-nav-item[data-tab=\"entry\"]");
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split("T")[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute("data-badge", todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute("data-badge");
         }
     }
 }
