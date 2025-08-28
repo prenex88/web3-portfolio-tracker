@@ -499,6 +499,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker();
+    initializeMobileNavigation();
 
     addMissingStyles();
 
@@ -1116,8 +1117,6 @@ function setupTouchGestures() {
         }
         isPulling = false;
         pullDistance = 0;
-
-        handleSwipeGesture(touchStartX, touchEndX, touchStartY, touchEndY);
     }, { passive: true });
 
     let longPressTimer;
@@ -1130,36 +1129,6 @@ function setupTouchGestures() {
 
     document.addEventListener('touchend', () => clearTimeout(longPressTimer));
     document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
-}
-
-function handleSwipeGesture(startX, endX, startY, endY) {
-    const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
-
-    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
-        const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
-        const currentIndex = tabs.indexOf(currentTab);
-        if (navigator.vibrate) navigator.vibrate(30);
-
-        if (diffX > 0 && currentIndex > 0) {
-            const newTab = tabs[currentIndex - 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        } else if (diffX < 0 && currentIndex < tabs.length - 1) {
-            const newTab = tabs[currentIndex + 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        }
-    }
-}
-
-function showSwipeIndicator(tabName) {
-    const indicator = document.getElementById('swipeIndicator');
-    const swipeText = document.getElementById('swipeText');
-    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'history': '📜 Historie' };
-
-    swipeText.textContent = tabNames[tabName];
-    indicator.classList.add('show');
-    setTimeout(() => indicator.classList.remove('show'), 1500);
 }
 
 // =================================================================================
@@ -1798,6 +1767,30 @@ function switchTab(tabName, options = {}) {
     currentTab = tabName;
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Mobile Bottom Nav aktiven Tab aktualisieren
+    if (window.innerWidth <= 768) {
+        document.querySelectorAll('.mobile-nav-item').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.tab === tabName) {
+                btn.classList.add('active');
+            }
+        });
+        
+        // Body-Klasse für Padding hinzufügen
+        document.body.classList.add('has-mobile-nav');
+    }
+
+    // Badge-Update für Mobile Nav
+    const mobileNavEntry = document.querySelector('.mobile-nav-item[data-tab="entry"]');
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split('T')[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute('data-badge', todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute('data-badge');
+        }
+    }
     
     const quickActionsBar = document.getElementById('quickActionsBar');
     if (quickActionsBar && window.innerWidth <= 768) {
@@ -5814,6 +5807,38 @@ function executeSearchResult(item) {
             console.error("Error executing search action:", e);
         } finally {
             closeGlobalSearch();
+        }
+    }
+}
+// Initialize Mobile Navigation
+function initializeMobileNavigation() {
+    if (window.innerWidth <= 768) {
+        document.body.classList.add("has-mobile-nav");
+        
+        // Sync mobile nav with current active tab
+        const activeTab = document.querySelector(".tab-btn.active");
+        if (activeTab && activeTab.dataset.tab) {
+            const mobileNavItem = document.querySelector(`.mobile-nav-item[data-tab="${activeTab.dataset.tab}"]`);
+            if (mobileNavItem) {
+                document.querySelectorAll(".mobile-nav-item").forEach(btn => btn.classList.remove("active"));
+                mobileNavItem.classList.add("active");
+            }
+        }
+        
+        // Update badges
+        updateMobileNavBadges();
+    }
+}
+
+// Update Mobile Navigation Badges
+function updateMobileNavBadges() {
+    const mobileNavEntry = document.querySelector(".mobile-nav-item[data-tab=\"entry\"]");
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split("T")[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute("data-badge", todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute("data-badge");
         }
     }
 }

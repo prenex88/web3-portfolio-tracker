@@ -693,119 +693,30 @@
         </div>
     </div>
 
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+        <button class="mobile-nav-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="mobile-nav-item" onclick="switchTab('entry')" data-tab="entry">
+            <span class="nav-icon">📝</span>
+            <span class="nav-label">Eintrag</span>
+        </button>
+        <button class="mobile-nav-item" onclick="switchTab('cashflow')" data-tab="cashflow">
+            <span class="nav-icon">💸</span>
+            <span class="nav-label">Cashflow</span>
+        </button>
+        <button class="mobile-nav-item" onclick="switchTab('history')" data-tab="history">
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">Historie</span>
+        </button>
+    </nav>
+
     <script src="script.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // --- Swipe-Logik für Tabs ---
-        const appContainer = document.getElementById('appContainer');
-        let touchStartX = 0;
-        let touchEndX = 0;
-        const swipeThreshold = 75; // Mindestdistanz für einen Swipe in Pixel
-
-        let touchMoveX = 0;
-        let isSwipeActive = false;
-        
-        appContainer.addEventListener('touchstart', (event) => {
-            // Ignoriere Swipes auf interaktiven oder scrollbaren Elementen
-            const path = event.composedPath();
-            const isInteractive = path.some(el => {
-                if (!el.tagName) return false;
-                const style = getComputedStyle(el);
-                return (
-                    (el.scrollHeight > el.clientHeight && ['auto', 'scroll'].includes(style.overflowY)) ||
-                    (el.scrollWidth > el.clientWidth && ['auto', 'scroll'].includes(style.overflowX)) ||
-                    ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'CANVAS'].includes(el.tagName) ||
-                    el.isContentEditable ||
-                    el.closest('.chart-controls') ||
-                    el.closest('.data-table-wrapper') ||
-                    el.closest('.bottom-sheet-content') ||
-                    el.closest('.platform-btn') ||
-                    el.closest('.input-field') ||
-                    el.closest('.note-input') ||
-                    el.closest('.global-search-overlay') ||
-                    el.closest('.search-suggestions') ||
-                    el.closest('.search-filters') ||
-                    el.closest('.search-quick-filters')
-                );
-            });
-
-            if (isInteractive) {
-                touchStartX = 0; // Verhindert, dass touchend einen Swipe auslöst
-                return;
-            }
-            
-            touchStartX = event.changedTouches[0].screenX;
-            isSwipeActive = false;
-        }, { passive: true });
-        
-        appContainer.addEventListener('touchmove', (event) => {
-            if (touchStartX === 0) return;
-            
-            touchMoveX = event.changedTouches[0].screenX;
-            const deltaX = touchMoveX - touchStartX;
-            
-            // Start visual feedback wenn Swipe stark genug ist
-            if (Math.abs(deltaX) > 30 && !isSwipeActive) {
-                isSwipeActive = true;
-                const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
-                const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));
-                
-                // Zeige Preview des nächsten Tabs
-                if (deltaX < 0 && currentTabIndex < tabButtons.length - 1) {
-                    // Nach links = nächster Tab
-                    tabButtons[currentTabIndex + 1].style.opacity = '0.7';
-                    tabButtons[currentTabIndex + 1].style.transform = 'scale(1.02)';
-                } else if (deltaX > 0 && currentTabIndex > 0) {
-                    // Nach rechts = vorheriger Tab
-                    tabButtons[currentTabIndex - 1].style.opacity = '0.7';
-                    tabButtons[currentTabIndex - 1].style.transform = 'scale(1.02)';
-                }
-            }
-        }, { passive: true });
-
-        appContainer.addEventListener('touchend', (event) => {
-            if (touchStartX === 0) return; // Swipe wurde auf einem interaktiven Element gestartet
-
-            touchEndX = event.changedTouches[0].screenX;
-            
-            // Reset visual feedback
-            const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
-            tabButtons.forEach(btn => {
-                if (!btn.classList.contains('active')) {
-                    btn.style.opacity = '';
-                    btn.style.transform = '';
-                }
-            });
-            
-            handleTabSwipe();
-            touchStartX = 0; // Zurücksetzen
-            isSwipeActive = false;
-        });
-
-        function handleTabSwipe() {
-            const deltaX = touchEndX - touchStartX;
-
-            if (Math.abs(deltaX) > swipeThreshold) {
-                // `switchTab` ist eine Funktion, die bereits in deiner script.js existieren sollte
-                if (typeof switchTab !== 'function') {
-                    console.error('Swipe-Funktion: switchTab() wurde nicht gefunden.');
-                    return;
-                }
-
-                const tabButtons = Array.from(document.querySelectorAll('.tab-navigation .tab-btn'));
-                const currentTabIndex = tabButtons.findIndex(btn => btn.classList.contains('active'));
-                
-                if (deltaX < 0) { // Nach links wischen (nächster Tab)
-                    const nextTabIndex = (currentTabIndex + 1) % tabButtons.length;
-                    switchTab(tabButtons[nextTabIndex].dataset.tab);
-                } else { // Nach rechts wischen (vorheriger Tab)
-                    const prevTabIndex = (currentTabIndex - 1 + tabButtons.length) % tabButtons.length;
-                    switchTab(tabButtons[prevTabIndex].dataset.tab);
-                }
-            }
-        }
-
-        // --- Swipe-Logik zum Schließen des Bottom Sheet ---
+        // --- Bottom Sheet Swipe-Logik ---
         const bottomSheetOverlay = document.getElementById('bottomSheet');
         const bottomSheetContent = bottomSheetOverlay.querySelector('.bottom-sheet-content');
         const bottomSheetHeader = bottomSheetOverlay.querySelector('.bottom-sheet-header');
