@@ -452,6 +452,7 @@ let db;
 let cashflowViewMode = 'list';
 let biometricEnabled = false;
 let quickActionsVisible = false;
+let historyViewMode = 'list';
 let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
@@ -492,6 +493,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupBottomSheet();
     setupKeyboardShortcuts();
     setupTouchGestures();
+    setupMobileTitle();
     setupAutocomplete();
     setupQuickActions();
     updateCashflowTargets();
@@ -986,6 +988,20 @@ function addEventListeners() {
     });
 }
 
+function setupMobileTitle() {
+    // Change title on mobile devices
+    function updateTitle() {
+        const headerTitle = document.querySelector('.header-content h1');
+        if (headerTitle && window.innerWidth <= 768) {
+            headerTitle.innerHTML = '🚀 Web3 Portfolio';
+        }
+    }
+    
+    // Run on load and resize
+    updateTitle();
+    window.addEventListener('resize', updateTitle);
+}
+
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -997,7 +1013,7 @@ function setupKeyboardShortcuts() {
 
         if (e.altKey && e.key >= '1' && e.key <= '6') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'platforms', '5': 'history', '6': 'settings' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'history' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -1017,7 +1033,7 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             if (currentTab === 'dashboard') {
                 exportChart('portfolioChartContainer');
-            } else if (currentTab === 'platforms') {
+            } else if (currentTab === 'history') {
                 exportCSV();
             } else {
                 exportPDF();
@@ -1120,7 +1136,7 @@ function handleSwipeGesture(startX, endX, startY, endY) {
     const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
 
     if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
-        const tabs = ['dashboard', 'entry', 'cashflow', 'platforms', 'history', 'settings'];
+        const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
         const currentIndex = tabs.indexOf(currentTab);
         if (navigator.vibrate) navigator.vibrate(30);
 
@@ -1139,7 +1155,7 @@ function handleSwipeGesture(startX, endX, startY, endY) {
 function showSwipeIndicator(tabName) {
     const indicator = document.getElementById('swipeIndicator');
     const swipeText = document.getElementById('swipeText');
-    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'platforms': '💼 Plattformen', 'history': '📜 Historie', 'settings': '⚙️ Einstellungen' };
+    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'history': '📜 Historie' };
 
     swipeText.textContent = tabNames[tabName];
     indicator.classList.add('show');
@@ -1783,6 +1799,30 @@ function switchTab(tabName, options = {}) {
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
+    // Mobile Bottom Nav aktiven Tab aktualisieren
+    if (window.innerWidth <= 768) {
+        document.querySelectorAll('.mobile-nav-item').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.tab === tabName) {
+                btn.classList.add('active');
+            }
+        });
+        
+        // Body-Klasse für Padding hinzufügen
+        document.body.classList.add('has-mobile-nav');
+    }
+
+    // Badge-Update für Mobile Nav
+    const mobileNavEntry = document.querySelector('.mobile-nav-item[data-tab="entry"]');
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split('T')[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute('data-badge', todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute('data-badge');
+        }
+    }
+    
     const quickActionsBar = document.getElementById('quickActionsBar');
     if (quickActionsBar && window.innerWidth <= 768) {
         if (['entry', 'cashflow'].includes(tabName)) {
@@ -1793,15 +1833,15 @@ function switchTab(tabName, options = {}) {
             quickActionsVisible = false;
         }
     }
-    
-    if (tabName === 'platforms') updatePlatformDetails();
+
+    if (tabName === 'history') updateHistory();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
         updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'history') {
         updateHistory();
-    }
+    } else if (tabName === 'platforms') updatePlatformDetails();
 }
 
 // =================================================================================
@@ -2284,6 +2324,29 @@ async function clearAllData() {
     }
 }
 
+async function makeDateEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry) return;
+
+    const result = await showCustomPrompt({
+        title: 'Datum ändern',
+        text: `Wähle ein neues Datum für den Eintrag vom ${formatDate(entry.date)}.`,
+        showDateInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
+    });
+
+    if (result === 'change') {
+        const dateValue = document.getElementById('bottomSheet_date_input').value;
+        if (dateValue) {
+            entry.date = dateValue;
+            saveData();
+            applyDateFilter();
+            showNotification('Datum geändert.');
+        }
+    }
+}
+
 function makeNoteEditable(cell, entryId, type) {
     const dataArray = type === 'entry' ? entries : cashflows;
     const entry = dataArray.find(e => e.id == entryId);
@@ -2305,8 +2368,7 @@ function makeNoteEditable(cell, entryId, type) {
     const save = () => {
         entry.note = input.value;
         saveData();
-        cell.innerHTML = entry.note || `<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>`;
-        cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        applyDateFilter(); // Re-render the entire view for consistency
         showNotification('Notiz aktualisiert!');
     };
     
@@ -2613,12 +2675,24 @@ function updateKeyMetrics() {
 // =================================================================================
 // HISTORY TAB - BULK ACTIONS & DISPLAY
 // =================================================================================
+
+function setHistoryView(mode) {
+    historyViewMode = mode;
+    document.querySelectorAll('#history .view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`#history .view-switcher .view-btn[onclick="setHistoryView('${mode}')"]`).classList.add('active');
+    updateHistory();
+}
+
 function updateHistory() {
+    const listView = document.getElementById('historyListView');
+    const groupedView = document.getElementById('historyGroupedView');
+    const mobileCards = document.getElementById('historyMobileCards');
+    const searchInput = document.getElementById('historySearch');
+
     const tbody = document.getElementById('historyTableBody');
     const historySection = tbody.closest('.section');
     let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
     if (clearBtnContainer) clearBtnContainer.remove();
-
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
@@ -2627,12 +2701,27 @@ function updateHistory() {
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
         tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
     } else {
+        if (historyViewMode === 'grouped') {
+            listView.style.display = 'none';
+            mobileCards.style.display = 'none';
+            groupedView.style.display = 'block';
+            searchInput.style.visibility = 'visible';
+            searchInput.placeholder = "Gruppe suchen...";
+            renderGroupedHistory(searchTerm);
+            return;
+        }
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
             (e.note && e.note.toLowerCase().includes(searchTerm))
         );
     }
+
+    listView.style.display = 'block';
+    groupedView.style.display = 'none';
+    searchInput.placeholder = "In Liste suchen...";
+    searchInput.style.visibility = 'visible'; // Sicherstellen, dass es sichtbar ist
+    if (window.innerWidth <= 768) mobileCards.style.display = 'block';
 
     // Augment data with strategy for correct sorting
     const augmentedData = dataToDisplay.map(entry => ({
@@ -2688,6 +2777,101 @@ function updateHistory() {
     
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderGroupedHistory(searchTerm = '') {
+    const container = document.getElementById('historyGroupedView');
+    container.innerHTML = '';
+
+    const groupedByPlatform = filteredEntries.reduce((acc, entry) => {
+        if (!acc[entry.protocol]) {
+            acc[entry.protocol] = [];
+        }
+        acc[entry.protocol].push(entry);
+        return acc;
+    }, {});
+
+    let platformKeys = Object.keys(groupedByPlatform).sort();
+
+    if (searchTerm) {
+        platformKeys = platformKeys.filter(key => key.toLowerCase().includes(searchTerm));
+    }
+
+    if (platformKeys.length === 0) {
+        const emptyMessage = searchTerm
+            ? `Keine Gruppen für "${searchTerm}" gefunden.`
+            : "Keine Einträge im ausgewählten Zeitraum.";
+        container.innerHTML = `<div class="empty-state">${emptyMessage}</div>`;
+        return;
+    }
+
+    const isMobile = window.innerWidth <= 768;
+    let html = '<div class="cashflow-groups">'; // Re-use cashflow group styling
+    platformKeys.forEach(platformName => {
+        const entries = groupedByPlatform[platformName].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latestEntry = entries[0];
+        const latestValue = latestEntry ? latestEntry.balance : 0;
+
+        html += `
+            <details class="cashflow-group">
+                <summary class="cashflow-group-summary">
+                    <div class="group-title">${platformName}</div>
+                    <div class="group-stats">
+                        <span>Einträge: ${entries.length}</span>
+                        <span>Letzter Wert: <strong class="dollar-value">${formatDollar(latestValue)}</strong></span>
+                    </div>
+                </summary>
+                <div class="cashflow-group-details">`;
+
+        if (isMobile) {
+            html += `<div class="mobile-cards" style="padding: 0; max-height: 300px; overflow-y: auto;">
+                ${entries.map(entry => {
+                    const strategy = getStrategyForDate(entry.date) || '';
+                    return `
+                    <div class="history-card" style="margin-bottom: 8px; padding: 12px;">
+                        <div class="history-card-header" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+                            <div class="history-card-date editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</div>
+                            <div class="history-card-balance dollar-value editable" style="font-size: 1.1em;" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">
+                                ${formatDollar(entry.balance)}
+                            </div>
+                        </div>
+                        ${strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                        <div class="history-card-details" style="border-top: none; padding-top: 0; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="history-card-note editable" style="flex-grow: 1;" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
+                                ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}
+                            </div>
+                            <div class="history-card-actions">
+                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        } else {
+            html += `<div class="data-table-wrapper" style="max-height: 400px;">
+                        <table class="data-table" style="table-layout: auto;">
+                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th><th>Aktion</th></tr></thead>
+                            <tbody>
+                                ${entries.map(entry => `
+                                    <tr>
+                                        <td class="editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</td>
+                                        <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+                                        <td>${getStrategyForDate(entry.date) || '-'}</td>
+                                        <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">🗑️</button></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+        }
+        html += `</div>
+            </details>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 function renderHistoryMobileCards(entries) {
@@ -3843,11 +4027,13 @@ async function fetchMarketData(ticker, from, to) {
 
         const lines = csvText.split(/\r\n|\n/);
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        const dateColIndex = headers.indexOf('date') !== -1 ? headers.indexOf('date') : headers.indexOf('datum');
-        const closeColIndex = headers.indexOf('close') !== -1 ? headers.indexOf('close') : headers.indexOf('schluss');
+        
+        // Flexiblere Spaltenerkennung, die auf Schlüsselwörtern basiert
+        const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
+        const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
         if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}`);
+            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}. Headers found:`, headers);
             return useStaticFallback(ticker);
         }
 
@@ -4616,11 +4802,70 @@ function addMissingStyles() {
         .mobile-header-actions { display: none; }
 
         @media (max-width: 768px) {
-            .header-content h1 { font-size: 1.1em; }
-            .header-content .subtitle { display: none; }
-            .desktop-header-actions { display: none; }
-            .mobile-header-actions { display: block; position: relative; }
-            .more-actions-btn { padding: 6px 10px; }
+            /* Single horizontal line mobile header layout */
+            .header {
+                padding: 8px 16px;
+                min-height: auto;
+            }
+            
+            .header .container,
+            .header > div {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                width: 100% !important;
+                gap: 12px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .header-content {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                flex: 1 !important;
+                gap: 8px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .header-content h1 { 
+                font-size: 1em;
+                margin: 0 !important;
+                padding: 0 !important;
+                line-height: 1.2;
+                flex-shrink: 0;
+                white-space: nowrap;
+            }
+            
+            /* Mobile title styling */
+            .header-content h1 {
+                font-size: 1em !important;
+                font-weight: 600 !important;
+                color: var(--text-primary) !important;
+            }
+            
+            .header-content .subtitle { display: none !important; }
+            
+            .desktop-header-actions { display: none !important; }
+            
+            .mobile-header-actions { 
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+                position: relative;
+                flex-shrink: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .more-actions-btn { 
+                padding: 4px 8px !important;
+                min-width: auto !important;
+                font-size: 0.9em;
+            }
             .header-actions-dropdown {
                 display: none;
                 position: absolute;
@@ -4643,44 +4888,398 @@ function addMissingStyles() {
 
         .view-switcher {
             display: flex;
-            gap: 5px;
+            gap: 4px;
             background-color: var(--background-alt);
-            padding: 5px;
-            border-radius: 8px;
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border-light);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+            width: fit-content;
         }
         .view-switcher .view-btn {
             border: none;
             background: transparent;
             color: var(--text-secondary);
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 500;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            min-width: 70px;
+            text-align: center;
+        }
+        .view-switcher .view-btn:hover:not(.active) {
+            color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.1);
         }
         .view-switcher .view-btn.active {
             background-color: var(--card-bg);
             color: var(--primary);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            transform: translateY(-1px);
         }
-        .cashflow-groups { display: flex; flex-direction: column; gap: 12px; }
-        .cashflow-group { border: 1px solid var(--border); border-radius: 8px; }
-        .cashflow-group-summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer; list-style: none; }
+        .cashflow-groups { display: flex; flex-direction: column; gap: 16px; }
+        .cashflow-group { 
+            border: 1px solid var(--border); 
+            border-radius: 12px; 
+            background-color: var(--card-bg);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .cashflow-group:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .cashflow-group-summary { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 16px 20px; 
+            cursor: pointer; 
+            list-style: none;
+            background-color: transparent;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+        .cashflow-group-summary::after {
+            content: '▼';
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%) rotate(0deg);
+            transition: transform 0.2s ease;
+            color: var(--text-secondary);
+            font-size: 0.8em;
+        }
+        .cashflow-group[open] .cashflow-group-summary::after {
+            transform: translateY(-50%) rotate(180deg);
+        }
+        .cashflow-group-summary:hover {
+            background-color: var(--background-alt);
+        }
         .cashflow-group-summary::-webkit-details-marker { display: none; }
-        .group-title { font-weight: 600; font-size: 1.1em; color: var(--text-primary); }
-        .group-stats { display: flex; gap: 16px; font-size: 0.9em; }
-        .cashflow-group-details { padding: 0 16px 16px; border-top: 1px solid var(--border); }
-        .transaction-row { display: grid; grid-template-columns: 100px 100px 1fr 1fr auto auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+        .group-title { font-weight: 600; font-size: 1.15em; color: var(--text-primary); }
+        .group-stats { display: flex; gap: 20px; font-size: 0.9em; margin-right: 30px; }
+        .cashflow-group-details { 
+            padding: 0 20px 20px; 
+            border-top: 1px solid var(--border-light);
+            background-color: var(--background);
+        }
+        .transaction-row { 
+            display: grid; 
+            grid-template-columns: 100px 100px 1fr 1fr auto auto; 
+            align-items: center; 
+            gap: 16px; 
+            padding: 12px 0; 
+            border-bottom: 1px solid var(--border-light); 
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+            border-radius: 8px;
+            margin: 0 -8px;
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+        .transaction-row:hover {
+            background-color: var(--background-alt);
+        }
         .transaction-row:last-child { border-bottom: none; }
         .transaction-note { color: var(--text-secondary); font-style: italic; }
         .transaction-platform { font-weight: 500; }
+        .transaction-date { font-weight: 500; color: var(--text-secondary); }
+        .transaction-type { 
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 500;
+            text-align: center;
+        }
+        .transaction-type.type-deposit {
+            background-color: rgba(34, 197, 94, 0.1);
+            color: #059669;
+        }
+        .transaction-type.type-withdrawal {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
         @media (max-width: 768px) {
-            .cashflow-group-summary { flex-direction: column; align-items: flex-start; gap: 8px; }
-            .group-stats { flex-wrap: wrap; }
-            .transaction-row { grid-template-columns: 1fr 1fr; }
-            .transaction-date, .transaction-type { grid-column: 1 / 2; }
-            .transaction-platform, .transaction-note { grid-column: 2 / 3; }
-            .transaction-amount { grid-column: 1 / 2; font-size: 1.1em; font-weight: 600; }
-            .transaction-row button { grid-column: 2 / 3; justify-self: end; }
+            .view-switcher {
+                width: 100%;
+                justify-content: center;
+            }
+            .view-switcher .view-btn {
+                flex: 1;
+                min-width: auto;
+            }
+            .cashflow-group-summary { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 12px;
+                padding: 16px;
+            }
+            .cashflow-group-summary::after {
+                right: 16px;
+            }
+            .group-stats { 
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-right: 20px;
+            }
+            .cashflow-group-details {
+                padding: 0 16px 16px;
+            }
+            .transaction-row { 
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                padding: 12px 8px;
+                margin: 0;
+            }
+            .transaction-date {
+                grid-column: 1;
+                font-size: 0.9em;
+            }
+            .transaction-type {
+                grid-column: 2;
+                grid-row: 1;
+            }
+            .transaction-platform {
+                grid-column: 1;
+                font-size: 0.9em;
+                margin-top: 4px;
+            }
+            .transaction-note {
+                grid-column: 1;
+                font-size: 0.85em;
+                margin-top: 2px;
+            }
+            .transaction-amount { 
+                grid-column: 1;
+                font-size: 1.1em; 
+                font-weight: 600;
+                margin-top: 8px;
+            }
+            .transaction-row button { 
+                grid-column: 2;
+                grid-row: 2 / span 3;
+                align-self: center;
+                justify-self: end;
+            }
+            
+            /* Mobile Platform Grid Styling */
+            #favoritesGrid, #platformGrid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+                padding: 4px;
+            }
+            
+            .platform-btn {
+                padding: 12px 8px;
+                min-height: 90px;
+                border-radius: 8px;
+            }
+            
+            .platform-btn .icon {
+                font-size: 1.8em;
+                margin-bottom: 6px;
+            }
+            
+            .platform-btn .name {
+                font-size: 0.85em;
+                margin-bottom: 2px;
+            }
+            
+            .platform-btn .type {
+                font-size: 0.7em;
+            }
+            
+            .platform-btn .tags {
+                margin-top: 6px;
+                gap: 3px;
+            }
+            
+            .platform-btn .tag {
+                font-size: 0.6em;
+                padding: 1px 4px;
+            }
+            
+            /* Mobile History Card Styling */
+            .history-card {
+                padding: 12px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+            }
+            
+            .history-card-header {
+                margin-bottom: 8px;
+            }
+            
+            .history-card-platform {
+                font-size: 1em;
+            }
+            
+            .history-card-date {
+                font-size: 0.85em;
+            }
+            
+            .history-card-balance {
+                font-size: 1.1em;
+            }
+            
+            .history-card-note {
+                font-size: 0.85em;
+                margin-top: 6px;
+                padding-top: 6px;
+            }
+            
+            /* Hide settings and platforms tabs on mobile */
+            .tab-btn[onclick="switchTab('settings')"],
+            .tab-btn[data-tab="settings"],
+            .tab-btn[onclick="switchTab('platforms')"],
+            .tab-btn[data-tab="platforms"] {
+                display: none !important;
+            }
+        }
+        
+        /* Hide platforms tab content completely */
+        #platforms,
+        .tab-content#platforms,
+        [data-tab="platforms"],
+        .tab-btn[onclick*="platforms"] {
+            display: none !important;
+        }
+        
+        /* Platform Grid Styling */
+        #favoritesGrid, #platformGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            padding: 8px;
+        }
+        
+        .platform-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 12px;
+            background: var(--card-bg);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            min-height: 100px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .platform-btn:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        
+        .platform-btn.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05));
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+        }
+        
+        .platform-btn.has-balance {
+            border-color: #10b981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+        }
+        
+        .platform-btn.has-balance.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.1));
+        }
+        
+        .platform-btn .icon {
+            font-size: 2em;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .platform-btn .name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            font-size: 0.9em;
+            line-height: 1.2;
+        }
+        
+        .platform-btn .type {
+            color: var(--text-secondary);
+            font-size: 0.75em;
+            opacity: 0.8;
+        }
+        
+        .platform-btn .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 8px;
+            justify-content: center;
+        }
+        
+        .platform-btn .tag {
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.65em;
+            font-weight: 500;
+        }
+        
+        /* History Card Styling */
+        .history-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .history-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: var(--primary);
+        }
+        
+        .history-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        
+        .history-card-platform {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 1.1em;
+        }
+        
+        .history-card-date {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            margin-top: 2px;
+        }
+        
+        .history-card-balance {
+            font-size: 1.2em;
+            font-weight: 700;
+            text-align: right;
+        }
+        
+        .history-card-note {
+            color: var(--text-secondary);
+            font-style: italic;
+            font-size: 0.9em;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-light);
         }
 
     `;

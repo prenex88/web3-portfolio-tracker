@@ -2521,44 +2521,12 @@ body.dark-mode .search-quick-filters .btn {
         padding: 4px 8px;
     }
     
-    /* Mobile navigation - fixed position */
-    .tab-navigation {
-        position: fixed !important;
-        top: 0;
-        left: 10px;
-        right: 10px;
-        z-index: 1000;
-        margin-bottom: 0;
-        border-radius: 0 0 16px 16px;
-        box-shadow: var(--shadow);
-    }
-    
-    /* Add padding to container to account for fixed navigation */
-    .container {
-        padding-top: 80px;
-    }
-    
-    /* When sync bar is active */
-    body.has-sync-bar .tab-navigation {
-        top: 30px;
-    }
-    
-    body.has-sync-bar .container {
-        padding-top: 110px;
-    }
-    
-    /* Header adjustments for mobile */
-    .header {
-        position: relative;
-        z-index: 999;
-        background: var(--bg-gradient);
-        margin-bottom: 10px;
-    }
     
     /* Mobile table optimizations */
     .data-table {
         font-size: 13px;
     }
+}
     
     .data-table th, .data-table td {
         padding: 10px 8px;
@@ -2713,5 +2681,140 @@ body.dark-mode .search-quick-filters .btn {
         body.dark-mode .data-table-wrapper::after {
             background: rgba(31, 41, 55, 0.5);
         }
+    }
+}
+
+/* Mobile Bottom Navigation */
+@media (max-width: 768px) {
+    /* Verstecke die normale Tab-Navigation auf Mobile */
+    .tab-navigation {
+        display: none !important;
+    }
+    
+    /* Mobile Bottom Navigation */
+    .mobile-bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 400px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(25px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 25px 25px 25px 25px;
+        display: flex;
+        justify-content: space-around;
+        padding: 12px 8px;
+        margin-bottom: 20px;
+        z-index: 999;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .dark-mode .mobile-bottom-nav {
+        background: rgba(31, 41, 55, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .mobile-nav-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 8px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        text-decoration: none;
+        position: relative;
+        border-radius: 20px;
+        min-height: 60px;
+    }
+    
+    .mobile-nav-item:hover {
+        background: rgba(99, 102, 241, 0.1);
+        transform: translateY(-2px);
+    }
+    
+    .mobile-nav-item .nav-icon {
+        font-size: 24px;
+        margin-bottom: 4px;
+        transition: all 0.3s ease;
+    }
+    
+    .mobile-nav-item .nav-label {
+        font-size: 11px;
+        font-weight: 600;
+        opacity: 0.8;
+        transition: all 0.3s ease;
+    }
+    
+    .mobile-nav-item.active {
+        color: var(--primary);
+        background: rgba(99, 102, 241, 0.15);
+        transform: translateY(-4px);
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    }
+    
+    .mobile-nav-item.active .nav-icon {
+        transform: scale(1.1);
+    }
+    
+    .mobile-nav-item.active .nav-label {
+        opacity: 1;
+        font-weight: 700;
+    }
+    
+    /* Badge für Bottom Nav */
+    .mobile-nav-item[data-badge]::after {
+        content: attr(data-badge);
+        position: absolute;
+        top: 4px;
+        right: 12px;
+        background: linear-gradient(135deg, var(--danger), #dc2626);
+        color: white;
+        font-size: 10px;
+        font-weight: bold;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+        animation: pulse-badge 2s infinite;
+    }
+    
+    @keyframes pulse-badge {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+    
+    /* Platz für Bottom Nav */
+    body.has-mobile-nav {
+        padding-bottom: 120px;
+    }
+    
+    /* Sync Bar Anpassung */
+    body.has-mobile-nav.has-sync-bar {
+        padding-top: 40px;
+    }
+    
+    /* Hover-Effekte für bessere Interaktion */
+    .mobile-nav-item:active {
+        transform: translateY(-1px) scale(0.95);
+    }
+}
+
+/* Desktop: Zeige normale Navigation */
+@media (min-width: 769px) {
+    .mobile-bottom-nav {
+        display: none !important;
     }
 }
