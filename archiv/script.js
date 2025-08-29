@@ -3833,12 +3833,20 @@ async function fetchCoinGeckoData(id, from, to) {
     
     try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            const error = new Error(`HTTP error! status: ${response.status}`);
+            error.status = response.status; // Attach status to error object
+            throw error;
+        }
         const data = await response.json();
         return data.prices || [];
     } catch (error) {
-        console.error(`Failed to fetch ${id} data, using fallback:`, error);
-        return [];
+        if (error.status === 429) {
+            console.warn(`CoinGecko API rate limit hit for ${id}. Consider waiting before refreshing. Using fallback.`);
+        } else {
+            console.error(`Failed to fetch ${id} data, using fallback:`, error);
+        }
+        return []; // Return empty array as a fallback
     }
 }
 
@@ -3973,14 +3981,17 @@ async function updateChartWithBenchmarks() {
         };
 
         // Daten parallel laden
-        const [sp500Prices, daxPrices, btcPrices, ethPrices, dpiPrices] = await Promise.all([
+        // Lade nicht-krypto Daten parallel
+        const [sp500Prices, daxPrices] = await Promise.all([
             fetchMarketData('%5EGSPC', fromTs, toTs),
             fetchMarketData('%5EGDAXI', fromTs, toTs),
-            fetchMarketData('bitcoin', fromTs, toTs),
-            fetchMarketData('ethereum', fromTs, toTs),
-            fetchCoinGeckoData('defipulse-index', fromTs, toTs)
         ]);
         
+        // Lade Krypto-Daten sequenziell, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
+        const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
+        const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
+        const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
+
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
         portfolioChart.data.datasets[1].data = calculateBenchmarkChange(sp500Prices, sortedDates);
         portfolioChart.data.datasets[2].data = calculateBenchmarkChange(daxPrices, sortedDates);
