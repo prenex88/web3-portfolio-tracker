@@ -756,7 +756,7 @@ body.has-sync-bar .tab-navigation {
 
 .input-row {
     display: grid;
-    grid-template-columns: 200px 1fr 150px auto auto;
+    grid-template-columns: 200px 1fr 150px auto;
     gap: 16px;
     align-items: center;
 }
@@ -1554,6 +1554,27 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     transform: translateY(0) scale(1);
     opacity: 1;
 }
+.notification.with-undo {
+    min-width: 250px;
+}
+
+.undo-btn {
+    margin-left: 12px;
+    padding: 4px 12px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.undo-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
 
 .github-input-group {
     margin-bottom: 20px;
@@ -2989,6 +3010,7 @@ body.dark-mode .search-quick-filters .btn {
     cursor: pointer;
     list-style: none;
     transition: background-color 0.2s;
+    gap: 16px;
 }
 .date-group-header::-webkit-details-marker { display: none; }
 .history-date-group[open] > .date-group-header {
@@ -2996,6 +3018,11 @@ body.dark-mode .search-quick-filters .btn {
 }
 .date-group-header:hover {
     background-color: var(--light);
+}
+.date-header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
 }
 .date-info { display: flex; align-items: center; gap: 12px; }
 .date-label { font-size: 1.1em; font-weight: 700; }
@@ -3050,4 +3077,46 @@ body.dark-mode .search-quick-filters .btn {
         grid-column: 1 / -1;
         margin-top: 4px;
     }
+}
+
+.input-card.saved-state {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(16, 185, 129, 0.02) 100%);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.input-card.unsaved-state {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(245, 158, 11, 0.02) 100%);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.input-field.is-saved {
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.status-saved {
+    color: var(--success);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-unsaved {
+    color: var(--warning);
+    font-size: 12px;
+}
+
+.indicator-saved {
+    color: var(--success);
+    font-size: 20px;
+}
+
+.indicator-pending {
+    color: var(--warning);
+    font-size: 20px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
 }

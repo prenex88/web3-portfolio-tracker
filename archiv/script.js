@@ -471,6 +471,10 @@ let benchmarkData = JSON.parse(JSON.stringify(DEFAULT_BENCHMARK_DATA)); // Lokal
 const apiCache = new Map();
 let showingCryptoBenchmarks = false;
 
+// UNDO SYSTEM
+let undoStack = [];
+const MAX_UNDO_STACK = 20;
+
 // =================================================================================
 // INITIALISIERUNG
 // =================================================================================
@@ -499,13 +503,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupQuickActions();
     updateCashflowTargets();
     checkConnectionOnStartup();
-    registerServiceWorker();
+    registerServiceWorker(); 
     initializeMobileNavigation();
 
     addMissingStyles();
 
     applyDashboardWidgetOrder();
     initializeDragAndDrop();
+
+    // UX Improvements
+    setupSwipeNavigation();
+    addTooltips();
+    addAriaLabels();
+    enableBatchSelection();
+    updateBreadcrumbs();
+    convertTablesToMobile();
+
+    window.addEventListener('resize', convertTablesToMobile);
 });
 
 function isMobileDevice() {
@@ -635,6 +649,89 @@ function migrateV10toV11() {
     }
 }
 
+// =================================================================================
+// UNDO SYSTEM
+// =================================================================================
+function saveToUndoStack(action, data) {
+    undoStack.push({
+        action: action,
+        data: data,
+        timestamp: new Date().toISOString()
+    });
+    
+    if (undoStack.length > MAX_UNDO_STACK) {
+        undoStack.shift();
+    }
+    
+    showUndoNotification(action);
+}
+
+function showUndoNotification(action) {
+    const notification = document.getElementById('notification');
+    const icon = document.getElementById('notificationIcon');
+    const textEl = document.getElementById('notificationText');
+    
+    notification.className = 'notification with-undo';
+    icon.textContent = '🗑️';
+    
+    let actionText = 'Gelöscht';
+    switch(action) {
+        case 'delete_entry': actionText = 'Eintrag gelöscht'; break;
+        case 'delete_entries': actionText = 'Einträge gelöscht'; break;
+        case 'delete_cashflow': actionText = 'Cashflow gelöscht'; break;
+        case 'delete_platform': actionText = 'Plattform gelöscht'; break;
+        case 'bulk_delete': actionText = 'Mehrere Einträge gelöscht'; break;
+    }
+    
+    textEl.innerHTML = `${actionText} <button class="undo-btn" onclick="undoLastAction()">↩️ Rückgängig</button>`;
+    notification.classList.add('show');
+    
+    setTimeout(() => {
+        notification.classList.remove('show');
+    }, 6000);
+}
+
+function undoLastAction() {
+    if (undoStack.length === 0) {
+        showNotification('Nichts zum Rückgängigmachen vorhanden', 'warning');
+        return;
+    }
+    
+    const lastAction = undoStack.pop();
+    
+    switch(lastAction.action) {
+        case 'delete_entry':
+            entries.push(lastAction.data);
+            break;
+            
+        case 'delete_entries':
+            entries.push(...lastAction.data);
+            break;
+            
+        case 'delete_cashflow':
+            cashflows.push(lastAction.data);
+            break;
+            
+        case 'delete_platform':
+            platforms.push(lastAction.data.platform);
+            entries.push(...lastAction.data.entries);
+            if (lastAction.data.wasFavorite) {
+                favorites.push(lastAction.data.platform.name);
+            }
+            renderPlatformButtons();
+            updateCashflowTargets();
+            break;
+            
+        case 'bulk_delete':
+            entries.push(...lastAction.data);
+            selectedHistoryEntries.clear();
+            break;
+    }
+    
+    saveData();
+    applyDateFilter();
+    showNotification('Aktion rückgängig gemacht! ✅');
+}
 
 // =================================================================================
 // DRAG & DROP FUNKTIONEN
@@ -1071,6 +1168,12 @@ function setupKeyboardShortcuts() {
             openGlobalSearch();
         }
 
+        // UNDO SHORTCUT
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+            e.preventDefault();
+            undoLastAction();
+        }
+
         if (e.key === 'Escape') {
             closeBottomSheet();
             closeGlobalSearch();
@@ -1078,72 +1181,141 @@ function setupKeyboardShortcuts() {
     });
 }
 
+function updateBreadcrumbs() {
+    const breadcrumbsContainer = document.querySelector('.breadcrumbs');
+    if (!breadcrumbsContainer) return;
+    
+    let path = ['Dashboard'];
+    
+    switch(currentTab) {
+        case 'entry': path.push('Neuer Eintrag'); break;
+        case 'history': path.push('Historie'); break;
+        case 'cashflow': path.push('Cashflow'); break;
+        case 'settings': path.push('Einstellungen'); break;
+    }
+
+    if (singleItemFilter && singleItemFilter.itemName) {
+        path.push(singleItemFilter.itemName);
+    }
+    
+    breadcrumbsContainer.innerHTML = path.map((item, index) => 
+        index === path.length - 1 
+            ? `<span>${item}</span>`
+            : `${item} &gt;`
+    ).join(' ');
+}
+
+// =================================================================================
+// UI/UX ENHANCEMENT FUNCTIONS
+// =================================================================================
+
+function showAutoSaveIndicator(status) {
+    let indicator = document.getElementById('autoSaveIndicator');
+    if (!indicator) return;
+
+    indicator.style.display = 'flex';
+    if (status === 'saving') {
+        indicator.innerHTML = '<span class="spinner"></span> Speichert...';
+        indicator.classList.remove('success');
+    } else {
+        indicator.innerHTML = '✓ Automatisch gespeichert';
+        indicator.classList.add('success');
+    }
+
+    indicator.style.animation = 'none';
+    setTimeout(() => {
+        indicator.style.animation = 'slideInOut 3s ease';
+    }, 10);
+}
+
+function renderEmptyState(container, type) {
+    const emptyStates = {
+        history: {
+            icon: '📜',
+            title: 'Noch keine Einträge',
+            description: 'Beginne mit deinem ersten Portfolio-Eintrag, um deine Historie aufzubauen.',
+            action: '<button class="btn btn-primary" onclick="switchTab(\'entry\')">Ersten Eintrag erstellen</button>'
+        },
+        cashflow: {
+            icon: '💸',
+            title: 'Keine Cashflows',
+            description: 'Tracke deine Ein- und Auszahlungen für bessere Performance-Analyse.',
+            action: '<button class="btn btn-primary" onclick="switchTab(\'cashflow\'); document.getElementById(\'cashflowAmount\').focus()">Cashflow hinzufügen</button>'
+        }
+    };
+    const state = emptyStates[type];
+    if (!state || !container) return;
+    container.innerHTML = `
+        <div class="empty-state-enhanced">
+            <div class="empty-state-icon">${state.icon}</div>
+            <div class="empty-state-title">${state.title}</div>
+            <div class="empty-state-description">${state.description}</div>
+            ${state.action}
+        </div>
+    `;
+}
+
+function showTableSkeleton(container, rows = 5, cols = 4) {
+    if (!container) return;
+    let skeletonHTML = '';
+    for (let i = 0; i < rows; i++) {
+        skeletonHTML += '<tr class="skeleton-row">';
+        for (let j = 0; j < cols; j++) {
+            const width = 80 + Math.random() * 40;
+            skeletonHTML += `<td><div class="skeleton-box" style="width: ${width}px"></div></td>`;
+        }
+        skeletonHTML += '</tr>';
+    }
+    container.innerHTML = skeletonHTML;
+}
+
+function addTooltips() {
+    // Diese Funktion kann erweitert werden, um Tooltips dynamisch hinzuzufügen.
+    // Aktuell werden Tooltips direkt im HTML über das `title`-Attribut gesetzt.
+}
+
+
 // =================================================================================
 // MOBILE & TOUCH FEATURES
 // =================================================================================
+
 function setupTouchGestures() {
     let touchStartX = 0, touchStartY = 0, touchEndX = 0, touchEndY = 0, pullDistance = 0;
-    const pullToRefreshEl = document.getElementById('pullToRefresh');
-
+    
     document.addEventListener('touchstart', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.chart-container, .data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
             return;
         }
         touchStartX = e.changedTouches[0].screenX;
         touchStartY = e.changedTouches[0].screenY;
-
-        if (window.scrollY === 0 && githubToken && gistId) {
-            isPulling = true;
-        }
-    }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
-        if (isPulling && window.scrollY === 0) {
-            pullDistance = e.changedTouches[0].screenY - touchStartY;
-            if (pullDistance > 0 && pullDistance < 150) {
-                pullToRefreshEl.style.top = `${Math.min(pullDistance - 60, 20)}px`;
-                pullToRefreshEl.classList.add('pulling');
-                if (pullDistance > 80 && navigator.vibrate) navigator.vibrate(30);
-                if (pullDistance > 80) pullToRefreshEl.innerHTML = '↻';
-            }
-        }
     }, { passive: true });
 
     document.addEventListener('touchend', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.chart-container, .data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
             return;
         }
         touchEndX = e.changedTouches[0].screenX;
         touchEndY = e.changedTouches[0].screenY;
-
-        if (isPulling && pullDistance > 80) {
-            pullToRefreshEl.classList.add('refreshing');
-            pullToRefreshEl.classList.remove('pulling');
-            if (navigator.vibrate) navigator.vibrate(100);
-            syncNow().then(() => {
-                setTimeout(() => {
-                    pullToRefreshEl.classList.remove('refreshing');
-                    pullToRefreshEl.style.top = '-60px';
-                }, 500);
-            });
-        } else if (isPulling) {
-            pullToRefreshEl.classList.remove('pulling');
-            pullToRefreshEl.style.top = '-60px';
-        }
-        isPulling = false;
-        pullDistance = 0;
+        handleSwipe(touchStartX, touchEndX);
     }, { passive: true });
+}
 
-    let longPressTimer;
-    document.addEventListener('touchstart', (e) => {
-        longPressTimer = setTimeout(() => {
-            if (navigator.vibrate) navigator.vibrate(200);
-            toggleQuickActions();
-        }, 800);
-    });
-
-    document.addEventListener('touchend', () => clearTimeout(longPressTimer));
-    document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+function handleSwipe(startX, endX) {
+    const swipeThreshold = 50;
+    const diff = startX - endX;
+    
+    if (Math.abs(diff) < swipeThreshold) return;
+    
+    const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
+    const currentIndex = tabs.indexOf(currentTab);
+    
+    if (diff > 0 && currentIndex < tabs.length - 1) {
+        // Swipe left - next tab
+        switchTab(tabs[currentIndex + 1]);
+    } else if (diff < 0 && currentIndex > 0) {
+        // Swipe right - previous tab
+        switchTab(tabs[currentIndex - 1]);
+    }
 }
 
 // =================================================================================
@@ -1398,31 +1570,32 @@ function saveSingleEntry(inputElement) {
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
 
     const platformName = inputElement.dataset.platform;
-    const balance = parseLocaleNumberString(inputElement.value);
+    const balance = parseLocaleNumberString(inputElement.value); // Make sure this function exists and is correct
     const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
 
     if (!inputElement.value || isNaN(balance)) return;
 
     entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
     entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
-    
+
     saveData();
     applyDateFilter();
-    
-    // Visuelles Feedback
-    const savedIndicator = document.getElementById(`saved_${platformName.replace(/\s+/g, '_')}`);
-    if (savedIndicator) {
-        savedIndicator.style.display = 'inline';
-        savedIndicator.style.color = '#10b981';
-        setTimeout(() => {
-            savedIndicator.style.display = 'none';
-        }, 2000);
+
+    // Nach erfolgreichem Speichern Status aktualisieren
+    const card = inputElement.closest('.input-card');
+    if (card) {
+        card.classList.remove('unsaved-state');
+        card.classList.add('saved-state');
+        inputElement.classList.add('is-saved');
+        inputElement.dataset.saved = 'true';
+        
+        const indicators = card.querySelector('.input-indicators');
+        if (indicators) indicators.innerHTML = '<span class="indicator-saved">✓</span>';
+        
+        const statusEl = card.querySelector('.value-status');
+        if (statusEl) statusEl.innerHTML = '<span class="status-saved">✓ Heute gespeichert</span>';
     }
-    
-    // Platzhalter aktualisieren aber Wert behalten für weitere Änderungen
-    inputElement.placeholder = balance.toLocaleString('de-DE', {minimumFractionDigits: 2});
-    inputElement.dataset.lastValue = balance;
-    
+
     showNotification(`${platformName} gespeichert!`);
 }
 
@@ -1454,6 +1627,27 @@ function showSkeletons() {
 
 function hideSkeletons() {
     document.getElementById('dashboardContent').classList.remove('is-loading');
+}
+
+function updateSettingsConnectionStatus(status, message = '') {
+    const statusEl = document.getElementById('connectionStatus');
+    if (!statusEl) return;
+
+    switch(status) {
+        case 'connected':
+            statusEl.className = 'connection-status connected';
+            statusEl.innerHTML = `<span>✅</span><span>${message || 'Erfolgreich mit GitHub verbunden!'}</span>`;
+            break;
+        case 'error':
+            statusEl.className = 'connection-status disconnected';
+            statusEl.innerHTML = `<span>❌</span><span>Verbindungsfehler: ${message}</span>`;
+            break;
+        case 'initial':
+        default:
+            statusEl.className = 'connection-status disconnected';
+            statusEl.innerHTML = `<span>⚠️</span><span>Nicht verbunden - Konfiguriere GitHub für Cloud Sync</span>`;
+            break;
+    }
 }
 
 function loadGitHubConfig() {
@@ -1516,11 +1710,13 @@ async function syncNow() {
 
         applyDateFilter();
 
+        updateSettingsConnectionStatus('connected', `Zuletzt synchronisiert: ${new Date().toLocaleTimeString('de-DE')}`);
         showNotification('Erfolgreich synchronisiert! ✨');
         updateSyncUI('connected');
         return true;
     } catch (error) {
         console.error('Sync error:', error);
+        updateSettingsConnectionStatus('error', error.message);
         showNotification('Sync fehlgeschlagen: ' + error.message, 'error');
         updateSyncUI('error');
         return false;
@@ -1636,6 +1832,7 @@ function clearGitHubToken() {
             localStorage.removeItem(`${STORAGE_PREFIX}githubToken`);
             githubToken = null;
             document.getElementById('tokenDisplay').textContent = 'Nicht konfiguriert';
+            updateSettingsConnectionStatus('initial');
             updateSyncStatus();
             updateSyncBarVisibility();
             showNotification('GitHub Token gelöscht');
@@ -1645,17 +1842,14 @@ function clearGitHubToken() {
 
 async function testConnection() {
     if (!githubToken || !gistId) return showNotification('Bitte Token und Gist ID konfigurieren', 'error');
-    const statusEl = document.getElementById('connectionStatus');
     try {
         showNotification('Teste Verbindung...');
         await fetchGistData();
-        statusEl.className = 'connection-status connected';
-        statusEl.innerHTML = `<span>✅</span><span>Erfolgreich verbunden mit GitHub!</span>`;
+        updateSettingsConnectionStatus('connected', 'Verbindung erfolgreich!');
         showNotification('Verbindung erfolgreich! ✅');
         updateSyncStatus();
     } catch (error) {
-        statusEl.className = 'connection-status disconnected';
-        statusEl.innerHTML = `<span>❌</span><span>Verbindungsfehler: ${error.message}</span>`;
+        updateSettingsConnectionStatus('error', error.message);
         showNotification('Verbindung fehlgeschlagen', 'error');
     }
 }
@@ -1844,14 +2038,16 @@ function switchTab(tabName, options = {}) {
         }
     }
 
-    if (tabName === 'history') updateHistory();
-    else if (tabName === 'cashflow') {
+    if (tabName === 'history') {
+        updateHistory();
+    } else if (tabName === 'cashflow') {
         updateCashflowDisplay();
         updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
-    } else if (tabName === 'history') {
-        updateHistory();
-    } else if (tabName === 'platforms') updatePlatformDetails();
+    } else if (tabName === 'platforms') {
+        updatePlatformDetails();
+    }
+    updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
 }
 
 // =================================================================================
@@ -2061,18 +2257,15 @@ async function addCustomPlatform() {
     updateCashflowTargets();
     showNotification(`${name.trim()} hinzugefügt!`);
 }
-
 function addPlatformInput(platformName) {
     const container = document.getElementById('platformInputs');
     const inputId = platformName.replace(/\s+/g, '_');
     if (document.getElementById(`input_${inputId}`)) return;
-    
-    // Strategie-Container anzeigen, wenn es der erste Input ist
+
     if (container.children.length === 0) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) {
             strategyContainer.style.display = 'block';
-            // Strategie für das aktuelle Datum laden
             const date = document.getElementById('entryDate').value;
             const strategyInput = document.getElementById('dailyStrategy');
             if (strategyInput) strategyInput.value = getStrategyForDate(date);
@@ -2082,43 +2275,75 @@ function addPlatformInput(platformName) {
     const lastEntry = getLastEntryForPlatform(platformName);
     const lastValue = lastEntry ? lastEntry.balance : 0;
     const lastNote = lastEntry ? lastEntry.note : '';
+    
+    // Prüfe ob für das aktuelle Datum bereits ein Wert existiert
+    const currentDate = document.getElementById('entryDate').value;
+    const todayEntry = entries.find(e => e.date === currentDate && e.protocol === platformName);
+    const isSaved = !!todayEntry;
+    const currentValue = todayEntry ? todayEntry.balance : lastValue;
 
     const div = document.createElement('div');
     div.id = `input_${inputId}`;
-    div.className = 'input-card enhanced-input-card'; // NEU: Extra Klasse
+    div.className = `input-card ${isSaved ? 'saved-state' : 'unsaved-state'}`;
+    
     div.innerHTML = `
         <div class="input-row">
             <div class="platform-info">
                 <div class="platform-name">${platformName}</div>
-                ${lastValue > 0 ? `<div class="last-value-inline">Vorher: $${lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` : ''}
+                <div class="value-status">
+                    ${isSaved ? 
+                        `<span class="status-saved">✓ Heute gespeichert</span>` : 
+                        `<span class="status-unsaved">Letzter Wert: ${formatDollar(lastValue)} (${lastEntry ? formatDate(lastEntry.date) : 'Nie'})</span>`
+                    }
+                </div>
             </div>
             <div class="input-group">
-                <input type="text" inputmode="decimal" id="balance_${inputId}" class="input-field" 
-                       placeholder="${lastValue ? lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Balance in USD'}" 
+                <input type="text" 
+                       inputmode="decimal" 
+                       id="balance_${inputId}" 
+                       class="input-field ${isSaved ? 'is-saved' : ''}" 
+                       placeholder="${isSaved ? 'Gespeichert' : 'Neuer Wert...'}"
                        data-platform="${platformName}"
-                       data-last-value="${lastValue}"
-                       value="${lastValue > 0 ? lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}">
-                <span class="saved-indicator" id="saved_${inputId}" style="display: none;">✓</span>
+                       data-original-value="${lastValue}"
+                       data-saved="${isSaved}"
+                       value="${currentValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}">
+                <div class="input-indicators">
+                    ${isSaved ? '<span class="indicator-saved">✓</span>' : '<span class="indicator-pending">!</span>'}
+                </div>
             </div>
-            <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." data-platform="${platformName}" value="${lastNote}">
+            <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." value="${todayEntry?.note || lastNote}">
             <button class="remove-btn" onclick="removePlatformInput('${platformName}')">✕</button>
         </div>`;
     container.appendChild(div);
     
-    // Tab/Enter Navigation
-    const balanceInput = document.getElementById(`balance_${inputId}`);
-    balanceInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Tab' || e.key === 'Enter') {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                // Speichere beim Enter einzeln
-                saveSingleEntry(balanceInput);
-            }
-            // Fokussiere nächstes Feld
+    // Bei Änderung Status updaten
+    const input = document.getElementById(`balance_${inputId}`);
+    input.addEventListener('input', () => {
+        div.classList.remove('saved-state');
+        div.classList.add('unsaved-state');
+        input.classList.remove('is-saved');
+        input.dataset.saved = 'false';
+        
+        // Update indicators
+        const indicators = div.querySelector('.input-indicators');
+        indicators.innerHTML = '<span class="indicator-pending">!</span>';
+        
+        const statusEl = div.querySelector('.value-status');
+        statusEl.innerHTML = '<span class="status-unsaved">Nicht gespeichert</span>';
+    });
+
+    // Mit "Enter" speichern und zum nächsten Feld springen
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveSingleEntry(input);
+
+            // Kurzes Timeout, um dem Browser Zeit für das Update zu geben
             setTimeout(() => {
                 const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field'));
-                const currentIndex = allInputs.indexOf(balanceInput);
-                if (currentIndex < allInputs.length - 1) {
+                const currentIndex = allInputs.indexOf(input);
+                
+                if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
                     const nextInput = allInputs[currentIndex + 1];
                     nextInput.focus();
                     nextInput.select();
@@ -2231,6 +2456,7 @@ async function saveAllEntries() {
     let newEntriesCount = 0;
     let zeroedCount = 0;
     let strategyChanged = false;
+    let autoZeroSkipped = false;
 
     const dayStrategy = document.getElementById('dailyStrategy')?.value || '';
     const oldStrategy = getStrategyForDate(date);
@@ -2239,35 +2465,43 @@ async function saveAllEntries() {
         strategyChanged = true;
     }
     
-    const platformsToZero = getPlatformsToAutoZero();
-    if (platformsToZero.length > 0) {
-        const listHtml = `<ul>${platformsToZero.map(p => `<li>${p}</li>`).join('')}</ul>`;
+    // Logik für Auto-Zeroing für nicht ausgewählte Plattformen
+    const unselectedPlatformsToZero = getPlatformsToAutoZero();
+    if (unselectedPlatformsToZero.length > 0) {
+        const listHtml = `<ul>${unselectedPlatformsToZero.map(p => `<li>${p}</li>`).join('')}</ul>`;
         const confirmed = await showCustomPrompt({
             title: 'Auto-Zero Bestätigung',
             text: 'Sollen die folgenden Plattformen, die nicht ausgewählt wurden, für dieses Datum auf 0 gesetzt werden?',
             listHtml: listHtml,
             actions: [
                 { text: 'Nein' },
-                { text: 'Ja, auf 0 setzen', class: 'btn-success', value: true }
+                { text: 'Ja, auf 0 setzen', class: 'btn-success', value: 'true' }
             ]
         });
 
-        if (confirmed) {
-            platformsToZero.forEach(platformName => {
+        if (confirmed === 'true') {
+            unselectedPlatformsToZero.forEach(platformName => {
                 entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
                 entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)' });
                 zeroedCount++;
             });
+        } else {
+            autoZeroSkipped = true;
         }
     }
 
+    // Speichere die Werte für alle ausgewählten Plattformen
     selectedPlatforms.forEach(platformName => {
         const inputId = platformName.replace(/\s+/g, '_');
         const balanceInput = document.getElementById(`balance_${inputId}`);
         const noteInput = document.getElementById(`note_${inputId}`);
-        if (balanceInput && balanceInput.value) {
-            const balance = parseLocaleNumberString(balanceInput.value);
-            if (isNaN(balance)) return;
+        if (balanceInput) {
+            const value = balanceInput.value.trim();
+            const balance = value === '' ? 0 : parseLocaleNumberString(value);
+            if (isNaN(balance)) {
+                showNotification(`Ungültiger Wert für ${platformName} übersprungen.`, 'warning');
+                return; // continue
+            }
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
             entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
             newEntriesCount++;
@@ -2275,7 +2509,11 @@ async function saveAllEntries() {
     });
 
     if (newEntriesCount === 0 && zeroedCount === 0 && !strategyChanged) {
-        return showNotification('Keine Änderungen zum Speichern!', 'error');
+        if (autoZeroSkipped) {
+            return showNotification('Auto-Zeroing übersprungen. Keine weiteren Änderungen.', 'info');
+        } else {
+            return showNotification('Keine Änderungen zum Speichern!', 'error');
+        }
     }
 
     saveData();
@@ -2294,9 +2532,13 @@ async function saveAllEntries() {
 
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
-    if (zeroedCount > 0) message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+    if (zeroedCount > 0) {
+        message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+    } else if (autoZeroSkipped) {
+        message += 'Auto-Zeroing übersprungen. ';
+    }
     if (strategyChanged) message += `Tages-Strategie gespeichert.`;
-    showNotification(message.trim());
+    showNotification(message.trim(), 'success');
 }
 
 function saveCashflow() {
@@ -2341,39 +2583,48 @@ function parseLocaleNumberString(str) {
 }
 
 async function deleteEntry(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (entry) {
+        saveToUndoStack('delete_entry', entry);
+    }
     entries = entries.filter(e => e.id != entryId);
     saveData();
     applyDateFilter();
-    showNotification('Eintrag gelöscht!');
 }
 
 async function deleteCashflow(cashflowId) {
+    const cashflow = cashflows.find(c => c.id == cashflowId);
+    if (cashflow) {
+        saveToUndoStack('delete_cashflow', cashflow);
+    }
     cashflows = cashflows.filter(c => c.id != cashflowId);
     saveData();
     applyDateFilter();
-    showNotification('Cashflow gelöscht!');
 }
 
 async function deletePlatform(platformName) {
     const confirmed = await showCustomPrompt({
         title: 'Plattform löschen',
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
-        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
+        actions: [{ text: 'Abbrechen' }, { text: 'Löschen', class: 'btn-danger', value: true }]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
+        const platformToDelete = platforms.find(p => p.name === platformName);
+        if (!platformToDelete) return;
+
+        const entriesToDelete = entries.filter(e => e.protocol === platformName);
+        const wasFavorite = favorites.includes(platformName);
+
+        const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
+        saveToUndoStack('delete_platform', undoData);
+
         platforms = platforms.filter(p => p.name !== platformName);
         favorites = favorites.filter(f => f !== platformName);
         entries = entries.filter(e => e.protocol !== platformName);
-        
-        if (selectedPlatforms.includes(platformName)) {
-            removePlatformInput(platformName);
-        }
-        
         saveData();
         applyDateFilter();
         renderPlatformButtons();
         updateCashflowTargets();
-        showNotification(`Plattform '${platformName}' und alle Einträge gelöscht!`);
     }
 }
 
@@ -2797,6 +3048,29 @@ function saveEntryEdit(entryId) {
     showNotification('Eintrag aktualisiert!', 'success');
 }
 
+async function deleteEntriesForDate(date) {
+    const entriesOnDate = entries.filter(e => e.date === date);
+    if (entriesOnDate.length === 0) {
+        return showNotification('Keine Einträge an diesem Datum zum Löschen vorhanden.', 'warning');
+    }
+
+    const confirmed = await showCustomPrompt({
+        title: 'Einträge löschen',
+        text: `Möchtest du wirklich alle ${entriesOnDate.length} Einträge vom ${formatDate(date)} löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+        actions: [
+            { text: 'Abbrechen' },
+            { text: 'Löschen', class: 'btn-danger', value: true }
+        ]
+    });
+
+    if (confirmed === 'true') {
+        saveToUndoStack('delete_entries', entriesOnDate);
+        entries = entries.filter(e => e.date !== date);
+        saveData();
+        applyDateFilter(); // This will re-render the history view
+    }
+}
+
 // =================================================================================
 // HISTORY TAB - BULK ACTIONS & DISPLAY
 // =================================================================================
@@ -2848,7 +3122,8 @@ function updateHistory() {
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
-            (e.note && e.note.toLowerCase().includes(searchTerm))
+            (e.note && e.note.toLowerCase().includes(searchTerm)) ||
+            (getStrategyForDate(e.date) && getStrategyForDate(e.date).toLowerCase().includes(searchTerm))
         );
     }
 
@@ -2882,11 +3157,11 @@ function updateHistory() {
 
     tbody.innerHTML = '';
     if (augmentedData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
+        renderEmptyState(document.getElementById('historyListView'), 'history');
         return;
     }
 
-    augmentedData.forEach((entry, index) => {
+    tbody.innerHTML = augmentedData.map((entry, index) => {
         const row = document.createElement('tr');
         row.dataset.id = entry.id;
         row.dataset.index = index;
@@ -2895,18 +3170,18 @@ function updateHistory() {
         }
         
         row.onclick = (e) => handleHistoryRowClick(e, row, entry.id, index);
-
-        row.innerHTML = `
-            <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
-            <td>${formatDate(entry.date)}</td>
-            <td style="font-weight: 600;">${entry.protocol}</td>
-            <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
-            <td>${entry.strategy || '-'}</td>
-            <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
+        return `
+            <tr data-id="${entry.id}" data-index="${index}" class="${selectedHistoryEntries.has(entry.id) ? 'multi-selected-row' : ''}" onclick="handleHistoryRowClick(event, this, ${entry.id}, ${index})">
+                <td data-label="Select"><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
+                <td data-label="Datum">${formatDate(entry.date)}</td>
+                <td data-label="Plattform" style="font-weight: 600;">${entry.protocol}</td>
+                <td data-label="Balance" class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+                <td data-label="Strategie">${entry.strategy || '-'}</td>
+                <td data-label="Notiz" class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+                <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
+            </tr>
         `;
-        tbody.appendChild(row);
-    });
+    }).join('');
     
     // Render mobile cards
     renderHistoryMobileCards(augmentedData);
@@ -2953,16 +3228,21 @@ function renderGroupedHistoryByDate() {
         html += `
             <details class="history-date-group" ${sortedDates.indexOf(date) === 0 ? 'open' : ''}>
                 <summary class="date-group-header">
-                    <div class="date-info">
-                        <span class="date-label">📅 ${formatDate(date)}</span>
-                        ${date === new Date().toISOString().split('T')[0] ? '<span class="today-badge">Heute</span>' : ''}
+                    <div class="date-header-left">
+                        <div class="date-info">
+                            <span class="date-label">📅 ${formatDate(date)}</span>
+                            ${date === new Date().toISOString().split('T')[0] ? '<span class="today-badge">Heute</span>' : ''}
+                        </div>
                     </div>
-                    <div class="date-summary">
-                        <span class="entry-count">${dayEntries.length} Einträge</span>
-                        <span class="day-total">${formatDollar(dayTotal)}</span>
-                        <span class="day-change ${dayChange >= 0 ? 'positive' : 'negative'}">
-                            ${dayChange >= 0 ? '↑' : '↓'} ${formatDollar(Math.abs(dayChange))} (${dayChangePercent.toFixed(1)}%)
-                        </span>
+                    <div class="date-header-right">
+                        <div class="date-summary">
+                            <span class="entry-count">${dayEntries.length} Einträge</span>
+                            <span class="day-total">${formatDollar(dayTotal)}</span>
+                            <span class="day-change ${dayChange >= 0 ? 'positive' : 'negative'}">
+                                ${dayChange >= 0 ? '↑' : '↓'} ${formatDollar(Math.abs(dayChange))} (${dayChangePercent.toFixed(1)}%)
+                            </span>
+                        </div>
+                        <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteEntriesForDate('${date}')" title="Alle Einträge für diesen Tag löschen">🗑️</button>
                     </div>
                 </summary>
                 <div class="date-group-content">
@@ -2988,7 +3268,7 @@ function renderGroupedHistoryByDate() {
         `;
     });
     
-    container.innerHTML = html || '<div class="empty-state">Keine Einträge vorhanden</div>';
+    container.innerHTML = html || renderEmptyState(container, 'history');
 }
 
 function renderGroupedHistory(searchTerm = '') {
@@ -3153,7 +3433,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
         deleteEntry(entryId);
     }
 }
@@ -3236,12 +3516,15 @@ async function deleteSelectedEntries() {
         text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
+        const deletedEntries = entries.filter(e => selectedHistoryEntries.has(e.id));
+        if (deletedEntries.length > 0) {
+            saveToUndoStack('bulk_delete', deletedEntries);
+        }
         entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
         selectedHistoryEntries.clear();
         saveData();
         applyDateFilter();
-        showNotification('Ausgewählte Einträge gelöscht');
     }
 }
 
@@ -3466,7 +3749,7 @@ function renderCashflowTable(container, dataToDisplay) {
 
     tbody.innerHTML = '';
     if (dataToDisplay.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Keine Cashflows gefunden</td></tr>`;
+        renderEmptyState(container, 'cashflow');
         return;
     }
 
@@ -3474,12 +3757,12 @@ function renderCashflowTable(container, dataToDisplay) {
         const row = document.createElement('tr');
         row.dataset.id = cf.id;
         row.innerHTML = `
-            <td>${formatDate(cf.date)}</td>
-            <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
-            <td>${cf.platform || '-'}</td>
-            <td class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
+            <td data-label="Datum">${formatDate(cf.date)}</td>
+            <td data-label="Typ"><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
+            <td data-label="Betrag" class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
+            <td data-label="Plattform">${cf.platform || '-'}</td>
+            <td data-label="Notiz" class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+            <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
@@ -3491,7 +3774,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
         deleteCashflow(cashflowId);
     }
 }
@@ -3545,12 +3828,12 @@ function updatePlatformDetails() {
     dataToDisplay.forEach(data => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td style="font-weight: 600;">${data.platform}</td>
-            <td>${data.entries}</td>
-            <td>${formatDate(data.first)}</td>
-            <td>${formatDate(data.last)}</td>
-            <td class="dollar-value">${formatDollar(data.avg)}</td>
-            <td class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
+            <td data-label="Plattform" style="font-weight: 600;">${data.platform}</td>
+            <td data-label="Einträge">${data.entries}</td>
+            <td data-label="Erster Eintrag">${formatDate(data.first)}</td>
+            <td data-label="Letzter Eintrag">${formatDate(data.last)}</td>
+            <td data-label="Avg Balance" class="dollar-value">${formatDollar(data.avg)}</td>
+            <td data-label="Total Return" class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
         `;
         tbody.appendChild(row);
     });
@@ -4277,28 +4560,15 @@ async function fetchMarketData(ticker, from, to) {
             const line = lines[i];
             if (!line) continue;
             const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
-            const dateStr = fields[dateColIndex];
-            const priceStr = fields[closeColIndex];
+            const dateStr = fields[dateColIndex] || '';
+            const priceStr = fields[closeColIndex] || '';
             if (dateStr && priceStr) {
-                const datePart = dateStr.split(' ')[0]; // Handle "DD.MM.YYYY HH:MM:SS"
+                const datePart = dateStr.split(' ')[0];
                 const [day, month, year] = datePart.split('.');
-                
-                // Verbesserte, robustere Preis-Umwandlung, die deutsche und amerikanische Formate handhaben kann.
-                const lastComma = priceStr.lastIndexOf(',');
-                const lastDot = priceStr.lastIndexOf('.');
-                let cleanedPriceStr;
-
-                if (lastComma > lastDot) {
-                    // Annahme: Deutsches Format (z.B. "1.234,56")
-                    cleanedPriceStr = priceStr.replace(/\./g, '').replace(',', '.');
-                } else {
-                    // Annahme: US/ISO Format (z.B. "1,234.56" oder "1234.56")
-                    cleanedPriceStr = priceStr.replace(/,/g, '');
-                }
 
                 if (month && day && year) { // Ensure date components are valid
                     const date = new Date(Date.UTC(year, month - 1, day)); // Month is 0-indexed
-                    const price = parseFloat(cleanedPriceStr);
+                    const price = parseLocaleNumberString(priceStr);
                     if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) { // Ensure valid date and positive price
                         prices.push([date.getTime(), price]);
                     }
@@ -4535,7 +4805,7 @@ async function handleCsvImport(event) {
                 }
                 
                 const [type, date, protocolOrStrategy, amountStr, note] = fields;
-                const amount = parseFloat(String(amountStr || '0').replace(',', '.'));
+                const amount = parseLocaleNumberString(amountStr || '0');
 
                 if (type && date) {
                     const lowerType = type.toLowerCase();
@@ -6126,6 +6396,314 @@ function initializeMobileNavigation() {
         // Update badges
         updateMobileNavBadges();
     }
+}
+
+// =================================================================================
+// UI/UX ENHANCEMENT FUNCTIONS (Implementation)
+// =================================================================================
+
+function setupSwipeNavigation() {
+    const mainContainer = document.querySelector('.container');
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    mainContainer.addEventListener('touchstart', e => {
+        // Ignore swipes on interactive elements
+        if (e.target.closest('button, a, input, select, textarea, .chart-container, .data-table-wrapper, .bottom-sheet-content')) {
+            return;
+        }
+        touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    mainContainer.addEventListener('touchend', e => {
+        if (e.target.closest('button, a, input, select, textarea, .chart-container, .data-table-wrapper, .bottom-sheet-content')) {
+            return;
+        }
+        touchEndX = e.changedTouches[0].screenX;
+        handleSwipe(touchStartX, touchEndX);
+    }, { passive: true });
+}
+
+function improveKeyboardNavigation() {
+    // Diese Funktion wird absichtlich leer gelassen, da die "Enter"-Logik
+    // in `addPlatformInput` bereits das vom Benutzer gewünschte Verhalten
+    // (Speichern und zum nächsten Feld springen) implementiert.
+}
+
+function addAriaLabels() {
+    document.querySelectorAll('button, .btn').forEach(btn => {
+        if (!btn.getAttribute('aria-label') && btn.title) {
+            btn.setAttribute('aria-label', btn.title);
+        } else if (!btn.getAttribute('aria-label')) {
+            const text = btn.textContent.trim().replace(/\s+/g, ' ');
+            if (text) btn.setAttribute('aria-label', text);
+        }
+    });
+
+    document.querySelectorAll('input').forEach(input => {
+        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
+            const label = input.closest('div, label')?.querySelector('label, .setting-label, .platform-name');
+            if (label) {
+                if (!label.id) label.id = `label-${Math.random().toString(36).substr(2, 9)}`;
+                input.setAttribute('aria-labelledby', label.id);
+            }
+        }
+    });
+}
+
+function convertTablesToMobile() {
+    if (window.innerWidth > 768) return;
+
+    document.querySelectorAll('.data-table').forEach(table => {
+        const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+        if (headers.length === 0) return;
+
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.querySelectorAll('td').forEach((td, index) => {
+                if (headers[index]) {
+                    td.setAttribute('data-label', headers[index]);
+                }
+            });
+        });
+    });
+}
+
+function validateInput(input) {
+    const value = input.value;
+    const type = input.dataset.validateType;
+
+    const existingError = input.parentElement.querySelector('.input-error-message');
+    if (existingError) existingError.remove();
+
+    let isValid = true;
+    let errorMessage = '';
+
+    if (type === 'number') {
+        const parsed = parseLocaleNumberString(value);
+        if (value && (isNaN(parsed) || parsed < 0)) {
+            isValid = false;
+            errorMessage = 'Bitte eine positive Zahl eingeben.';
+        }
+    }
+
+    if (!isValid) {
+        input.classList.add('input-error');
+        input.classList.remove('input-success');
+        const error = document.createElement('span');
+        error.className = 'input-error-message';
+        error.textContent = errorMessage;
+        input.parentElement.appendChild(error);
+    } else {
+        input.classList.remove('input-error');
+        if (value) {
+            input.classList.add('input-success');
+        } else {
+            input.classList.remove('input-success');
+        }
+    }
+    return isValid;
+}
+
+function enableBatchSelection() {
+    const container = document.getElementById('platformGrid');
+    if (!container) return;
+
+    let isSelecting = false;
+    let batchSelectedPlatforms = new Set();
+    let longPressTimer;
+
+    const startSelection = (e) => {
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn || platformBtn.textContent.includes('Andere')) return;
+        
+        isSelecting = true;
+        container.classList.add('selection-mode');
+        if (navigator.vibrate) navigator.vibrate(50);
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+
+    container.addEventListener('touchstart', e => {
+        longPressTimer = setTimeout(() => startSelection(e), 500);
+    }, { passive: true });
+
+    const clearLongPress = () => clearTimeout(longPressTimer);
+    container.addEventListener('touchend', clearLongPress);
+    container.addEventListener('touchmove', clearLongPress);
+
+    container.addEventListener('click', e => {
+        if (!isSelecting) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn) return;
+
+        platformBtn.classList.toggle('batch-selected');
+        const name = platformBtn.dataset.platform;
+
+        if (batchSelectedPlatforms.has(name)) {
+            batchSelectedPlatforms.delete(name);
+        } else {
+            batchSelectedPlatforms.add(name);
+        }
+        updateBatchActionBar(batchSelectedPlatforms);
+    });
+
+    window.addSelectedPlatforms = () => {
+        batchSelectedPlatforms.forEach(name => {
+            const btn = document.querySelector(`.platform-btn[data-platform="${name}"]`);
+            if (btn && !btn.classList.contains('selected')) {
+                togglePlatform(btn, name);
+            }
+        });
+        cancelBatchSelection();
+    };
+
+    window.cancelBatchSelection = () => {
+        isSelecting = false;
+        container.classList.remove('selection-mode');
+        container.querySelectorAll('.batch-selected').forEach(el => el.classList.remove('batch-selected'));
+        batchSelectedPlatforms.clear();
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+}
+
+function updateBatchActionBar(selected) {
+    let bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+
+    if (selected.size === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span>${selected.size} ausgewählt</span>
+        <div>
+            <button class="btn btn-primary btn-small" onclick="addSelectedPlatforms()">Hinzufügen</button>
+            <button class="btn btn-small" onclick="cancelBatchSelection()">Abbrechen</button>
+        </div>
+    `;
+}
+
+function improveKeyboardNavigation() {
+    document.body.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.matches('.input-field, .note-input')) {
+            const form = e.target.closest('form, .section');
+            if (!form) return;
+
+            const focusable = Array.from(form.querySelectorAll('input, select, button, textarea')).filter(el => !el.disabled && el.offsetParent !== null);
+            const index = focusable.indexOf(e.target);
+
+            if (index > -1 && (index < focusable.length - 1)) {
+                e.preventDefault();
+                const nextElement = focusable[index + 1];
+                nextElement.focus();
+                if (typeof nextElement.select === 'function') {
+                    nextElement.select();
+                }
+            }
+        }
+    });
+}
+
+function enableBatchSelection() {
+    const container = document.getElementById('platformGrid');
+    if (!container) return;
+
+    let isSelecting = false;
+    let batchSelectedPlatforms = new Set();
+
+    container.addEventListener('touchstart', e => {
+        const timer = setTimeout(() => {
+            isSelecting = true;
+            container.classList.add('selection-mode');
+            if (navigator.vibrate) navigator.vibrate(50);
+            updateBatchActionBar(batchSelectedPlatforms);
+        }, 500);
+
+        const clearTimer = () => clearTimeout(timer);
+        container.addEventListener('touchend', clearTimer, { once: true });
+        container.addEventListener('touchmove', clearTimer, { once: true });
+    });
+
+    container.addEventListener('click', e => {
+        if (!isSelecting) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn) return;
+
+        platformBtn.classList.toggle('batch-selected');
+        const name = platformBtn.dataset.platform;
+
+        if (batchSelectedPlatforms.has(name)) {
+            batchSelectedPlatforms.delete(name);
+        } else {
+            batchSelectedPlatforms.add(name);
+        }
+        updateBatchActionBar(batchSelectedPlatforms);
+    });
+
+    window.addSelectedPlatforms = () => {
+        batchSelectedPlatforms.forEach(name => {
+            const btn = document.querySelector(`.platform-btn[data-platform="${name}"]`);
+            if (btn && !btn.classList.contains('selected')) {
+                togglePlatform(btn, name);
+            }
+        });
+        cancelBatchSelection();
+    };
+
+    window.cancelBatchSelection = () => {
+        isSelecting = false;
+        container.classList.remove('selection-mode');
+        container.querySelectorAll('.batch-selected').forEach(el => el.classList.remove('batch-selected'));
+        batchSelectedPlatforms.clear();
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+}
+
+function updateBatchActionBar(selected) {
+    let bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+
+    if (selected.size === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span>${selected.size} ausgewählt</span>
+        <div>
+            <button class="btn btn-primary btn-small" onclick="addSelectedPlatforms()">Hinzufügen</button>
+            <button class="btn btn-small" onclick="cancelBatchSelection()">Abbrechen</button>
+        </div>
+    `;
+}
+
+function addAriaLabels() {
+    document.querySelectorAll('button, .btn').forEach(btn => {
+        if (!btn.getAttribute('aria-label') && !btn.getAttribute('title')) {
+            const text = btn.textContent.trim().replace(/\s+/g, ' ');
+            if (text) btn.setAttribute('aria-label', text);
+        } else if (btn.getAttribute('title')) {
+            btn.setAttribute('aria-label', btn.getAttribute('title'));
+        }
+    });
+
+    document.querySelectorAll('input').forEach(input => {
+        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
+            const label = input.closest('div, label')?.querySelector('label, .setting-label, .platform-name');
+            if (label) {
+                if (!label.id) label.id = `label-${Math.random().toString(36).substr(2, 9)}`;
+                input.setAttribute('aria-labelledby', label.id);
+            }
+        }
+    });
 }
 
 // Update Mobile Navigation Badges
