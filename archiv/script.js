@@ -4030,7 +4030,8 @@ async function fetchMarketData(ticker, from, to) {
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
     if (!sheetUrl || sheetUrl.includes('YOUR_')) {
-        console.warn(`Google Sheet URL for ${decodedTicker} is not configured.`);
+        console.warn(`Google Sheet URL für ${decodedTicker} ist nicht konfiguriert.`);
+        showNotification(`Sheet für ${decodedTicker} nicht konfiguriert. Fallback wird genutzt.`, 'warning');
         return useStaticFallback(ticker);
     }
     const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
@@ -4043,7 +4044,8 @@ async function fetchMarketData(ticker, from, to) {
         // NEU: Explizite Prüfung auf den Ladezustand von Google Sheets.
         const csvTextLower = csvText.trim().toLowerCase();
         if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
-            console.warn(`Google Sheet for ${decodeURIComponent(ticker)} is still loading. Using fallback.`);
+            console.warn(`Google Sheet für ${decodeURIComponent(ticker)} lädt noch. Fallback wird genutzt.`);
+            showNotification(`Sheet für ${decodedTicker} lädt noch. Fallback wird genutzt.`, 'info');
             return useStaticFallback(ticker);
         }
 
@@ -4056,7 +4058,8 @@ async function fetchMarketData(ticker, from, to) {
         const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
         if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}. Headers found:`, headers);
+            console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
+            showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
             return useStaticFallback(ticker);
         }
 
@@ -4095,7 +4098,8 @@ async function fetchMarketData(ticker, from, to) {
         }
         return prices;
     } catch (error) {
-        console.error(`Failed to fetch or process Google Sheet for ${decodeURIComponent(ticker)}:`, error);
+        console.error(`Fehler beim Laden oder Verarbeiten des Google Sheets für ${decodeURIComponent(ticker)}:`, error);
+        showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
         return useStaticFallback(ticker);
     }
 }
