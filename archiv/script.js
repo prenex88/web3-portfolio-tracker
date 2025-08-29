@@ -1398,7 +1398,7 @@ function saveSingleEntry(inputElement) {
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
 
     const platformName = inputElement.dataset.platform;
-    const balance = parseFloat(inputElement.value.replace(',', '.'));
+    const balance = parseLocaleNumberString(inputElement.value);
     const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
 
     if (!inputElement.value || isNaN(balance)) return;
@@ -1409,27 +1409,21 @@ function saveSingleEntry(inputElement) {
     saveData();
     applyDateFilter();
     
-    // Verhalten aus deiner Referenz-Datei übernehmen: Feld leeren und Platzhalter setzen
-    inputElement.value = '';
-    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    showNotification(`${platformName} gespeichert!`);
+    // Visuelles Feedback
+    const savedIndicator = document.getElementById(`saved_${platformName.replace(/\s+/g, '_')}`);
+    if (savedIndicator) {
+        savedIndicator.style.display = 'inline';
+        savedIndicator.style.color = '#10b981';
+        setTimeout(() => {
+            savedIndicator.style.display = 'none';
+        }, 2000);
+    }
     
-    // Fokussiere das nächste Input-Feld
-    setTimeout(() => {
-        const currentInputId = inputElement.id;
-        const allInputs = Array.from(document.querySelectorAll('.input-field[data-platform]'));
-        const currentIndex = allInputs.findIndex(input => input.id === currentInputId);
-        
-        if (currentIndex !== -1 && currentIndex < allInputs.length - 1) {
-            const nextInput = allInputs[currentIndex + 1];
-            nextInput.focus();
-            nextInput.select();
-        } else if (allInputs.length > 0) {
-            // Wenn es das letzte Feld war, gehe zum ersten zurück
-            allInputs[0].focus();
-            allInputs[0].select();
-        }
-    }, 100);
+    // Platzhalter aktualisieren aber Wert behalten für weitere Änderungen
+    inputElement.placeholder = balance.toLocaleString('de-DE', {minimumFractionDigits: 2});
+    inputElement.dataset.lastValue = balance;
+    
+    showNotification(`${platformName} gespeichert!`);
 }
 
 function saveStrategyOnly() {
@@ -1802,6 +1796,17 @@ function switchTab(tabName, options = {}) {
     if (tabBtn) tabBtn.classList.add('active');
     currentTab = tabName;
     
+    // NEU: Automatisch letzte Einträge laden beim Wechsel zu "entry"
+    if (tabName === 'entry') {
+        // Prüfe ob bereits Einträge vorhanden sind
+        const hasExistingInputs = document.getElementById('platformInputs').children.length > 0;
+        if (!hasExistingInputs && entries.length > 0) {
+            setTimeout(() => {
+                loadLastEntries();
+            }, 100);
+        }
+    }
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     // Mobile Bottom Nav aktiven Tab aktualisieren
@@ -2075,23 +2080,52 @@ function addPlatformInput(platformName) {
     }
 
     const lastEntry = getLastEntryForPlatform(platformName);
-    const lastValue = lastEntry ? lastEntry.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    const lastValue = lastEntry ? lastEntry.balance : 0;
     const lastNote = lastEntry ? lastEntry.note : '';
 
     const div = document.createElement('div');
     div.id = `input_${inputId}`;
-    div.className = 'input-card';
+    div.className = 'input-card enhanced-input-card'; // NEU: Extra Klasse
     div.innerHTML = `
         <div class="input-row">
-            <div class="platform-name">${platformName}</div>
-            <input type="text" inputmode="decimal" id="balance_${inputId}" class="input-field" 
-                   placeholder="${lastValue ? 'Letzter: ' + lastValue : 'Balance in USD'}" data-platform="${platformName}">
+            <div class="platform-info">
+                <div class="platform-name">${platformName}</div>
+                ${lastValue > 0 ? `<div class="last-value-inline">Vorher: $${lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` : ''}
+            </div>
+            <div class="input-group">
+                <input type="text" inputmode="decimal" id="balance_${inputId}" class="input-field" 
+                       placeholder="${lastValue ? lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Balance in USD'}" 
+                       data-platform="${platformName}"
+                       data-last-value="${lastValue}"
+                       value="${lastValue > 0 ? lastValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}">
+                <span class="saved-indicator" id="saved_${inputId}" style="display: none;">✓</span>
+            </div>
             <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." data-platform="${platformName}" value="${lastNote}">
-            ${lastValue ? `<div class="last-value">${lastValue}</div>` : '<div></div>'}
             <button class="remove-btn" onclick="removePlatformInput('${platformName}')">✕</button>
         </div>`;
     container.appendChild(div);
-    setTimeout(() => document.getElementById(`balance_${inputId}`).focus(), 100);
+    
+    // Tab/Enter Navigation
+    const balanceInput = document.getElementById(`balance_${inputId}`);
+    balanceInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' || e.key === 'Enter') {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                // Speichere beim Enter einzeln
+                saveSingleEntry(balanceInput);
+            }
+            // Fokussiere nächstes Feld
+            setTimeout(() => {
+                const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field'));
+                const currentIndex = allInputs.indexOf(balanceInput);
+                if (currentIndex < allInputs.length - 1) {
+                    const nextInput = allInputs[currentIndex + 1];
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }, 50);
+        }
+    });
 }
 
 function getStrategyForDate(date) {
@@ -2148,7 +2182,16 @@ function loadLastEntries() {
         document.getElementById('dailyStrategy').value = lastStrategy;
     }
 
-    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`);
+    // NEU: Fokussiere und selektiere das erste Eingabefeld
+    setTimeout(() => {
+        const firstInput = document.querySelector('#platformInputs .input-field');
+        if (firstInput) {
+            firstInput.focus();
+            firstInput.select(); // Wert wird selektiert für schnelles Überschreiben
+        }
+    }, 200);
+
+    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
 }
 
 // =================================================================================
@@ -2223,7 +2266,7 @@ async function saveAllEntries() {
         const balanceInput = document.getElementById(`balance_${inputId}`);
         const noteInput = document.getElementById(`note_${inputId}`);
         if (balanceInput && balanceInput.value) {
-            const balance = parseFloat(balanceInput.value.replace(',', '.'));
+            const balance = parseLocaleNumberString(balanceInput.value);
             if (isNaN(balance)) return;
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
             entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
@@ -2258,7 +2301,7 @@ async function saveAllEntries() {
 
 function saveCashflow() {
     const type = document.querySelector('input[name="cashflowType"]:checked')?.value;
-    const amount = parseFloat(document.getElementById('cashflowAmount').value.replace(',', '.'));
+    const amount = parseLocaleNumberString(document.getElementById('cashflowAmount').value);
     const date = document.getElementById('cashflowDate').value;
     const target = document.getElementById('cashflowTarget').value;
     const note = document.getElementById('cashflowNote').value;
@@ -2272,6 +2315,29 @@ function saveCashflow() {
     document.getElementById('cashflowAmount').value = '';
     document.getElementById('cashflowNote').value = '';
     showNotification(`${type === 'deposit' ? 'Einzahlung' : 'Auszahlung'} gespeichert!`);
+}
+
+/**
+ * Parses a number string that could be in German (1.234,56) or US/ISO (1,234.56) format.
+ * @param {string} str The number string to parse.
+ * @returns {number} The parsed number, or NaN if invalid.
+ */
+function parseLocaleNumberString(str) {
+    if (typeof str !== 'string' || !str.trim()) {
+        return NaN;
+    }
+    const cleanedStr = str.trim();
+    const lastDot = cleanedStr.lastIndexOf('.');
+    const lastComma = cleanedStr.lastIndexOf(',');
+
+    // Case 1: German format (comma is decimal separator), e.g., "1.234,56"
+    if (lastComma > lastDot) {
+        return parseFloat(cleanedStr.replace(/\./g, '').replace(',', '.'));
+    }
+
+    // Case 2: US/ISO format (dot is decimal separator), e.g., "1,234.56" or "1234.56"
+    // The comma is a thousands separator and must be removed.
+    return parseFloat(cleanedStr.replace(/,/g, ''));
 }
 
 async function deleteEntry(entryId) {
@@ -2377,7 +2443,7 @@ function makeNoteEditable(cell, entryId, type) {
         showNotification('Notiz aktualisiert!');
     };
     
-    input.onblur = save;
+    input.addEventListener('blur', save);
     input.onkeydown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -2409,7 +2475,7 @@ function makeBalanceEditable(cell, entryId, type) {
     input.select();
     
     const save = () => {
-        const newValue = parseFloat(input.value.replace(',', '.'));
+        const newValue = parseLocaleNumberString(input.value);
         if (isNaN(newValue) || newValue < 0) {
             showNotification('Ungültiger Betrag eingegeben!', 'error');
             cell.innerHTML = originalContent;
@@ -2432,7 +2498,7 @@ function makeBalanceEditable(cell, entryId, type) {
         showNotification('Betrag aktualisiert!');
     };
     
-    input.onblur = save;
+    input.addEventListener('blur', save);
     input.onkeydown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -2657,6 +2723,9 @@ function updateKeyMetrics() {
     
     const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
     document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
+    
+    const avgMonthlyReturn = durationYears > 0 ? Math.pow(1 + annualizedReturn, 1/12) - 1 : 0;
+    document.getElementById('metricAvgMonthlyReturn').textContent = `${(avgMonthlyReturn * 100).toFixed(2)}%`;
     
     const portfolioForecast = currentPortfolioValue * (1 + annualizedReturn);
     document.getElementById('metricPortfolioForecast').textContent = formatDollar(portfolioForecast);
@@ -3001,7 +3070,7 @@ async function bulkChangeAmount() {
 
     if (result === 'change') {
         const amountValue = document.getElementById('bottomSheet_input').value;
-        const newAmount = parseFloat(amountValue.replace(',', '.'));
+        const newAmount = parseLocaleNumberString(amountValue);
 
         if (isNaN(newAmount) || newAmount < 0) {
             return showNotification('Ungültiger Betrag eingegeben!', 'error');

@@ -64,6 +64,7 @@ body {
     background: var(--bg-gradient);
     min-height: 100vh;
     color: var(--text-primary);
+    user-select: text; /* Stellt sicher, dass Text standardmäßig markierbar ist */
     transition: all 0.3s ease;
 }
 
@@ -2908,4 +2909,62 @@ body.dark-mode .search-quick-filters .btn {
     .mobile-bottom-nav {
         display: none !important;
     }
+}
+
+/* Enhanced Input Cards */
+.enhanced-input-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.3s ease;
+}
+
+.enhanced-input-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.platform-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 180px;
+}
+
+.last-value-inline {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.saved-indicator {
+    position: absolute;
+    right: -30px;
+    font-size: 20px;
+    font-weight: bold;
+    animation: checkmark 0.3s ease;
+}
+
+@keyframes checkmark {
+    0% { transform: scale(0); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+/* Highlight changed values */
+.input-field:focus {
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.input-field[data-last-value]:not([value=""]) {
+    font-weight: 600;
 }
