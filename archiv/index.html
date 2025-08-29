@@ -96,9 +96,6 @@
             </div>
         </div>
 
-        <!-- Breadcrumbs werden hier per JS eingefügt -->
-        <div class="breadcrumbs"></div>
-
         <div class="tab-navigation">
             <button class="tab-btn active" onclick="switchTab('dashboard')" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
             <button class="tab-btn" onclick="switchTab('entry')" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
@@ -719,17 +716,6 @@
             <span class="nav-label">Historie</span>
         </button>
     </nav>
-
-    <!-- Batch Action Bar (wird dynamisch erstellt) -->
-    <div id="batchActionBar" style="position: fixed; bottom: 100px; left: 0; right: 0; background: var(--primary); color: white; padding: 12px 20px; display: none; justify-content: space-between; align-items: center; z-index: 999;">
-        <!-- Content wird per JS eingefügt -->
-    </div>
-
-    <!-- Auto-Save Indicator (wird dynamisch erstellt) -->
-    <div id="autoSaveIndicator" class="auto-save-indicator" style="display: none;">
-        <!-- Content wird per JS eingefügt -->
-    </div>
-
 
     <script src="script.js"></script>
     <script>

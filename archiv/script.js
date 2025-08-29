@@ -471,6 +471,13 @@ let benchmarkData = JSON.parse(JSON.stringify(DEFAULT_BENCHMARK_DATA)); // Lokal
 const apiCache = new Map();
 let showingCryptoBenchmarks = false;
 
+// =================================================================================
+// UTILITY FUNCTIONS
+// =================================================================================
+function isMobileDevice() {
+    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 // UNDO SYSTEM
 let undoStack = [];
 const MAX_UNDO_STACK = 20;
@@ -521,10 +528,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.addEventListener('resize', convertTablesToMobile);
 });
-
-function isMobileDevice() {
-    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
 
 // =================================================================================
 // LOKALES BACKUP (INDEXEDDB)
