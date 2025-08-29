@@ -352,6 +352,7 @@ const isFxVersion = window.location.pathname.includes('/fx');
 // *** GEÄNDERT: Neue Version für die Datenstruktur ***
 const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
+const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
@@ -385,7 +386,7 @@ const DEFAULT_PLATFORMS = [
 const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
-const MIN_BENCHMARK_DATE = new Date('2025-02-14T00:00:00Z'); // Fallback-Startdatum für Benchmark-Daten
+const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
@@ -398,23 +399,23 @@ const GOOGLE_SHEET_URLS = {
 // Feste Benchmark-Daten als Fallback
 const DEFAULT_BENCHMARK_DATA = {
     'DAX': [
-        { date: '2025-02-14', value: 17046 },
-        { date: '2025-03-15', value: 17936 },
-        { date: '2025-04-15', value: 17737 },
-        { date: '2025-05-15', value: 18738 },
-        { date: '2025-06-14', value: 18265 },
-        { date: '2025-07-15', value: 18530 },
-        { date: '2025-08-23', value: 18130 }
+        { date: '2024-02-14', value: 17046 },
+        { date: '2024-03-15', value: 17936 },
+        { date: '2024-04-15', value: 17737 },
+        { date: '2024-05-15', value: 18738 },
+        { date: '2024-06-14', value: 18265 },
+        { date: '2024-07-15', value: 18530 },
+        { date: '2024-08-23', value: 18130 }
     ],
     'SP500': [
         // Hier könntest du die echten Werte für den S&P 500 eintragen
-        { date: '2025-02-14', value: 5029 },
-        { date: '2025-03-15', value: 5117 },
-        { date: '2025-04-15', value: 5061 },
-        { date: '2025-05-15', value: 5308 },
-        { date: '2025-06-14', value: 5431 },
-        { date: '2025-07-15', value: 5574 },
-        { date: '2025-08-23', value: 5460 }
+        { date: '2024-02-14', value: 5029 },
+        { date: '2024-03-15', value: 5117 },
+        { date: '2024-04-15', value: 5061 },
+        { date: '2024-05-15', value: 5308 },
+        { date: '2024-06-14', value: 5431 },
+        { date: '2024-07-15', value: 5574 },
+        { date: '2024-08-23', value: 5460 }
     ]
 };
 
@@ -452,6 +453,7 @@ let db;
 let cashflowViewMode = 'list';
 let biometricEnabled = false;
 let quickActionsVisible = false;
+let historyViewMode = 'list';
 let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
@@ -492,11 +494,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupBottomSheet();
     setupKeyboardShortcuts();
     setupTouchGestures();
+    setupMobileTitle();
     setupAutocomplete();
     setupQuickActions();
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker();
+    initializeMobileNavigation();
 
     addMissingStyles();
 
@@ -512,18 +516,32 @@ function isMobileDevice() {
 // LOKALES BACKUP (INDEXEDDB)
 // =================================================================================
 function setupIndexedDB() {
-    const request = indexedDB.open('PortfolioDB', 1);
+    // Die Version wird hier direkt angegeben. onupgradeneeded wird automatisch
+    // aufgerufen, wenn die Browser-Version niedriger ist als DB_VERSION.
+    const request = indexedDB.open('PortfolioDB', DB_VERSION);
 
     request.onupgradeneeded = (event) => {
         const dbInstance = event.target.result;
+        const oldVersion = event.oldVersion;
+        console.log(`Führe IndexedDB-Upgrade von Version ${oldVersion} auf ${DB_VERSION} durch.`);
+        
+        // Beispiel für zukünftige Migrationen:
+        // if (oldVersion < 2) {
+        //     // Code für Upgrade auf Version 2
+        // }
+        // if (oldVersion < 3) {
+        //     // Code für Upgrade auf Version 3
+        // }
+
         if (!dbInstance.objectStoreNames.contains('backups')) {
             dbInstance.createObjectStore('backups', { keyPath: 'id' });
+            console.log("Object Store 'backups' erstellt.");
         }
     };
 
     request.onsuccess = (event) => {
         db = event.target.result;
-        console.log('IndexedDB erfolgreich initialisiert.');
+        console.log(`IndexedDB erfolgreich initialisiert mit Version: ${db.version}`);
     };
 
     request.onerror = (event) => {
@@ -986,6 +1004,20 @@ function addEventListeners() {
     });
 }
 
+function setupMobileTitle() {
+    // Change title on mobile devices
+    function updateTitle() {
+        const headerTitle = document.querySelector('.header-content h1');
+        if (headerTitle && window.innerWidth <= 768) {
+            headerTitle.innerHTML = '🚀 Web3 Portfolio';
+        }
+    }
+    
+    // Run on load and resize
+    updateTitle();
+    window.addEventListener('resize', updateTitle);
+}
+
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -997,7 +1029,7 @@ function setupKeyboardShortcuts() {
 
         if (e.altKey && e.key >= '1' && e.key <= '6') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'platforms', '5': 'history', '6': 'settings' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'history' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -1017,7 +1049,7 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             if (currentTab === 'dashboard') {
                 exportChart('portfolioChartContainer');
-            } else if (currentTab === 'platforms') {
+            } else if (currentTab === 'history') {
                 exportCSV();
             } else {
                 exportPDF();
@@ -1100,8 +1132,6 @@ function setupTouchGestures() {
         }
         isPulling = false;
         pullDistance = 0;
-
-        handleSwipeGesture(touchStartX, touchEndX, touchStartY, touchEndY);
     }, { passive: true });
 
     let longPressTimer;
@@ -1114,36 +1144,6 @@ function setupTouchGestures() {
 
     document.addEventListener('touchend', () => clearTimeout(longPressTimer));
     document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
-}
-
-function handleSwipeGesture(startX, endX, startY, endY) {
-    const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
-
-    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
-        const tabs = ['dashboard', 'entry', 'cashflow', 'platforms', 'history', 'settings'];
-        const currentIndex = tabs.indexOf(currentTab);
-        if (navigator.vibrate) navigator.vibrate(30);
-
-        if (diffX > 0 && currentIndex > 0) {
-            const newTab = tabs[currentIndex - 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        } else if (diffX < 0 && currentIndex < tabs.length - 1) {
-            const newTab = tabs[currentIndex + 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        }
-    }
-}
-
-function showSwipeIndicator(tabName) {
-    const indicator = document.getElementById('swipeIndicator');
-    const swipeText = document.getElementById('swipeText');
-    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'platforms': '💼 Plattformen', 'history': '📜 Historie', 'settings': '⚙️ Einstellungen' };
-
-    swipeText.textContent = tabNames[tabName];
-    indicator.classList.add('show');
-    setTimeout(() => indicator.classList.remove('show'), 1500);
 }
 
 // =================================================================================
@@ -1398,38 +1398,33 @@ function saveSingleEntry(inputElement) {
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
 
     const platformName = inputElement.dataset.platform;
-    const balance = parseFloat(inputElement.value.replace(',', '.'));
+    const balance = parseLocaleNumberString(inputElement.value); // Make sure this function exists and is correct
     const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
 
     if (!inputElement.value || isNaN(balance)) return;
 
     entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
     entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
-    
+
     saveData();
     applyDateFilter();
-    
-    // Verhalten aus deiner Referenz-Datei übernehmen: Feld leeren und Platzhalter setzen
-    inputElement.value = '';
-    inputElement.placeholder = `Gespeichert: ${balance.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    showNotification(`${platformName} gespeichert!`);
-    
-    // Fokussiere das nächste Input-Feld
-    setTimeout(() => {
-        const currentInputId = inputElement.id;
-        const allInputs = Array.from(document.querySelectorAll('.input-field[data-platform]'));
-        const currentIndex = allInputs.findIndex(input => input.id === currentInputId);
+
+    // Nach erfolgreichem Speichern Status aktualisieren
+    const card = inputElement.closest('.input-card');
+    if (card) {
+        card.classList.remove('unsaved-state');
+        card.classList.add('saved-state');
+        inputElement.classList.add('is-saved');
+        inputElement.dataset.saved = 'true';
         
-        if (currentIndex !== -1 && currentIndex < allInputs.length - 1) {
-            const nextInput = allInputs[currentIndex + 1];
-            nextInput.focus();
-            nextInput.select();
-        } else if (allInputs.length > 0) {
-            // Wenn es das letzte Feld war, gehe zum ersten zurück
-            allInputs[0].focus();
-            allInputs[0].select();
-        }
-    }, 100);
+        const indicators = card.querySelector('.input-indicators');
+        if (indicators) indicators.innerHTML = '<span class="indicator-saved">✓</span>';
+        
+        const statusEl = card.querySelector('.value-status');
+        if (statusEl) statusEl.innerHTML = '<span class="status-saved">✓ Heute gespeichert</span>';
+    }
+
+    showNotification(`${platformName} gespeichert!`);
 }
 
 function saveStrategyOnly() {
@@ -1506,7 +1501,7 @@ async function syncNow() {
     try {
         const cloudData = await fetchGistData();
         const localData = { platforms, entries, cashflows, dayStrategies, favorites, lastSync: new Date().toISOString() };
-        const mergedData = mergeData(localData, cloudData);
+        const mergedData = await mergeData(localData, cloudData);
         await saveToGist(mergedData);
 
         platforms = mergedData.platforms;
@@ -1556,15 +1551,36 @@ async function saveToGist(data) {
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
 }
 
-function mergeData(localData, cloudData) {
-    if (!cloudData || !cloudData.lastSync) return localData;
+async function mergeData(localData, cloudData) {
+    if (!cloudData || !cloudData.lastSync) {
+        return localData;
+    }
+    
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
-
+    
+    // Wenn Cloud-Daten neuer sind, frage den Benutzer
     if (cloudTime > localTime) {
-        showNotification("Neuere Daten aus der Cloud geladen.", "warning");
-        return cloudData;
+        const result = await showCustomPrompt({
+            title: 'Sync-Konflikt erkannt',
+            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}). Sollen die lokalen Daten überschrieben werden?`,
+            actions: [
+                { text: 'Lokale behalten', value: 'local' },
+                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' }
+            ]
+        });
+        
+        if (result === 'cloud') {
+            showNotification("Neuere Daten aus der Cloud geladen.", "warning");
+            return cloudData;
+        }
+        
+        // Lokale Daten behalten (oder bei Abbruch des Prompts)
+        showNotification("Lokale Daten werden beibehalten und beim nächsten Sync hochgeladen.", "info");
+        localData.lastSync = new Date().toISOString();
+        return localData;
     }
+    
     return localData;
 }
 
@@ -1781,7 +1797,42 @@ function switchTab(tabName, options = {}) {
     if (tabBtn) tabBtn.classList.add('active');
     currentTab = tabName;
     
+    // NEU: Automatisch letzte Einträge laden beim Wechsel zu "entry"
+    if (tabName === 'entry') {
+        // Prüfe ob bereits Einträge vorhanden sind
+        const hasExistingInputs = document.getElementById('platformInputs').children.length > 0;
+        if (!hasExistingInputs && entries.length > 0) {
+            setTimeout(() => {
+                loadLastEntries();
+            }, 100);
+        }
+    }
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Mobile Bottom Nav aktiven Tab aktualisieren
+    if (window.innerWidth <= 768) {
+        document.querySelectorAll('.mobile-nav-item').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.tab === tabName) {
+                btn.classList.add('active');
+            }
+        });
+        
+        // Body-Klasse für Padding hinzufügen
+        document.body.classList.add('has-mobile-nav');
+    }
+
+    // Badge-Update für Mobile Nav
+    const mobileNavEntry = document.querySelector('.mobile-nav-item[data-tab="entry"]');
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split('T')[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute('data-badge', todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute('data-badge');
+        }
+    }
     
     const quickActionsBar = document.getElementById('quickActionsBar');
     if (quickActionsBar && window.innerWidth <= 768) {
@@ -1793,15 +1844,15 @@ function switchTab(tabName, options = {}) {
             quickActionsVisible = false;
         }
     }
-    
-    if (tabName === 'platforms') updatePlatformDetails();
+
+    if (tabName === 'history') updateHistory();
     else if (tabName === 'cashflow') {
         updateCashflowDisplay();
         updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'history') {
         updateHistory();
-    }
+    } else if (tabName === 'platforms') updatePlatformDetails();
 }
 
 // =================================================================================
@@ -2011,18 +2062,15 @@ async function addCustomPlatform() {
     updateCashflowTargets();
     showNotification(`${name.trim()} hinzugefügt!`);
 }
-
 function addPlatformInput(platformName) {
     const container = document.getElementById('platformInputs');
     const inputId = platformName.replace(/\s+/g, '_');
     if (document.getElementById(`input_${inputId}`)) return;
-    
-    // Strategie-Container anzeigen, wenn es der erste Input ist
+
     if (container.children.length === 0) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) {
             strategyContainer.style.display = 'block';
-            // Strategie für das aktuelle Datum laden
             const date = document.getElementById('entryDate').value;
             const strategyInput = document.getElementById('dailyStrategy');
             if (strategyInput) strategyInput.value = getStrategyForDate(date);
@@ -2030,23 +2078,84 @@ function addPlatformInput(platformName) {
     }
 
     const lastEntry = getLastEntryForPlatform(platformName);
-    const lastValue = lastEntry ? lastEntry.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    const lastValue = lastEntry ? lastEntry.balance : 0;
     const lastNote = lastEntry ? lastEntry.note : '';
+    
+    // Prüfe ob für das aktuelle Datum bereits ein Wert existiert
+    const currentDate = document.getElementById('entryDate').value;
+    const todayEntry = entries.find(e => e.date === currentDate && e.protocol === platformName);
+    const isSaved = !!todayEntry;
+    const currentValue = todayEntry ? todayEntry.balance : lastValue;
 
     const div = document.createElement('div');
     div.id = `input_${inputId}`;
-    div.className = 'input-card';
+    div.className = `input-card ${isSaved ? 'saved-state' : 'unsaved-state'}`;
+    
     div.innerHTML = `
         <div class="input-row">
-            <div class="platform-name">${platformName}</div>
-            <input type="text" inputmode="decimal" id="balance_${inputId}" class="input-field" 
-                   placeholder="${lastValue ? 'Letzter: ' + lastValue : 'Balance in USD'}" data-platform="${platformName}">
-            <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." data-platform="${platformName}" value="${lastNote}">
-            ${lastValue ? `<div class="last-value">${lastValue}</div>` : '<div></div>'}
+            <div class="platform-info">
+                <div class="platform-name">${platformName}</div>
+                <div class="value-status">
+                    ${isSaved ? 
+                        `<span class="status-saved">✓ Heute gespeichert</span>` : 
+                        `<span class="status-unsaved">Letzter Wert: ${formatDollar(lastValue)} (${lastEntry ? formatDate(lastEntry.date) : 'Nie'})</span>`
+                    }
+                </div>
+            </div>
+            <div class="input-group">
+                <input type="text" 
+                       inputmode="decimal" 
+                       id="balance_${inputId}" 
+                       class="input-field ${isSaved ? 'is-saved' : ''}" 
+                       placeholder="${isSaved ? 'Gespeichert' : 'Neuer Wert...'}"
+                       data-platform="${platformName}"
+                       data-original-value="${lastValue}"
+                       data-saved="${isSaved}"
+                       value="${currentValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}">
+                <div class="input-indicators">
+                    ${isSaved ? '<span class="indicator-saved">✓</span>' : '<span class="indicator-pending">!</span>'}
+                </div>
+            </div>
+            <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." value="${todayEntry?.note || lastNote}">
             <button class="remove-btn" onclick="removePlatformInput('${platformName}')">✕</button>
         </div>`;
     container.appendChild(div);
-    setTimeout(() => document.getElementById(`balance_${inputId}`).focus(), 100);
+    
+    // Bei Änderung Status updaten
+    const input = document.getElementById(`balance_${inputId}`);
+    input.addEventListener('input', () => {
+        div.classList.remove('saved-state');
+        div.classList.add('unsaved-state');
+        input.classList.remove('is-saved');
+        input.dataset.saved = 'false';
+        
+        // Update indicators
+        const indicators = div.querySelector('.input-indicators');
+        indicators.innerHTML = '<span class="indicator-pending">!</span>';
+        
+        const statusEl = div.querySelector('.value-status');
+        statusEl.innerHTML = '<span class="status-unsaved">Nicht gespeichert</span>';
+    });
+
+    // Mit "Enter" speichern und zum nächsten Feld springen
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveSingleEntry(input);
+
+            // Kurzes Timeout, um dem Browser Zeit für das Update zu geben
+            setTimeout(() => {
+                const allInputs = Array.from(document.querySelectorAll('#platformInputs .input-field'));
+                const currentIndex = allInputs.indexOf(input);
+                
+                if (currentIndex > -1 && currentIndex < allInputs.length - 1) {
+                    const nextInput = allInputs[currentIndex + 1];
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }, 50);
+        }
+    });
 }
 
 function getStrategyForDate(date) {
@@ -2103,7 +2212,16 @@ function loadLastEntries() {
         document.getElementById('dailyStrategy').value = lastStrategy;
     }
 
-    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`);
+    // NEU: Fokussiere und selektiere das erste Eingabefeld
+    setTimeout(() => {
+        const firstInput = document.querySelector('#platformInputs .input-field');
+        if (firstInput) {
+            firstInput.focus();
+            firstInput.select(); // Wert wird selektiert für schnelles Überschreiben
+        }
+    }, 200);
+
+    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
 }
 
 // =================================================================================
@@ -2178,7 +2296,7 @@ async function saveAllEntries() {
         const balanceInput = document.getElementById(`balance_${inputId}`);
         const noteInput = document.getElementById(`note_${inputId}`);
         if (balanceInput && balanceInput.value) {
-            const balance = parseFloat(balanceInput.value.replace(',', '.'));
+            const balance = parseLocaleNumberString(balanceInput.value);
             if (isNaN(balance)) return;
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
             entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
@@ -2213,7 +2331,7 @@ async function saveAllEntries() {
 
 function saveCashflow() {
     const type = document.querySelector('input[name="cashflowType"]:checked')?.value;
-    const amount = parseFloat(document.getElementById('cashflowAmount').value.replace(',', '.'));
+    const amount = parseLocaleNumberString(document.getElementById('cashflowAmount').value);
     const date = document.getElementById('cashflowDate').value;
     const target = document.getElementById('cashflowTarget').value;
     const note = document.getElementById('cashflowNote').value;
@@ -2227,6 +2345,29 @@ function saveCashflow() {
     document.getElementById('cashflowAmount').value = '';
     document.getElementById('cashflowNote').value = '';
     showNotification(`${type === 'deposit' ? 'Einzahlung' : 'Auszahlung'} gespeichert!`);
+}
+
+/**
+ * Parses a number string that could be in German (1.234,56) or US/ISO (1,234.56) format.
+ * @param {string} str The number string to parse.
+ * @returns {number} The parsed number, or NaN if invalid.
+ */
+function parseLocaleNumberString(str) {
+    if (typeof str !== 'string' || !str.trim()) {
+        return NaN;
+    }
+    const cleanedStr = str.trim();
+    const lastDot = cleanedStr.lastIndexOf('.');
+    const lastComma = cleanedStr.lastIndexOf(',');
+
+    // Case 1: German format (comma is decimal separator), e.g., "1.234,56"
+    if (lastComma > lastDot) {
+        return parseFloat(cleanedStr.replace(/\./g, '').replace(',', '.'));
+    }
+
+    // Case 2: US/ISO format (dot is decimal separator), e.g., "1,234.56" or "1234.56"
+    // The comma is a thousands separator and must be removed.
+    return parseFloat(cleanedStr.replace(/,/g, ''));
 }
 
 async function deleteEntry(entryId) {
@@ -2284,6 +2425,29 @@ async function clearAllData() {
     }
 }
 
+async function makeDateEditable(cell, entryId, type) {
+    const dataArray = type === 'entry' ? entries : cashflows;
+    const entry = dataArray.find(e => e.id == entryId);
+    if (!entry) return;
+
+    const result = await showCustomPrompt({
+        title: 'Datum ändern',
+        text: `Wähle ein neues Datum für den Eintrag vom ${formatDate(entry.date)}.`,
+        showDateInput: true,
+        actions: [{text: 'Abbrechen'}, {text: 'Ändern', class: 'btn-primary', value: 'change'}]
+    });
+
+    if (result === 'change') {
+        const dateValue = document.getElementById('bottomSheet_date_input').value;
+        if (dateValue) {
+            entry.date = dateValue;
+            saveData();
+            applyDateFilter();
+            showNotification('Datum geändert.');
+        }
+    }
+}
+
 function makeNoteEditable(cell, entryId, type) {
     const dataArray = type === 'entry' ? entries : cashflows;
     const entry = dataArray.find(e => e.id == entryId);
@@ -2305,12 +2469,11 @@ function makeNoteEditable(cell, entryId, type) {
     const save = () => {
         entry.note = input.value;
         saveData();
-        cell.innerHTML = entry.note || `<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>`;
-        cell.onclick = () => makeNoteEditable(cell, entryId, type);
+        applyDateFilter(); // Re-render the entire view for consistency
         showNotification('Notiz aktualisiert!');
     };
     
-    input.onblur = save;
+    input.addEventListener('blur', save);
     input.onkeydown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -2342,7 +2505,7 @@ function makeBalanceEditable(cell, entryId, type) {
     input.select();
     
     const save = () => {
-        const newValue = parseFloat(input.value.replace(',', '.'));
+        const newValue = parseLocaleNumberString(input.value);
         if (isNaN(newValue) || newValue < 0) {
             showNotification('Ungültiger Betrag eingegeben!', 'error');
             cell.innerHTML = originalContent;
@@ -2365,7 +2528,7 @@ function makeBalanceEditable(cell, entryId, type) {
         showNotification('Betrag aktualisiert!');
     };
     
-    input.onblur = save;
+    input.addEventListener('blur', save);
     input.onkeydown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -2591,6 +2754,9 @@ function updateKeyMetrics() {
     const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
     document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
     
+    const avgMonthlyReturn = durationYears > 0 ? Math.pow(1 + annualizedReturn, 1/12) - 1 : 0;
+    document.getElementById('metricAvgMonthlyReturn').textContent = `${(avgMonthlyReturn * 100).toFixed(2)}%`;
+    
     const portfolioForecast = currentPortfolioValue * (1 + annualizedReturn);
     document.getElementById('metricPortfolioForecast').textContent = formatDollar(portfolioForecast);
 
@@ -2610,15 +2776,102 @@ function updateKeyMetrics() {
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
 }
 
+async function editEntry(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (!entry) return;
+
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Eintrag bearbeiten</h2></div>
+        <div class="modal-body">
+            <div class="github-input-group">
+                <label>Datum</label>
+                <input type="date" id="editEntryDate" class="date-input" value="${entry.date}">
+            </div>
+            <div class="github-input-group">
+                <label>Plattform</label>
+                <input type="text" id="editEntryProtocol" class="input-field" value="${entry.protocol}" readonly>
+            </div>
+            <div class="github-input-group">
+                <label>Balance</label>
+                <input type="text" inputmode="decimal" id="editEntryBalance" class="input-field" value="${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}">
+            </div>
+            <div class="github-input-group">
+                <label>Notiz</label>
+                <input type="text" id="editEntryNote" class="input-field" value="${entry.note || ''}">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
+            <button class="btn btn-success" onclick="saveEntryEdit(${entryId})">Speichern</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+    setTimeout(() => document.getElementById('editEntryBalance').focus(), 200);
+}
+
+function saveEntryEdit(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (!entry) return;
+
+    entry.date = document.getElementById('editEntryDate').value;
+    entry.balance = parseLocaleNumberString(document.getElementById('editEntryBalance').value);
+    entry.note = document.getElementById('editEntryNote').value;
+
+    if (isNaN(entry.balance)) {
+        return showNotification('Ungültiger Betrag.', 'error');
+    }
+
+    saveData();
+    applyDateFilter();
+    closeBottomSheet();
+    showNotification('Eintrag aktualisiert!', 'success');
+}
+
+async function deleteEntriesForDate(date) {
+    const entriesOnDate = entries.filter(e => e.date === date);
+    if (entriesOnDate.length === 0) {
+        return showNotification('Keine Einträge an diesem Datum zum Löschen vorhanden.', 'warning');
+    }
+
+    const confirmed = await showCustomPrompt({
+        title: 'Einträge löschen',
+        text: `Möchtest du wirklich alle ${entriesOnDate.length} Einträge vom ${formatDate(date)} löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+        actions: [
+            { text: 'Abbrechen' },
+            { text: 'Löschen', class: 'btn-danger', value: true }
+        ]
+    });
+
+    if (confirmed) {
+        entries = entries.filter(e => e.date !== date);
+        saveData();
+        applyDateFilter(); // This will re-render the history view
+        showNotification(`Alle Einträge für ${formatDate(date)} gelöscht.`, 'success');
+    }
+}
+
 // =================================================================================
 // HISTORY TAB - BULK ACTIONS & DISPLAY
 // =================================================================================
+
+function setHistoryView(mode) {
+    historyViewMode = mode;
+    document.querySelectorAll('#history .view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`#history .view-switcher .view-btn[onclick="setHistoryView('${mode}')"]`).classList.add('active');
+    updateHistory();
+}
+
 function updateHistory() {
+    const listView = document.getElementById('historyListView');
+    const groupedView = document.getElementById('historyGroupedView');
+    const byDateView = document.getElementById('historyByDateView');
+    const mobileCards = document.getElementById('historyMobileCards');
+    const searchInput = document.getElementById('historySearch');
+
     const tbody = document.getElementById('historyTableBody');
     const historySection = tbody.closest('.section');
     let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
     if (clearBtnContainer) clearBtnContainer.remove();
-
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
@@ -2627,12 +2880,37 @@ function updateHistory() {
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
         tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
     } else {
+        if (historyViewMode === 'grouped') {
+            listView.style.display = 'none';
+            mobileCards.style.display = 'none';
+            byDateView.style.display = 'none';
+            groupedView.style.display = 'block';
+            searchInput.style.visibility = 'visible';
+            searchInput.placeholder = "Gruppe suchen...";
+            renderGroupedHistory(searchTerm);
+            return;
+        } else if (historyViewMode === 'bydate') {
+            listView.style.display = 'none';
+            mobileCards.style.display = 'none';
+            groupedView.style.display = 'none';
+            byDateView.style.display = 'block';
+            searchInput.style.visibility = 'hidden'; // Suche hier nicht sinnvoll
+            renderGroupedHistoryByDate();
+            return;
+        }
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
             (e.note && e.note.toLowerCase().includes(searchTerm))
         );
     }
+
+    listView.style.display = 'block';
+    groupedView.style.display = 'none';
+    byDateView.style.display = 'none';
+    searchInput.placeholder = "In Liste suchen...";
+    searchInput.style.visibility = 'visible'; // Sicherstellen, dass es sichtbar ist
+    if (window.innerWidth <= 768) mobileCards.style.display = 'block';
 
     // Augment data with strategy for correct sorting
     const augmentedData = dataToDisplay.map(entry => ({
@@ -2688,6 +2966,182 @@ function updateHistory() {
     
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderGroupedHistoryByDate() {
+    const container = document.getElementById('historyByDateView');
+    
+    // Gruppiere Einträge nach Datum
+    const entriesByDate = {};
+    filteredEntries.forEach(entry => {
+        if (!entriesByDate[entry.date]) {
+            entriesByDate[entry.date] = [];
+        }
+        entriesByDate[entry.date].push(entry);
+    });
+    
+    // Sortiere Daten absteigend
+    const sortedDates = Object.keys(entriesByDate).sort((a, b) => new Date(b) - new Date(a));
+    
+    let html = '';
+    sortedDates.forEach(date => {
+        const dayEntries = entriesByDate[date];
+        const dayStrategy = dayStrategies.find(s => s.date === date);
+        const dayTotal = dayEntries.reduce((sum, e) => sum + e.balance, 0);
+        
+        // Vergleich zum Vortag
+        const prevDate = sortedDates[sortedDates.indexOf(date) + 1];
+        let dayChange = 0;
+        let dayChangePercent = 0;
+        if (prevDate) {
+            const prevTotal = entriesByDate[prevDate].reduce((sum, e) => sum + e.balance, 0);
+            const cashflowBetween = cashflows
+                .filter(c => c.date > prevDate && c.date <= date)
+                .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+            
+            dayChange = dayTotal - prevTotal - cashflowBetween;
+            dayChangePercent = prevTotal > 0 ? (dayChange / prevTotal) * 100 : 0;
+        }
+        
+        html += `
+            <details class="history-date-group" ${sortedDates.indexOf(date) === 0 ? 'open' : ''}>
+                <summary class="date-group-header">
+                    <div class="date-header-left">
+                        <div class="date-info">
+                            <span class="date-label">📅 ${formatDate(date)}</span>
+                            ${date === new Date().toISOString().split('T')[0] ? '<span class="today-badge">Heute</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="date-header-right">
+                        <div class="date-summary">
+                            <span class="entry-count">${dayEntries.length} Einträge</span>
+                            <span class="day-total">${formatDollar(dayTotal)}</span>
+                            <span class="day-change ${dayChange >= 0 ? 'positive' : 'negative'}">
+                                ${dayChange >= 0 ? '↑' : '↓'} ${formatDollar(Math.abs(dayChange))} (${dayChangePercent.toFixed(1)}%)
+                            </span>
+                        </div>
+                        <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteEntriesForDate('${date}')" title="Alle Einträge für diesen Tag löschen">🗑️</button>
+                    </div>
+                </summary>
+                <div class="date-group-content">
+                    ${dayStrategy ? `
+                        <div class="day-strategy">
+                            <strong>Strategie:</strong> ${dayStrategy.strategy}
+                        </div>
+                    ` : ''}
+                    <div class="day-entries">
+                        ${dayEntries.sort((a,b) => b.balance - a.balance).map(entry => `
+                            <div class="entry-row">
+                                <span class="entry-platform">${entry.protocol}</span>
+                                <span class="entry-balance dollar-value">
+                                    ${formatDollar(entry.balance)}
+                                </span>
+                                <span class="entry-note">${entry.note || ''}</span>
+                                <button class="btn btn-primary btn-small" onclick="editEntry(${entry.id})">✏️</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </details>
+        `;
+    });
+    
+    container.innerHTML = html || '<div class="empty-state">Keine Einträge vorhanden</div>';
+}
+
+function renderGroupedHistory(searchTerm = '') {
+    const container = document.getElementById('historyGroupedView');
+    container.innerHTML = '';
+
+    const groupedByPlatform = filteredEntries.reduce((acc, entry) => {
+        if (!acc[entry.protocol]) {
+            acc[entry.protocol] = [];
+        }
+        acc[entry.protocol].push(entry);
+        return acc;
+    }, {});
+
+    let platformKeys = Object.keys(groupedByPlatform).sort();
+
+    if (searchTerm) {
+        platformKeys = platformKeys.filter(key => key.toLowerCase().includes(searchTerm));
+    }
+
+    if (platformKeys.length === 0) {
+        const emptyMessage = searchTerm
+            ? `Keine Gruppen für "${searchTerm}" gefunden.`
+            : "Keine Einträge im ausgewählten Zeitraum.";
+        container.innerHTML = `<div class="empty-state">${emptyMessage}</div>`;
+        return;
+    }
+
+    const isMobile = window.innerWidth <= 768;
+    let html = '<div class="cashflow-groups">'; // Re-use cashflow group styling
+    platformKeys.forEach(platformName => {
+        const entries = groupedByPlatform[platformName].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latestEntry = entries[0];
+        const latestValue = latestEntry ? latestEntry.balance : 0;
+
+        html += `
+            <details class="cashflow-group">
+                <summary class="cashflow-group-summary">
+                    <div class="group-title">${platformName}</div>
+                    <div class="group-stats">
+                        <span>Einträge: ${entries.length}</span>
+                        <span>Letzter Wert: <strong class="dollar-value">${formatDollar(latestValue)}</strong></span>
+                    </div>
+                </summary>
+                <div class="cashflow-group-details">`;
+
+        if (isMobile) {
+            html += `<div class="mobile-cards" style="padding: 0; max-height: 300px; overflow-y: auto;">
+                ${entries.map(entry => {
+                    const strategy = getStrategyForDate(entry.date) || '';
+                    return `
+                    <div class="history-card" style="margin-bottom: 8px; padding: 12px;">
+                        <div class="history-card-header" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+                            <div class="history-card-date editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</div>
+                            <div class="history-card-balance dollar-value editable" style="font-size: 1.1em;" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">
+                                ${formatDollar(entry.balance)}
+                            </div>
+                        </div>
+                        ${strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                        <div class="history-card-details" style="border-top: none; padding-top: 0; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="history-card-note editable" style="flex-grow: 1;" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
+                                ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}
+                            </div>
+                            <div class="history-card-actions">
+                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        } else {
+            html += `<div class="data-table-wrapper" style="max-height: 400px;">
+                        <table class="data-table" style="table-layout: auto;">
+                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th><th>Aktion</th></tr></thead>
+                            <tbody>
+                                ${entries.map(entry => `
+                                    <tr>
+                                        <td class="editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</td>
+                                        <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+                                        <td>${getStrategyForDate(entry.date) || '-'}</td>
+                                        <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">🗑️</button></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+        }
+        html += `</div>
+            </details>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 function renderHistoryMobileCards(entries) {
@@ -2812,7 +3266,7 @@ async function bulkChangeAmount() {
 
     if (result === 'change') {
         const amountValue = document.getElementById('bottomSheet_input').value;
-        const newAmount = parseFloat(amountValue.replace(',', '.'));
+        const newAmount = parseLocaleNumberString(amountValue);
 
         if (isNaN(newAmount) || newAmount < 0) {
             return showNotification('Ungültiger Betrag eingegeben!', 'error');
@@ -3640,17 +4094,24 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
 }
 
 async function fetchCoinGeckoData(id, from, to) {
-    const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
+    const url = `${CORS_PROXY}${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
     
     try {
-        // Directly fetch from CoinGecko without caching in localStorage to avoid QuotaExceededError
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            const error = new Error(`HTTP error! status: ${response.status}`);
+            error.status = response.status; // Attach status to error object
+            throw error;
+        }
         const data = await response.json();
         return data.prices || [];
     } catch (error) {
-        console.error(`Failed to fetch ${id} data, using fallback:`, error);
-        return [];
+        if (error.status === 429) {
+            console.warn(`CoinGecko API rate limit hit for ${id}. Consider waiting before refreshing. Using fallback.`);
+        } else {
+            console.error(`Failed to fetch ${id} data, using fallback:`, error);
+        }
+        return []; // Return empty array as a fallback
     }
 }
 
@@ -3785,14 +4246,19 @@ async function updateChartWithBenchmarks() {
         };
 
         // Daten parallel laden
-        const [sp500Prices, daxPrices, btcPrices, ethPrices, dpiPrices] = await Promise.all([
+        // Lade nicht-krypto Daten parallel
+        const [sp500Prices, daxPrices] = await Promise.all([
             fetchMarketData('%5EGSPC', fromTs, toTs),
             fetchMarketData('%5EGDAXI', fromTs, toTs),
-            fetchMarketData('bitcoin', fromTs, toTs),
-            fetchMarketData('ethereum', fromTs, toTs),
-            fetchCoinGeckoData('defipulse-index', fromTs, toTs)
         ]);
         
+        // Lade Krypto-Daten sequenziell mit einer kleinen Verzögerung, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
+        const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
+
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
         portfolioChart.data.datasets[1].data = calculateBenchmarkChange(sp500Prices, sortedDates);
         portfolioChart.data.datasets[2].data = calculateBenchmarkChange(daxPrices, sortedDates);
@@ -3831,7 +4297,8 @@ async function fetchMarketData(ticker, from, to) {
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
     if (!sheetUrl || sheetUrl.includes('YOUR_')) {
-        console.warn(`Google Sheet URL for ${decodedTicker} is not configured.`);
+        console.warn(`Google Sheet URL für ${decodedTicker} ist nicht konfiguriert.`);
+        showNotification(`Sheet für ${decodedTicker} nicht konfiguriert. Fallback wird genutzt.`, 'warning');
         return useStaticFallback(ticker);
     }
     const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
@@ -3841,13 +4308,25 @@ async function fetchMarketData(ticker, from, to) {
         if (!response.ok) throw new Error(`HTTP error ${response.status}`);
         const csvText = await response.text();
 
+        // NEU: Explizite Prüfung auf den Ladezustand von Google Sheets.
+        const csvTextLower = csvText.trim().toLowerCase();
+        if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
+            console.warn(`Google Sheet für ${decodeURIComponent(ticker)} lädt noch. Fallback wird genutzt.`);
+            showNotification(`Sheet für ${decodedTicker} lädt noch. Fallback wird genutzt.`, 'info');
+            return useStaticFallback(ticker);
+        }
+
+
         const lines = csvText.split(/\r\n|\n/);
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        const dateColIndex = headers.indexOf('date') !== -1 ? headers.indexOf('date') : headers.indexOf('datum');
-        const closeColIndex = headers.indexOf('close') !== -1 ? headers.indexOf('close') : headers.indexOf('schluss');
+        
+        // Flexiblere Spaltenerkennung, die auf Schlüsselwörtern basiert
+        const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
+        const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
         if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Could not find header "Date/Datum" and "Close/Schluss" in Google Sheet CSV for ${ticker}`);
+            console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
+            showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
             return useStaticFallback(ticker);
         }
 
@@ -3884,9 +4363,13 @@ async function fetchMarketData(ticker, from, to) {
                 }
             }
         }
+        if (prices.length > 0) {
+            console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
+        }
         return prices;
     } catch (error) {
-        console.error(`Failed to fetch or process Google Sheet for ${decodeURIComponent(ticker)}:`, error);
+        console.error(`Fehler beim Laden oder Verarbeiten des Google Sheets für ${decodeURIComponent(ticker)}:`, error);
+        showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
         return useStaticFallback(ticker);
     }
 }
@@ -4083,44 +4566,78 @@ function parseCsvLine(line) {
     return fields;
 }
 
-function handleCsvImport(event) {
+async function handleCsvImport(event) {
     const file = event.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        const lines = text.split(/\r\n|\n/);
-        const newEntries = [];
-        const newCashflows = [];
-        const newDayStrategies = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-            if (!line) continue;
-            
-            const [type, date, protocolOrStrategy, amountStr, note] = parseCsvLine(line);
-            const amount = parseFloat(amountStr);
 
-            if (type && date) {
-                if (type.toLowerCase() === 'balance' && protocolOrStrategy && !isNaN(amount)) {
-                    newEntries.push({ id: Date.now() + Math.random(), date, protocol: protocolOrStrategy, balance: amount, note: note || '' });
-                } else if ((type.toLowerCase() === 'einzahlung' || type.toLowerCase() === 'auszahlung') && !isNaN(amount)) {
-                    newCashflows.push({ id: Date.now() + Math.random(), date, type: type.toLowerCase() === 'einzahlung' ? 'deposit' : 'withdraw', amount: amount, platform: protocolOrStrategy, note: note || '' });
-                } else if (type.toLowerCase() === 'tages-strategie' && protocolOrStrategy) {
-                    newDayStrategies.push({ date, strategy: protocolOrStrategy });
+    showNotification('Lese CSV-Datei...', 'info');
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+        try {
+            const text = e.target.result;
+            const lines = text.split(/\r\n|\n/);
+            const newEntries = [];
+            const newCashflows = [];
+            const newDayStrategies = [];
+            let skippedLines = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line.trim()) continue;
+
+                const fields = parseCsvLine(line);
+                if (fields.length < 2) {
+                    skippedLines++;
+                    continue;
+                }
+                
+                const [type, date, protocolOrStrategy, amountStr, note] = fields;
+                const amount = parseFloat(String(amountStr || '0').replace(',', '.'));
+
+                if (type && date) {
+                    const lowerType = type.toLowerCase();
+                    if (lowerType === 'balance' && protocolOrStrategy && !isNaN(amount)) {
+                        newEntries.push({ id: Date.now() + Math.random(), date, protocol: protocolOrStrategy, balance: amount, note: note || '' });
+                    } else if ((lowerType === 'einzahlung' || lowerType === 'auszahlung') && !isNaN(amount)) {
+                        newCashflows.push({ id: Date.now() + Math.random(), date, type: lowerType === 'einzahlung' ? 'deposit' : 'withdraw', amount: amount, platform: protocolOrStrategy, note: note || '' });
+                    } else if (lowerType === 'tages-strategie' && protocolOrStrategy) {
+                        newDayStrategies.push({ date, strategy: protocolOrStrategy });
+                    } else {
+                        skippedLines++;
+                    }
+                } else {
+                    skippedLines++;
                 }
             }
-        }
-        const confirmed = await showCustomPrompt({title: 'Import bestätigen', text: `${newEntries.length} Einträge, ${newCashflows.length} Cashflows und ${newDayStrategies.length} Strategien gefunden. Importieren?`});
-        if (confirmed) {
-            entries.push(...newEntries);
-            cashflows.push(...newCashflows);
-            dayStrategies.push(...newDayStrategies);
-            saveData();
-            applyDateFilter();
-            showNotification('Daten importiert!');
+
+            if (newEntries.length === 0 && newCashflows.length === 0 && newDayStrategies.length === 0) {
+                return showNotification(`Keine gültigen Daten im CSV gefunden. ${skippedLines > 0 ? `${skippedLines} Zeilen übersprungen.` : ''}`, 'error');
+            }
+
+            const confirmationText = `${newEntries.length} Balance-Einträge, ${newCashflows.length} Cashflows und ${newDayStrategies.length} Strategien gefunden.${skippedLines > 0 ? `<br><br><strong>⚠️ ${skippedLines} Zeilen wurden übersprungen.</strong>` : ''}<br><br>Sollen diese Daten importiert werden?`;
+            const confirmed = await showCustomPrompt({ title: 'CSV-Import bestätigen', text: confirmationText, actions: [{ text: 'Abbrechen', class: 'btn-danger' }, { text: 'Importieren', class: 'btn-success', value: true }] });
+
+            if (confirmed) {
+                entries.push(...newEntries);
+                cashflows.push(...newCashflows);
+                dayStrategies.push(...newDayStrategies);
+                saveData();
+                applyDateFilter();
+                showNotification('Daten erfolgreich importiert!', 'success');
+            } else {
+                showNotification('CSV-Import abgebrochen.', 'warning');
+            }
+        } catch (error) {
+            console.error("Fehler beim CSV-Import:", error);
+            showNotification('Fehler beim Verarbeiten der CSV-Datei.', 'error');
         }
     };
+
+    reader.onerror = () => {
+        showNotification('Fehler beim Lesen der Datei.', 'error');
+    };
+
     reader.readAsText(file);
     event.target.value = '';
 }
@@ -4465,25 +4982,19 @@ async function restoreFromLocalBackup() {
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-        const swCode = `
-            self.addEventListener('install', e => {
-                self.skipWaiting();
-            });
-            self.addEventListener('activate', e => {
-                e.waitUntil(clients.claim());
-            });
-            self.addEventListener('fetch', e => {
-                if (e.request.url.includes('api.github.com')) {
-                    return; 
-                }
-                e.respondWith(fetch(e.request));
-            });
-        `;
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        navigator.serviceWorker.register(swUrl).then(() => {
-            console.log('PWA Service Worker registered');
-        }).catch(err => console.log('SW registration failed:', err));
+        // Service Worker benötigen einen sicheren Kontext (HTTPS oder localhost).
+        // Diese Prüfung verhindert den Fehler, wenn die Datei lokal geöffnet wird.
+        if (!window.isSecureContext) {
+            console.warn('Service Worker-Registrierung übersprungen: Die App wird nicht über HTTPS oder localhost bereitgestellt.');
+            return;
+        }
+
+        // Service Worker müssen von einer Datei geladen werden, nicht von einem Blob.
+        navigator.serviceWorker.register('./sw.js').then((registration) => {
+            console.log('PWA Service Worker registriert, Scope:', registration.scope);
+        }).catch(err => {
+            console.error('SW-Registrierung fehlgeschlagen:', err);
+        });
     }
 }
 
@@ -4616,11 +5127,70 @@ function addMissingStyles() {
         .mobile-header-actions { display: none; }
 
         @media (max-width: 768px) {
-            .header-content h1 { font-size: 1.1em; }
-            .header-content .subtitle { display: none; }
-            .desktop-header-actions { display: none; }
-            .mobile-header-actions { display: block; position: relative; }
-            .more-actions-btn { padding: 6px 10px; }
+            /* Single horizontal line mobile header layout */
+            .header {
+                padding: 8px 16px;
+                min-height: auto;
+            }
+            
+            .header .container,
+            .header > div {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                width: 100% !important;
+                gap: 12px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .header-content {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                flex: 1 !important;
+                gap: 8px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .header-content h1 { 
+                font-size: 1em;
+                margin: 0 !important;
+                padding: 0 !important;
+                line-height: 1.2;
+                flex-shrink: 0;
+                white-space: nowrap;
+            }
+            
+            /* Mobile title styling */
+            .header-content h1 {
+                font-size: 1em !important;
+                font-weight: 600 !important;
+                color: var(--text-primary) !important;
+            }
+            
+            .header-content .subtitle { display: none !important; }
+            
+            .desktop-header-actions { display: none !important; }
+            
+            .mobile-header-actions { 
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+                position: relative;
+                flex-shrink: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            .more-actions-btn { 
+                padding: 4px 8px !important;
+                min-width: auto !important;
+                font-size: 0.9em;
+            }
             .header-actions-dropdown {
                 display: none;
                 position: absolute;
@@ -4643,44 +5213,398 @@ function addMissingStyles() {
 
         .view-switcher {
             display: flex;
-            gap: 5px;
+            gap: 4px;
             background-color: var(--background-alt);
-            padding: 5px;
-            border-radius: 8px;
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border-light);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+            width: fit-content;
         }
         .view-switcher .view-btn {
             border: none;
             background: transparent;
             color: var(--text-secondary);
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 500;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            min-width: 70px;
+            text-align: center;
+        }
+        .view-switcher .view-btn:hover:not(.active) {
+            color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.1);
         }
         .view-switcher .view-btn.active {
             background-color: var(--card-bg);
             color: var(--primary);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            transform: translateY(-1px);
         }
-        .cashflow-groups { display: flex; flex-direction: column; gap: 12px; }
-        .cashflow-group { border: 1px solid var(--border); border-radius: 8px; }
-        .cashflow-group-summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer; list-style: none; }
+        .cashflow-groups { display: flex; flex-direction: column; gap: 16px; }
+        .cashflow-group { 
+            border: 1px solid var(--border); 
+            border-radius: 12px; 
+            background-color: var(--card-bg);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .cashflow-group:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .cashflow-group-summary { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 16px 20px; 
+            cursor: pointer; 
+            list-style: none;
+            background-color: transparent;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+        .cashflow-group-summary::after {
+            content: '▼';
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%) rotate(0deg);
+            transition: transform 0.2s ease;
+            color: var(--text-secondary);
+            font-size: 0.8em;
+        }
+        .cashflow-group[open] .cashflow-group-summary::after {
+            transform: translateY(-50%) rotate(180deg);
+        }
+        .cashflow-group-summary:hover {
+            background-color: var(--background-alt);
+        }
         .cashflow-group-summary::-webkit-details-marker { display: none; }
-        .group-title { font-weight: 600; font-size: 1.1em; color: var(--text-primary); }
-        .group-stats { display: flex; gap: 16px; font-size: 0.9em; }
-        .cashflow-group-details { padding: 0 16px 16px; border-top: 1px solid var(--border); }
-        .transaction-row { display: grid; grid-template-columns: 100px 100px 1fr 1fr auto auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+        .group-title { font-weight: 600; font-size: 1.15em; color: var(--text-primary); }
+        .group-stats { display: flex; gap: 20px; font-size: 0.9em; margin-right: 30px; }
+        .cashflow-group-details { 
+            padding: 0 20px 20px; 
+            border-top: 1px solid var(--border-light);
+            background-color: var(--background);
+        }
+        .transaction-row { 
+            display: grid; 
+            grid-template-columns: 100px 100px 1fr 1fr auto auto; 
+            align-items: center; 
+            gap: 16px; 
+            padding: 12px 0; 
+            border-bottom: 1px solid var(--border-light); 
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+            border-radius: 8px;
+            margin: 0 -8px;
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+        .transaction-row:hover {
+            background-color: var(--background-alt);
+        }
         .transaction-row:last-child { border-bottom: none; }
         .transaction-note { color: var(--text-secondary); font-style: italic; }
         .transaction-platform { font-weight: 500; }
+        .transaction-date { font-weight: 500; color: var(--text-secondary); }
+        .transaction-type { 
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 500;
+            text-align: center;
+        }
+        .transaction-type.type-deposit {
+            background-color: rgba(34, 197, 94, 0.1);
+            color: #059669;
+        }
+        .transaction-type.type-withdrawal {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
         @media (max-width: 768px) {
-            .cashflow-group-summary { flex-direction: column; align-items: flex-start; gap: 8px; }
-            .group-stats { flex-wrap: wrap; }
-            .transaction-row { grid-template-columns: 1fr 1fr; }
-            .transaction-date, .transaction-type { grid-column: 1 / 2; }
-            .transaction-platform, .transaction-note { grid-column: 2 / 3; }
-            .transaction-amount { grid-column: 1 / 2; font-size: 1.1em; font-weight: 600; }
-            .transaction-row button { grid-column: 2 / 3; justify-self: end; }
+            .view-switcher {
+                width: 100%;
+                justify-content: center;
+            }
+            .view-switcher .view-btn {
+                flex: 1;
+                min-width: auto;
+            }
+            .cashflow-group-summary { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 12px;
+                padding: 16px;
+            }
+            .cashflow-group-summary::after {
+                right: 16px;
+            }
+            .group-stats { 
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-right: 20px;
+            }
+            .cashflow-group-details {
+                padding: 0 16px 16px;
+            }
+            .transaction-row { 
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                padding: 12px 8px;
+                margin: 0;
+            }
+            .transaction-date {
+                grid-column: 1;
+                font-size: 0.9em;
+            }
+            .transaction-type {
+                grid-column: 2;
+                grid-row: 1;
+            }
+            .transaction-platform {
+                grid-column: 1;
+                font-size: 0.9em;
+                margin-top: 4px;
+            }
+            .transaction-note {
+                grid-column: 1;
+                font-size: 0.85em;
+                margin-top: 2px;
+            }
+            .transaction-amount { 
+                grid-column: 1;
+                font-size: 1.1em; 
+                font-weight: 600;
+                margin-top: 8px;
+            }
+            .transaction-row button { 
+                grid-column: 2;
+                grid-row: 2 / span 3;
+                align-self: center;
+                justify-self: end;
+            }
+            
+            /* Mobile Platform Grid Styling */
+            #favoritesGrid, #platformGrid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+                padding: 4px;
+            }
+            
+            .platform-btn {
+                padding: 12px 8px;
+                min-height: 90px;
+                border-radius: 8px;
+            }
+            
+            .platform-btn .icon {
+                font-size: 1.8em;
+                margin-bottom: 6px;
+            }
+            
+            .platform-btn .name {
+                font-size: 0.85em;
+                margin-bottom: 2px;
+            }
+            
+            .platform-btn .type {
+                font-size: 0.7em;
+            }
+            
+            .platform-btn .tags {
+                margin-top: 6px;
+                gap: 3px;
+            }
+            
+            .platform-btn .tag {
+                font-size: 0.6em;
+                padding: 1px 4px;
+            }
+            
+            /* Mobile History Card Styling */
+            .history-card {
+                padding: 12px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+            }
+            
+            .history-card-header {
+                margin-bottom: 8px;
+            }
+            
+            .history-card-platform {
+                font-size: 1em;
+            }
+            
+            .history-card-date {
+                font-size: 0.85em;
+            }
+            
+            .history-card-balance {
+                font-size: 1.1em;
+            }
+            
+            .history-card-note {
+                font-size: 0.85em;
+                margin-top: 6px;
+                padding-top: 6px;
+            }
+            
+            /* Hide settings and platforms tabs on mobile */
+            .tab-btn[onclick="switchTab('settings')"],
+            .tab-btn[data-tab="settings"],
+            .tab-btn[onclick="switchTab('platforms')"],
+            .tab-btn[data-tab="platforms"] {
+                display: none !important;
+            }
+        }
+        
+        /* Hide platforms tab content completely */
+        #platforms,
+        .tab-content#platforms,
+        [data-tab="platforms"],
+        .tab-btn[onclick*="platforms"] {
+            display: none !important;
+        }
+        
+        /* Platform Grid Styling */
+        #favoritesGrid, #platformGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            padding: 8px;
+        }
+        
+        .platform-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 12px;
+            background: var(--card-bg);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            min-height: 100px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .platform-btn:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        
+        .platform-btn.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05));
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+        }
+        
+        .platform-btn.has-balance {
+            border-color: #10b981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+        }
+        
+        .platform-btn.has-balance.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.1));
+        }
+        
+        .platform-btn .icon {
+            font-size: 2em;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .platform-btn .name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            font-size: 0.9em;
+            line-height: 1.2;
+        }
+        
+        .platform-btn .type {
+            color: var(--text-secondary);
+            font-size: 0.75em;
+            opacity: 0.8;
+        }
+        
+        .platform-btn .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 8px;
+            justify-content: center;
+        }
+        
+        .platform-btn .tag {
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.65em;
+            font-weight: 500;
+        }
+        
+        /* History Card Styling */
+        .history-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .history-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: var(--primary);
+        }
+        
+        .history-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        
+        .history-card-platform {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 1.1em;
+        }
+        
+        .history-card-date {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            margin-top: 2px;
+        }
+        
+        .history-card-balance {
+            font-size: 1.2em;
+            font-weight: 700;
+            text-align: right;
+        }
+        
+        .history-card-note {
+            color: var(--text-secondary);
+            font-style: italic;
+            font-size: 0.9em;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-light);
         }
 
     `;
@@ -5239,6 +6163,38 @@ function executeSearchResult(item) {
             console.error("Error executing search action:", e);
         } finally {
             closeGlobalSearch();
+        }
+    }
+}
+// Initialize Mobile Navigation
+function initializeMobileNavigation() {
+    if (window.innerWidth <= 768) {
+        document.body.classList.add("has-mobile-nav");
+        
+        // Sync mobile nav with current active tab
+        const activeTab = document.querySelector(".tab-btn.active");
+        if (activeTab && activeTab.dataset.tab) {
+            const mobileNavItem = document.querySelector(`.mobile-nav-item[data-tab="${activeTab.dataset.tab}"]`);
+            if (mobileNavItem) {
+                document.querySelectorAll(".mobile-nav-item").forEach(btn => btn.classList.remove("active"));
+                mobileNavItem.classList.add("active");
+            }
+        }
+        
+        // Update badges
+        updateMobileNavBadges();
+    }
+}
+
+// Update Mobile Navigation Badges
+function updateMobileNavBadges() {
+    const mobileNavEntry = document.querySelector(".mobile-nav-item[data-tab=\"entry\"]");
+    if (mobileNavEntry) {
+        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split("T")[0]).length;
+        if (todayEntriesCount > 0) {
+            mobileNavEntry.setAttribute("data-badge", todayEntriesCount);
+        } else {
+            mobileNavEntry.removeAttribute("data-badge");
         }
     }
 }
