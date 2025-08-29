@@ -4704,12 +4704,16 @@ function registerServiceWorker() {
             return;
         }
 
-        // Service Worker müssen von einer Datei geladen werden, nicht von einem Blob.
-        navigator.serviceWorker.register('./sw.js').then((registration) => {
-            console.log('PWA Service Worker registriert, Scope:', registration.scope);
-        }).catch(err => {
-            console.error('SW-Registrierung fehlgeschlagen:', err);
-        });
+        const swCode = `
+            self.addEventListener('install', e => self.skipWaiting());
+            self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+            self.addEventListener('fetch', e => { /* Offline-Strategie kann hier implementiert werden */ });
+        `;
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl).then(() => {
+            console.log('PWA Service Worker registered');
+        }).catch(err => console.error('SW registration failed:', err));
     }
 }
 
