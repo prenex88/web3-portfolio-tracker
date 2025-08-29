@@ -441,7 +441,8 @@
                     <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
                     <div class="view-switcher">
                         <button class="view-btn active" onclick="setHistoryView('list')">Liste</button>
-                        <button class="view-btn" onclick="setHistoryView('grouped')">Gruppiert</button>
+                        <button class="view-btn" onclick="setHistoryView('grouped')">Nach Plattform</button>
+                        <button class="view-btn" onclick="setHistoryView('bydate')">Nach Datum</button>
                     </div>
                     <input type="text" id="historySearch" class="input-field" placeholder="In Liste suchen..." style="width: 200px;">
                 </div>
@@ -482,6 +483,9 @@
                 </div>
                 <div id="historyGroupedView" style="display: none;">
                     <!-- Gruppierte Ansicht wird hier von JavaScript eingefügt -->
+                </div>
+                <div id="historyByDateView" style="display: none;">
+                    <!-- Neue, nach Datum gruppierte Ansicht -->
                 </div>
             </div>
         </div>

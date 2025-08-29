@@ -2746,6 +2746,57 @@ function updateKeyMetrics() {
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
 }
 
+async function editEntry(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (!entry) return;
+
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Eintrag bearbeiten</h2></div>
+        <div class="modal-body">
+            <div class="github-input-group">
+                <label>Datum</label>
+                <input type="date" id="editEntryDate" class="date-input" value="${entry.date}">
+            </div>
+            <div class="github-input-group">
+                <label>Plattform</label>
+                <input type="text" id="editEntryProtocol" class="input-field" value="${entry.protocol}" readonly>
+            </div>
+            <div class="github-input-group">
+                <label>Balance</label>
+                <input type="text" inputmode="decimal" id="editEntryBalance" class="input-field" value="${entry.balance.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}">
+            </div>
+            <div class="github-input-group">
+                <label>Notiz</label>
+                <input type="text" id="editEntryNote" class="input-field" value="${entry.note || ''}">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
+            <button class="btn btn-success" onclick="saveEntryEdit(${entryId})">Speichern</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+    setTimeout(() => document.getElementById('editEntryBalance').focus(), 200);
+}
+
+function saveEntryEdit(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (!entry) return;
+
+    entry.date = document.getElementById('editEntryDate').value;
+    entry.balance = parseLocaleNumberString(document.getElementById('editEntryBalance').value);
+    entry.note = document.getElementById('editEntryNote').value;
+
+    if (isNaN(entry.balance)) {
+        return showNotification('Ungültiger Betrag.', 'error');
+    }
+
+    saveData();
+    applyDateFilter();
+    closeBottomSheet();
+    showNotification('Eintrag aktualisiert!', 'success');
+}
+
 // =================================================================================
 // HISTORY TAB - BULK ACTIONS & DISPLAY
 // =================================================================================
@@ -2760,6 +2811,7 @@ function setHistoryView(mode) {
 function updateHistory() {
     const listView = document.getElementById('historyListView');
     const groupedView = document.getElementById('historyGroupedView');
+    const byDateView = document.getElementById('historyByDateView');
     const mobileCards = document.getElementById('historyMobileCards');
     const searchInput = document.getElementById('historySearch');
 
@@ -2778,10 +2830,19 @@ function updateHistory() {
         if (historyViewMode === 'grouped') {
             listView.style.display = 'none';
             mobileCards.style.display = 'none';
+            byDateView.style.display = 'none';
             groupedView.style.display = 'block';
             searchInput.style.visibility = 'visible';
             searchInput.placeholder = "Gruppe suchen...";
             renderGroupedHistory(searchTerm);
+            return;
+        } else if (historyViewMode === 'bydate') {
+            listView.style.display = 'none';
+            mobileCards.style.display = 'none';
+            groupedView.style.display = 'none';
+            byDateView.style.display = 'block';
+            searchInput.style.visibility = 'hidden'; // Suche hier nicht sinnvoll
+            renderGroupedHistoryByDate();
             return;
         }
         dataToDisplay = filteredEntries.filter(e => 
@@ -2793,6 +2854,7 @@ function updateHistory() {
 
     listView.style.display = 'block';
     groupedView.style.display = 'none';
+    byDateView.style.display = 'none';
     searchInput.placeholder = "In Liste suchen...";
     searchInput.style.visibility = 'visible'; // Sicherstellen, dass es sichtbar ist
     if (window.innerWidth <= 768) mobileCards.style.display = 'block';
@@ -2851,6 +2913,82 @@ function updateHistory() {
     
     updateSelectAllCheckbox();
     updateBulkActionsBar();
+}
+
+function renderGroupedHistoryByDate() {
+    const container = document.getElementById('historyByDateView');
+    
+    // Gruppiere Einträge nach Datum
+    const entriesByDate = {};
+    filteredEntries.forEach(entry => {
+        if (!entriesByDate[entry.date]) {
+            entriesByDate[entry.date] = [];
+        }
+        entriesByDate[entry.date].push(entry);
+    });
+    
+    // Sortiere Daten absteigend
+    const sortedDates = Object.keys(entriesByDate).sort((a, b) => new Date(b) - new Date(a));
+    
+    let html = '';
+    sortedDates.forEach(date => {
+        const dayEntries = entriesByDate[date];
+        const dayStrategy = dayStrategies.find(s => s.date === date);
+        const dayTotal = dayEntries.reduce((sum, e) => sum + e.balance, 0);
+        
+        // Vergleich zum Vortag
+        const prevDate = sortedDates[sortedDates.indexOf(date) + 1];
+        let dayChange = 0;
+        let dayChangePercent = 0;
+        if (prevDate) {
+            const prevTotal = entriesByDate[prevDate].reduce((sum, e) => sum + e.balance, 0);
+            const cashflowBetween = cashflows
+                .filter(c => c.date > prevDate && c.date <= date)
+                .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+            
+            dayChange = dayTotal - prevTotal - cashflowBetween;
+            dayChangePercent = prevTotal > 0 ? (dayChange / prevTotal) * 100 : 0;
+        }
+        
+        html += `
+            <details class="history-date-group" ${sortedDates.indexOf(date) === 0 ? 'open' : ''}>
+                <summary class="date-group-header">
+                    <div class="date-info">
+                        <span class="date-label">📅 ${formatDate(date)}</span>
+                        ${date === new Date().toISOString().split('T')[0] ? '<span class="today-badge">Heute</span>' : ''}
+                    </div>
+                    <div class="date-summary">
+                        <span class="entry-count">${dayEntries.length} Einträge</span>
+                        <span class="day-total">${formatDollar(dayTotal)}</span>
+                        <span class="day-change ${dayChange >= 0 ? 'positive' : 'negative'}">
+                            ${dayChange >= 0 ? '↑' : '↓'} ${formatDollar(Math.abs(dayChange))} (${dayChangePercent.toFixed(1)}%)
+                        </span>
+                    </div>
+                </summary>
+                <div class="date-group-content">
+                    ${dayStrategy ? `
+                        <div class="day-strategy">
+                            <strong>Strategie:</strong> ${dayStrategy.strategy}
+                        </div>
+                    ` : ''}
+                    <div class="day-entries">
+                        ${dayEntries.sort((a,b) => b.balance - a.balance).map(entry => `
+                            <div class="entry-row">
+                                <span class="entry-platform">${entry.protocol}</span>
+                                <span class="entry-balance dollar-value">
+                                    ${formatDollar(entry.balance)}
+                                </span>
+                                <span class="entry-note">${entry.note || ''}</span>
+                                <button class="btn btn-primary btn-small" onclick="editEntry(${entry.id})">✏️</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </details>
+        `;
+    });
+    
+    container.innerHTML = html || '<div class="empty-state">Keine Einträge vorhanden</div>';
 }
 
 function renderGroupedHistory(searchTerm = '') {
