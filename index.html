@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
     
-    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV2ViMyBQb3J0Zm9saW8gVHJhY2tlciBQcm8iLCJzaG9ydF9uYW1lIjoiUG9ydGZvbGlvIFRyYWNrZXIiLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWwsPHN2ZyB4bWxucz0lMjJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyUyMiB2aWV3Qm94PSUyMjAgMCAxMDAgMTAwJTIyPjx0ZXh0IHk9JTIyLjllbSUyMiBmb250LXNpemU9JTIyOTAlMjI+8J+agDwvdGV4dD48L3N2Zz4iLCJzaXplcyI6IjE5MngxOTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCJ9XX0=">
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#6366f1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -15,7 +15,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%23764ba2'/></linearGradient></defs><circle cx='50' cy='50' r='45' fill='url(%23g)'/><text x='50' y='65' text-anchor='middle' font-size='40' fill='white'>🚀</text></svg>">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
     <style>
         /* Verhindert, dass der Browser scrollt, während wir das Bottom Sheet ziehen. */
@@ -55,7 +55,7 @@
     <div class="container" id="appContainer">
         <div class="header">
             <div class="header-content">
-                <div class="header-title-group">
+                <div class="header-title-group" onclick="switchTab('dashboard')" style="cursor: pointer;" title="Zum Dashboard">
                     <h1>🚀 Web3 Portfolio Tracker Pro</h1>
                     <div class="subtitle">Advanced Portfolio Management mit Cloud Sync</div>
                 </div>
@@ -441,7 +441,8 @@
                     <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
                     <div class="view-switcher">
                         <button class="view-btn active" onclick="setHistoryView('list')">Liste</button>
-                        <button class="view-btn" onclick="setHistoryView('grouped')">Gruppiert</button>
+                        <button class="view-btn" onclick="setHistoryView('grouped')">Nach Plattform</button>
+                        <button class="view-btn" onclick="setHistoryView('bydate')">Nach Datum</button>
                     </div>
                     <input type="text" id="historySearch" class="input-field" placeholder="In Liste suchen..." style="width: 200px;">
                 </div>
@@ -482,6 +483,9 @@
                 </div>
                 <div id="historyGroupedView" style="display: none;">
                     <!-- Gruppierte Ansicht wird hier von JavaScript eingefügt -->
+                </div>
+                <div id="historyByDateView" style="display: none;">
+                    <!-- Neue, nach Datum gruppierte Ansicht -->
                 </div>
             </div>
         </div>
