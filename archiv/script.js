@@ -4281,44 +4281,78 @@ function parseCsvLine(line) {
     return fields;
 }
 
-function handleCsvImport(event) {
+async function handleCsvImport(event) {
     const file = event.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        const lines = text.split(/\r\n|\n/);
-        const newEntries = [];
-        const newCashflows = [];
-        const newDayStrategies = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-            if (!line) continue;
-            
-            const [type, date, protocolOrStrategy, amountStr, note] = parseCsvLine(line);
-            const amount = parseFloat(amountStr);
 
-            if (type && date) {
-                if (type.toLowerCase() === 'balance' && protocolOrStrategy && !isNaN(amount)) {
-                    newEntries.push({ id: Date.now() + Math.random(), date, protocol: protocolOrStrategy, balance: amount, note: note || '' });
-                } else if ((type.toLowerCase() === 'einzahlung' || type.toLowerCase() === 'auszahlung') && !isNaN(amount)) {
-                    newCashflows.push({ id: Date.now() + Math.random(), date, type: type.toLowerCase() === 'einzahlung' ? 'deposit' : 'withdraw', amount: amount, platform: protocolOrStrategy, note: note || '' });
-                } else if (type.toLowerCase() === 'tages-strategie' && protocolOrStrategy) {
-                    newDayStrategies.push({ date, strategy: protocolOrStrategy });
+    showNotification('Lese CSV-Datei...', 'info');
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+        try {
+            const text = e.target.result;
+            const lines = text.split(/\r\n|\n/);
+            const newEntries = [];
+            const newCashflows = [];
+            const newDayStrategies = [];
+            let skippedLines = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line.trim()) continue;
+
+                const fields = parseCsvLine(line);
+                if (fields.length < 2) {
+                    skippedLines++;
+                    continue;
+                }
+                
+                const [type, date, protocolOrStrategy, amountStr, note] = fields;
+                const amount = parseFloat(String(amountStr || '0').replace(',', '.'));
+
+                if (type && date) {
+                    const lowerType = type.toLowerCase();
+                    if (lowerType === 'balance' && protocolOrStrategy && !isNaN(amount)) {
+                        newEntries.push({ id: Date.now() + Math.random(), date, protocol: protocolOrStrategy, balance: amount, note: note || '' });
+                    } else if ((lowerType === 'einzahlung' || lowerType === 'auszahlung') && !isNaN(amount)) {
+                        newCashflows.push({ id: Date.now() + Math.random(), date, type: lowerType === 'einzahlung' ? 'deposit' : 'withdraw', amount: amount, platform: protocolOrStrategy, note: note || '' });
+                    } else if (lowerType === 'tages-strategie' && protocolOrStrategy) {
+                        newDayStrategies.push({ date, strategy: protocolOrStrategy });
+                    } else {
+                        skippedLines++;
+                    }
+                } else {
+                    skippedLines++;
                 }
             }
-        }
-        const confirmed = await showCustomPrompt({title: 'Import bestätigen', text: `${newEntries.length} Einträge, ${newCashflows.length} Cashflows und ${newDayStrategies.length} Strategien gefunden. Importieren?`});
-        if (confirmed) {
-            entries.push(...newEntries);
-            cashflows.push(...newCashflows);
-            dayStrategies.push(...newDayStrategies);
-            saveData();
-            applyDateFilter();
-            showNotification('Daten importiert!');
+
+            if (newEntries.length === 0 && newCashflows.length === 0 && newDayStrategies.length === 0) {
+                return showNotification(`Keine gültigen Daten im CSV gefunden. ${skippedLines > 0 ? `${skippedLines} Zeilen übersprungen.` : ''}`, 'error');
+            }
+
+            const confirmationText = `${newEntries.length} Balance-Einträge, ${newCashflows.length} Cashflows und ${newDayStrategies.length} Strategien gefunden.${skippedLines > 0 ? `<br><br><strong>⚠️ ${skippedLines} Zeilen wurden übersprungen.</strong>` : ''}<br><br>Sollen diese Daten importiert werden?`;
+            const confirmed = await showCustomPrompt({ title: 'CSV-Import bestätigen', text: confirmationText, actions: [{ text: 'Abbrechen', class: 'btn-danger' }, { text: 'Importieren', class: 'btn-success', value: true }] });
+
+            if (confirmed) {
+                entries.push(...newEntries);
+                cashflows.push(...newCashflows);
+                dayStrategies.push(...newDayStrategies);
+                saveData();
+                applyDateFilter();
+                showNotification('Daten erfolgreich importiert!', 'success');
+            } else {
+                showNotification('CSV-Import abgebrochen.', 'warning');
+            }
+        } catch (error) {
+            console.error("Fehler beim CSV-Import:", error);
+            showNotification('Fehler beim Verarbeiten der CSV-Datei.', 'error');
         }
     };
+
+    reader.onerror = () => {
+        showNotification('Fehler beim Lesen der Datei.', 'error');
+    };
+
     reader.readAsText(file);
     event.target.value = '';
 }
@@ -4670,16 +4704,12 @@ function registerServiceWorker() {
             return;
         }
 
-        const swCode = `
-            self.addEventListener('install', e => self.skipWaiting());
-            self.addEventListener('activate', e => e.waitUntil(clients.claim()));
-            self.addEventListener('fetch', e => { /* Offline-Strategie kann hier implementiert werden */ });
-        `;
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        navigator.serviceWorker.register(swUrl).then(() => {
-            console.log('PWA Service Worker registered');
-        }).catch(err => console.error('SW registration failed:', err));
+        // Service Worker müssen von einer Datei geladen werden, nicht von einem Blob.
+        navigator.serviceWorker.register('./sw.js').then((registration) => {
+            console.log('PWA Service Worker registriert, Scope:', registration.scope);
+        }).catch(err => {
+            console.error('SW-Registrierung fehlgeschlagen:', err);
+        });
     }
 }
 
