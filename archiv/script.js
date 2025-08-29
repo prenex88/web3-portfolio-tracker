@@ -352,6 +352,7 @@ const isFxVersion = window.location.pathname.includes('/fx');
 // *** GEÄNDERT: Neue Version für die Datenstruktur ***
 const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
+const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
@@ -385,7 +386,7 @@ const DEFAULT_PLATFORMS = [
 const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
-const MIN_BENCHMARK_DATE = new Date('2025-02-14T00:00:00Z'); // Fallback-Startdatum für Benchmark-Daten
+const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
@@ -398,23 +399,23 @@ const GOOGLE_SHEET_URLS = {
 // Feste Benchmark-Daten als Fallback
 const DEFAULT_BENCHMARK_DATA = {
     'DAX': [
-        { date: '2025-02-14', value: 17046 },
-        { date: '2025-03-15', value: 17936 },
-        { date: '2025-04-15', value: 17737 },
-        { date: '2025-05-15', value: 18738 },
-        { date: '2025-06-14', value: 18265 },
-        { date: '2025-07-15', value: 18530 },
-        { date: '2025-08-23', value: 18130 }
+        { date: '2024-02-14', value: 17046 },
+        { date: '2024-03-15', value: 17936 },
+        { date: '2024-04-15', value: 17737 },
+        { date: '2024-05-15', value: 18738 },
+        { date: '2024-06-14', value: 18265 },
+        { date: '2024-07-15', value: 18530 },
+        { date: '2024-08-23', value: 18130 }
     ],
     'SP500': [
         // Hier könntest du die echten Werte für den S&P 500 eintragen
-        { date: '2025-02-14', value: 5029 },
-        { date: '2025-03-15', value: 5117 },
-        { date: '2025-04-15', value: 5061 },
-        { date: '2025-05-15', value: 5308 },
-        { date: '2025-06-14', value: 5431 },
-        { date: '2025-07-15', value: 5574 },
-        { date: '2025-08-23', value: 5460 }
+        { date: '2024-02-14', value: 5029 },
+        { date: '2024-03-15', value: 5117 },
+        { date: '2024-04-15', value: 5061 },
+        { date: '2024-05-15', value: 5308 },
+        { date: '2024-06-14', value: 5431 },
+        { date: '2024-07-15', value: 5574 },
+        { date: '2024-08-23', value: 5460 }
     ]
 };
 
@@ -515,18 +516,32 @@ function isMobileDevice() {
 // LOKALES BACKUP (INDEXEDDB)
 // =================================================================================
 function setupIndexedDB() {
-    const request = indexedDB.open('PortfolioDB', 1);
+    // Die Version wird hier direkt angegeben. onupgradeneeded wird automatisch
+    // aufgerufen, wenn die Browser-Version niedriger ist als DB_VERSION.
+    const request = indexedDB.open('PortfolioDB', DB_VERSION);
 
     request.onupgradeneeded = (event) => {
         const dbInstance = event.target.result;
+        const oldVersion = event.oldVersion;
+        console.log(`Führe IndexedDB-Upgrade von Version ${oldVersion} auf ${DB_VERSION} durch.`);
+        
+        // Beispiel für zukünftige Migrationen:
+        // if (oldVersion < 2) {
+        //     // Code für Upgrade auf Version 2
+        // }
+        // if (oldVersion < 3) {
+        //     // Code für Upgrade auf Version 3
+        // }
+
         if (!dbInstance.objectStoreNames.contains('backups')) {
             dbInstance.createObjectStore('backups', { keyPath: 'id' });
+            console.log("Object Store 'backups' erstellt.");
         }
     };
 
     request.onsuccess = (event) => {
         db = event.target.result;
-        console.log('IndexedDB erfolgreich initialisiert.');
+        console.log(`IndexedDB erfolgreich initialisiert mit Version: ${db.version}`);
     };
 
     request.onerror = (event) => {
@@ -1117,8 +1132,6 @@ function setupTouchGestures() {
         }
         isPulling = false;
         pullDistance = 0;
-
-        handleSwipeGesture(touchStartX, touchEndX, touchStartY, touchEndY);
     }, { passive: true });
 
     let longPressTimer;
@@ -1131,36 +1144,6 @@ function setupTouchGestures() {
 
     document.addEventListener('touchend', () => clearTimeout(longPressTimer));
     document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
-}
-
-function handleSwipeGesture(startX, endX, startY, endY) {
-    const diffX = endX - startX, diffY = endY - startY, minSwipeDistance = 50;
-
-    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > minSwipeDistance) {
-        const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
-        const currentIndex = tabs.indexOf(currentTab);
-        if (navigator.vibrate) navigator.vibrate(30);
-
-        if (diffX > 0 && currentIndex > 0) {
-            const newTab = tabs[currentIndex - 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        } else if (diffX < 0 && currentIndex < tabs.length - 1) {
-            const newTab = tabs[currentIndex + 1];
-            switchTab(newTab);
-            showSwipeIndicator(newTab);
-        }
-    }
-}
-
-function showSwipeIndicator(tabName) {
-    const indicator = document.getElementById('swipeIndicator');
-    const swipeText = document.getElementById('swipeText');
-    const tabNames = { 'dashboard': '📊 Dashboard', 'entry': '📝 Neuer Eintrag', 'cashflow': '💸 Cashflow', 'history': '📜 Historie' };
-
-    swipeText.textContent = tabNames[tabName];
-    indicator.classList.add('show');
-    setTimeout(() => indicator.classList.remove('show'), 1500);
 }
 
 // =================================================================================
@@ -1523,7 +1506,7 @@ async function syncNow() {
     try {
         const cloudData = await fetchGistData();
         const localData = { platforms, entries, cashflows, dayStrategies, favorites, lastSync: new Date().toISOString() };
-        const mergedData = mergeData(localData, cloudData);
+        const mergedData = await mergeData(localData, cloudData);
         await saveToGist(mergedData);
 
         platforms = mergedData.platforms;
@@ -1573,15 +1556,36 @@ async function saveToGist(data) {
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
 }
 
-function mergeData(localData, cloudData) {
-    if (!cloudData || !cloudData.lastSync) return localData;
+async function mergeData(localData, cloudData) {
+    if (!cloudData || !cloudData.lastSync) {
+        return localData;
+    }
+    
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
-
+    
+    // Wenn Cloud-Daten neuer sind, frage den Benutzer
     if (cloudTime > localTime) {
-        showNotification("Neuere Daten aus der Cloud geladen.", "warning");
-        return cloudData;
+        const result = await showCustomPrompt({
+            title: 'Sync-Konflikt erkannt',
+            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}). Sollen die lokalen Daten überschrieben werden?`,
+            actions: [
+                { text: 'Lokale behalten', value: 'local' },
+                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' }
+            ]
+        });
+        
+        if (result === 'cloud') {
+            showNotification("Neuere Daten aus der Cloud geladen.", "warning");
+            return cloudData;
+        }
+        
+        // Lokale Daten behalten (oder bei Abbruch des Prompts)
+        showNotification("Lokale Daten werden beibehalten und beim nächsten Sync hochgeladen.", "info");
+        localData.lastSync = new Date().toISOString();
+        return localData;
     }
+    
     return localData;
 }
 
@@ -3825,10 +3829,9 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
 }
 
 async function fetchCoinGeckoData(id, from, to) {
-    const url = `${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
+    const url = `${CORS_PROXY}${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
     
     try {
-        // Directly fetch from CoinGecko without caching in localStorage to avoid QuotaExceededError
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
@@ -4025,6 +4028,14 @@ async function fetchMarketData(ticker, from, to) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error ${response.status}`);
         const csvText = await response.text();
+
+        // NEU: Explizite Prüfung auf den Ladezustand von Google Sheets.
+        const csvTextLower = csvText.trim().toLowerCase();
+        if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
+            console.warn(`Google Sheet for ${decodeURIComponent(ticker)} is still loading. Using fallback.`);
+            return useStaticFallback(ticker);
+        }
+
 
         const lines = csvText.split(/\r\n|\n/);
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
@@ -4652,25 +4663,23 @@ async function restoreFromLocalBackup() {
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
+        // Service Worker benötigen einen sicheren Kontext (HTTPS oder localhost).
+        // Diese Prüfung verhindert den Fehler, wenn die Datei lokal geöffnet wird.
+        if (!window.isSecureContext) {
+            console.warn('Service Worker-Registrierung übersprungen: Die App wird nicht über HTTPS oder localhost bereitgestellt.');
+            return;
+        }
+
         const swCode = `
-            self.addEventListener('install', e => {
-                self.skipWaiting();
-            });
-            self.addEventListener('activate', e => {
-                e.waitUntil(clients.claim());
-            });
-            self.addEventListener('fetch', e => {
-                if (e.request.url.includes('api.github.com')) {
-                    return; 
-                }
-                e.respondWith(fetch(e.request));
-            });
+            self.addEventListener('install', e => self.skipWaiting());
+            self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+            self.addEventListener('fetch', e => { /* Offline-Strategie kann hier implementiert werden */ });
         `;
         const blob = new Blob([swCode], { type: 'application/javascript' });
         const swUrl = URL.createObjectURL(blob);
         navigator.serviceWorker.register(swUrl).then(() => {
             console.log('PWA Service Worker registered');
-        }).catch(err => console.log('SW registration failed:', err));
+        }).catch(err => console.error('SW registration failed:', err));
     }
 }
 
