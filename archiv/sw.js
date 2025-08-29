@@ -1,7 +1,27 @@
-self.addEventListener('install', e => {
-    e.waitUntil(self.skipWaiting());
+const CACHE_NAME = 'portfolio-tracker-v1';
+const urlsToCache = [
+  './',
+  './index.html',
+  './style.css',
+  './script.js',
+  './manifest.json',
+  './icon.svg'
+];
+
+self.addEventListener('install', event => {
+  // Führt die Installationsschritte aus
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log('Cache geöffnet');
+        return cache.addAll(urlsToCache);
+      })
+  );
 });
-self.addEventListener('activate', e => {
-    e.waitUntil(self.clients.claim());
+
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request)
+      .then(response => response || fetch(event.request))
+  );
 });
-self.addEventListener('fetch', e => { /* Hier kann eine Offline-Strategie implementiert werden */ });
