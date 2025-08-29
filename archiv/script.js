@@ -3987,9 +3987,11 @@ async function updateChartWithBenchmarks() {
             fetchMarketData('%5EGDAXI', fromTs, toTs),
         ]);
         
-        // Lade Krypto-Daten sequenziell, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
+        // Lade Krypto-Daten sequenziell mit einer kleinen Verzögerung, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
         const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
         const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
         const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
 
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
@@ -4095,6 +4097,9 @@ async function fetchMarketData(ticker, from, to) {
                     }
                 }
             }
+        }
+        if (prices.length > 0) {
+            console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
         }
         return prices;
     } catch (error) {
