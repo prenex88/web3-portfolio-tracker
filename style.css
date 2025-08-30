@@ -1554,6 +1554,27 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     transform: translateY(0) scale(1);
     opacity: 1;
 }
+.notification.with-undo {
+    min-width: 250px;
+}
+
+.undo-btn {
+    margin-left: 12px;
+    padding: 4px 12px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.undo-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
 
 .github-input-group {
     margin-bottom: 20px;
@@ -3098,4 +3119,129 @@ body.dark-mode .search-quick-filters .btn {
     0% { opacity: 1; }
     50% { opacity: 0.5; }
     100% { opacity: 1; }
+}
+
+/* Mobile-First Tables */
+@media (max-width: 768px) {
+    .data-table-wrapper {
+        overflow-x: visible;
+    }
+    .data-table {
+        display: block;
+        border: none;
+    }
+    
+    .data-table thead {
+        display: none;
+    }
+    
+    .data-table tbody {
+        display: block;
+    }
+    
+    .data-table tr {
+        display: block;
+        margin-bottom: 16px;
+        background: var(--card-bg);
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .data-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border: none;
+        border-bottom: 1px solid var(--border-light);
+        text-align: right;
+    }
+    
+    .data-table td:first-child {
+        border-left: none;
+        border-radius: 0;
+    }
+
+    .data-table td:last-child {
+        border-right: none;
+        border-radius: 0;
+        border-bottom: none;
+    }
+    
+    .data-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 12px;
+        text-transform: uppercase;
+        text-align: left;
+        margin-right: 10px;
+    }
+
+    /* Spezifische Anpassungen für History Mobile Cards */
+    #history .data-table-wrapper {
+        display: none;
+    }
+    #history .mobile-cards {
+        display: block;
+    }
+}
+
+@media (min-width: 769px) {
+    #history .mobile-cards {
+        display: none;
+    }
+}
+
+/* History Card Styling (für mobile Ansicht) */
+.history-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    position: relative;
+}
+.history-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+.history-card-platform {
+    font-weight: 600;
+    font-size: 1.1em;
+}
+.history-card-date {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+.history-card-balance {
+    font-size: 1.2em;
+    font-weight: 700;
+}
+.history-card-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
+}
+.history-card-note {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-right: 12px;
+}
+.history-card-actions {
+    display: flex;
+    gap: 8px;
+}
+.history-card-checkbox {
+    position: absolute;
+    top: 12px;
+    right: 12px;
 }
