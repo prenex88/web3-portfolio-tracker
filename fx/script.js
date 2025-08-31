@@ -388,6 +388,16 @@ const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
+// NEU: Konfiguration für Alpha Vantage als robustere Datenquelle
+const ALPHA_VANTAGE_API_KEY = 'YOUR_API_KEY_HERE'; // Kostenlosen Key auf alphavantage.co erstellen und hier eintragen
+const ALPHA_VANTAGE_API_URL = 'https://www.alphavantage.co/query';
+
+// Mapping von internen Tickern zu Alpha Vantage Symbolen
+const ALPHA_VANTAGE_SYMBOL_MAP = {
+    '^GSPC': 'SPY',       // SPY ist ein ETF, der den S&P 500 abbildet und eine gute Annäherung ist.
+    '^GDAXI': '^GDAXI'      // DAX Index Symbol bei Alpha Vantage
+};
+
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
@@ -405,7 +415,9 @@ const DEFAULT_BENCHMARK_DATA = {
         { date: '2024-05-15', value: 18738 },
         { date: '2024-06-14', value: 18265 },
         { date: '2024-07-15', value: 18530 },
-        { date: '2024-08-23', value: 18130 }
+        { date: '2024-08-23', value: 18130 },
+        { date: '2025-02-13', value: 19000 },
+        { date: '2025-02-14', value: 19050 } // NEU: Wert für den Test-Tag hinzugefügt
     ],
     'SP500': [
         // Hier könntest du die echten Werte für den S&P 500 eintragen
@@ -415,7 +427,9 @@ const DEFAULT_BENCHMARK_DATA = {
         { date: '2024-05-15', value: 5308 },
         { date: '2024-06-14', value: 5431 },
         { date: '2024-07-15', value: 5574 },
-        { date: '2024-08-23', value: 5460 }
+        { date: '2024-08-23', value: 5460 },
+        { date: '2025-02-13', value: 5600 },
+        { date: '2025-02-14', value: 5650 } // NEU: Wert für den Test-Tag hinzugefügt
     ]
 };
 
@@ -472,6 +486,17 @@ const apiCache = new Map();
 let showingCryptoBenchmarks = false;
 
 // =================================================================================
+// UTILITY FUNCTIONS
+// =================================================================================
+function isMobileDevice() {
+    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+// UNDO SYSTEM
+let undoStack = [];
+const MAX_UNDO_STACK = 20;
+
+// =================================================================================
 // INITIALISIERUNG
 // =================================================================================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -499,17 +524,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupQuickActions();
     updateCashflowTargets();
     checkConnectionOnStartup();
-    registerServiceWorker();
+    registerServiceWorker(); 
     initializeMobileNavigation();
 
     addMissingStyles();
 
     applyDashboardWidgetOrder();
     initializeDragAndDrop();
+
+    // UX Improvements
+    setupSwipeNavigation();
+    addTooltips();
+    addAriaLabels();
+    enableBatchSelection();
+    updateBreadcrumbs();
+    convertTablesToMobile();
+
+    window.addEventListener('resize', convertTablesToMobile);
 });
 
-function isMobileDevice() {
-    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+// NEU: Listener für Nachrichten vom Service Worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.status === 'apiCacheCleared') {
+            showNotification('API Cache erfolgreich geleert!', 'success');
+        }
+    });
 }
 
 // =================================================================================
@@ -635,6 +675,89 @@ function migrateV10toV11() {
     }
 }
 
+// =================================================================================
+// UNDO SYSTEM
+// =================================================================================
+function saveToUndoStack(action, data) {
+    undoStack.push({
+        action: action,
+        data: data,
+        timestamp: new Date().toISOString()
+    });
+    
+    if (undoStack.length > MAX_UNDO_STACK) {
+        undoStack.shift();
+    }
+    
+    showUndoNotification(action);
+}
+
+function showUndoNotification(action) {
+    const notification = document.getElementById('notification');
+    const icon = document.getElementById('notificationIcon');
+    const textEl = document.getElementById('notificationText');
+    
+    notification.className = 'notification with-undo';
+    icon.textContent = '🗑️';
+    
+    let actionText = 'Gelöscht';
+    switch(action) {
+        case 'delete_entry': actionText = 'Eintrag gelöscht'; break;
+        case 'delete_entries': actionText = 'Einträge gelöscht'; break;
+        case 'delete_cashflow': actionText = 'Cashflow gelöscht'; break;
+        case 'delete_platform': actionText = 'Plattform gelöscht'; break;
+        case 'bulk_delete': actionText = 'Mehrere Einträge gelöscht'; break;
+    }
+    
+    textEl.innerHTML = `${actionText} <button class="undo-btn" onclick="undoLastAction()">↩️ Rückgängig</button>`;
+    notification.classList.add('show');
+    
+    setTimeout(() => {
+        notification.classList.remove('show');
+    }, 6000);
+}
+
+function undoLastAction() {
+    if (undoStack.length === 0) {
+        showNotification('Nichts zum Rückgängigmachen vorhanden', 'warning');
+        return;
+    }
+    
+    const lastAction = undoStack.pop();
+    
+    switch(lastAction.action) {
+        case 'delete_entry':
+            entries.push(lastAction.data);
+            break;
+            
+        case 'delete_entries':
+            entries.push(...lastAction.data);
+            break;
+            
+        case 'delete_cashflow':
+            cashflows.push(lastAction.data);
+            break;
+            
+        case 'delete_platform':
+            platforms.push(lastAction.data.platform);
+            entries.push(...lastAction.data.entries);
+            if (lastAction.data.wasFavorite) {
+                favorites.push(lastAction.data.platform.name);
+            }
+            renderPlatformButtons();
+            updateCashflowTargets();
+            break;
+            
+        case 'bulk_delete':
+            entries.push(...lastAction.data);
+            selectedHistoryEntries.clear();
+            break;
+    }
+    
+    saveData();
+    applyDateFilter();
+    showNotification('Aktion rückgängig gemacht! ✅');
+}
 
 // =================================================================================
 // DRAG & DROP FUNKTIONEN
@@ -1071,6 +1194,12 @@ function setupKeyboardShortcuts() {
             openGlobalSearch();
         }
 
+        // UNDO SHORTCUT
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+            e.preventDefault();
+            undoLastAction();
+        }
+
         if (e.key === 'Escape') {
             closeBottomSheet();
             closeGlobalSearch();
@@ -1078,72 +1207,141 @@ function setupKeyboardShortcuts() {
     });
 }
 
+function updateBreadcrumbs() {
+    const breadcrumbsContainer = document.querySelector('.breadcrumbs');
+    if (!breadcrumbsContainer) return;
+    
+    let path = ['Dashboard'];
+    
+    switch(currentTab) {
+        case 'entry': path.push('Neuer Eintrag'); break;
+        case 'history': path.push('Historie'); break;
+        case 'cashflow': path.push('Cashflow'); break;
+        case 'settings': path.push('Einstellungen'); break;
+    }
+
+    if (singleItemFilter && singleItemFilter.itemName) {
+        path.push(singleItemFilter.itemName);
+    }
+    
+    breadcrumbsContainer.innerHTML = path.map((item, index) => 
+        index === path.length - 1 
+            ? `<span>${item}</span>`
+            : `${item} &gt;`
+    ).join(' ');
+}
+
+// =================================================================================
+// UI/UX ENHANCEMENT FUNCTIONS
+// =================================================================================
+
+function showAutoSaveIndicator(status) {
+    let indicator = document.getElementById('autoSaveIndicator');
+    if (!indicator) return;
+
+    indicator.style.display = 'flex';
+    if (status === 'saving') {
+        indicator.innerHTML = '<span class="spinner"></span> Speichert...';
+        indicator.classList.remove('success');
+    } else {
+        indicator.innerHTML = '✓ Automatisch gespeichert';
+        indicator.classList.add('success');
+    }
+
+    indicator.style.animation = 'none';
+    setTimeout(() => {
+        indicator.style.animation = 'slideInOut 3s ease';
+    }, 10);
+}
+
+function renderEmptyState(container, type) {
+    const emptyStates = {
+        history: {
+            icon: '📜',
+            title: 'Noch keine Einträge',
+            description: 'Beginne mit deinem ersten Portfolio-Eintrag, um deine Historie aufzubauen.',
+            action: '<button class="btn btn-primary" onclick="switchTab(\'entry\')">Ersten Eintrag erstellen</button>'
+        },
+        cashflow: {
+            icon: '💸',
+            title: 'Keine Cashflows',
+            description: 'Tracke deine Ein- und Auszahlungen für bessere Performance-Analyse.',
+            action: '<button class="btn btn-primary" onclick="switchTab(\'cashflow\'); document.getElementById(\'cashflowAmount\').focus()">Cashflow hinzufügen</button>'
+        }
+    };
+    const state = emptyStates[type];
+    if (!state || !container) return;
+    container.innerHTML = `
+        <div class="empty-state-enhanced">
+            <div class="empty-state-icon">${state.icon}</div>
+            <div class="empty-state-title">${state.title}</div>
+            <div class="empty-state-description">${state.description}</div>
+            ${state.action}
+        </div>
+    `;
+}
+
+function showTableSkeleton(container, rows = 5, cols = 4) {
+    if (!container) return;
+    let skeletonHTML = '';
+    for (let i = 0; i < rows; i++) {
+        skeletonHTML += '<tr class="skeleton-row">';
+        for (let j = 0; j < cols; j++) {
+            const width = 80 + Math.random() * 40;
+            skeletonHTML += `<td><div class="skeleton-box" style="width: ${width}px"></div></td>`;
+        }
+        skeletonHTML += '</tr>';
+    }
+    container.innerHTML = skeletonHTML;
+}
+
+function addTooltips() {
+    // Diese Funktion kann erweitert werden, um Tooltips dynamisch hinzuzufügen.
+    // Aktuell werden Tooltips direkt im HTML über das `title`-Attribut gesetzt.
+}
+
+
 // =================================================================================
 // MOBILE & TOUCH FEATURES
 // =================================================================================
+
 function setupTouchGestures() {
     let touchStartX = 0, touchStartY = 0, touchEndX = 0, touchEndY = 0, pullDistance = 0;
-    const pullToRefreshEl = document.getElementById('pullToRefresh');
-
+    
     document.addEventListener('touchstart', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.chart-container, .data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
             return;
         }
         touchStartX = e.changedTouches[0].screenX;
         touchStartY = e.changedTouches[0].screenY;
-
-        if (window.scrollY === 0 && githubToken && gistId) {
-            isPulling = true;
-        }
-    }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
-        if (isPulling && window.scrollY === 0) {
-            pullDistance = e.changedTouches[0].screenY - touchStartY;
-            if (pullDistance > 0 && pullDistance < 150) {
-                pullToRefreshEl.style.top = `${Math.min(pullDistance - 60, 20)}px`;
-                pullToRefreshEl.classList.add('pulling');
-                if (pullDistance > 80 && navigator.vibrate) navigator.vibrate(30);
-                if (pullDistance > 80) pullToRefreshEl.innerHTML = '↻';
-            }
-        }
     }, { passive: true });
 
     document.addEventListener('touchend', (e) => {
-        if (e.target.closest('.data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
+        if (e.target.closest('.chart-container, .data-table-wrapper, .bottom-sheet-body, button, a, .sortable-ghost')) {
             return;
         }
         touchEndX = e.changedTouches[0].screenX;
         touchEndY = e.changedTouches[0].screenY;
-
-        if (isPulling && pullDistance > 80) {
-            pullToRefreshEl.classList.add('refreshing');
-            pullToRefreshEl.classList.remove('pulling');
-            if (navigator.vibrate) navigator.vibrate(100);
-            syncNow().then(() => {
-                setTimeout(() => {
-                    pullToRefreshEl.classList.remove('refreshing');
-                    pullToRefreshEl.style.top = '-60px';
-                }, 500);
-            });
-        } else if (isPulling) {
-            pullToRefreshEl.classList.remove('pulling');
-            pullToRefreshEl.style.top = '-60px';
-        }
-        isPulling = false;
-        pullDistance = 0;
+        handleSwipe(touchStartX, touchEndX);
     }, { passive: true });
+}
 
-    let longPressTimer;
-    document.addEventListener('touchstart', (e) => {
-        longPressTimer = setTimeout(() => {
-            if (navigator.vibrate) navigator.vibrate(200);
-            toggleQuickActions();
-        }, 800);
-    });
-
-    document.addEventListener('touchend', () => clearTimeout(longPressTimer));
-    document.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+function handleSwipe(startX, endX) {
+    const swipeThreshold = 50;
+    const diff = startX - endX;
+    
+    if (Math.abs(diff) < swipeThreshold) return;
+    
+    const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
+    const currentIndex = tabs.indexOf(currentTab);
+    
+    if (diff > 0 && currentIndex < tabs.length - 1) {
+        // Swipe left - next tab
+        switchTab(tabs[currentIndex + 1]);
+    } else if (diff < 0 && currentIndex > 0) {
+        // Swipe right - previous tab
+        switchTab(tabs[currentIndex - 1]);
+    }
 }
 
 // =================================================================================
@@ -1457,6 +1655,27 @@ function hideSkeletons() {
     document.getElementById('dashboardContent').classList.remove('is-loading');
 }
 
+function updateSettingsConnectionStatus(status, message = '') {
+    const statusEl = document.getElementById('connectionStatus');
+    if (!statusEl) return;
+
+    switch(status) {
+        case 'connected':
+            statusEl.className = 'connection-status connected';
+            statusEl.innerHTML = `<span>✅</span><span>${message || 'Erfolgreich mit GitHub verbunden!'}</span>`;
+            break;
+        case 'error':
+            statusEl.className = 'connection-status disconnected';
+            statusEl.innerHTML = `<span>❌</span><span>Verbindungsfehler: ${message}</span>`;
+            break;
+        case 'initial':
+        default:
+            statusEl.className = 'connection-status disconnected';
+            statusEl.innerHTML = `<span>⚠️</span><span>Nicht verbunden - Konfiguriere GitHub für Cloud Sync</span>`;
+            break;
+    }
+}
+
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
@@ -1517,11 +1736,13 @@ async function syncNow() {
 
         applyDateFilter();
 
+        updateSettingsConnectionStatus('connected', `Zuletzt synchronisiert: ${new Date().toLocaleTimeString('de-DE')}`);
         showNotification('Erfolgreich synchronisiert! ✨');
         updateSyncUI('connected');
         return true;
     } catch (error) {
         console.error('Sync error:', error);
+        updateSettingsConnectionStatus('error', error.message);
         showNotification('Sync fehlgeschlagen: ' + error.message, 'error');
         updateSyncUI('error');
         return false;
@@ -1637,6 +1858,7 @@ function clearGitHubToken() {
             localStorage.removeItem(`${STORAGE_PREFIX}githubToken`);
             githubToken = null;
             document.getElementById('tokenDisplay').textContent = 'Nicht konfiguriert';
+            updateSettingsConnectionStatus('initial');
             updateSyncStatus();
             updateSyncBarVisibility();
             showNotification('GitHub Token gelöscht');
@@ -1646,17 +1868,14 @@ function clearGitHubToken() {
 
 async function testConnection() {
     if (!githubToken || !gistId) return showNotification('Bitte Token und Gist ID konfigurieren', 'error');
-    const statusEl = document.getElementById('connectionStatus');
     try {
         showNotification('Teste Verbindung...');
         await fetchGistData();
-        statusEl.className = 'connection-status connected';
-        statusEl.innerHTML = `<span>✅</span><span>Erfolgreich verbunden mit GitHub!</span>`;
+        updateSettingsConnectionStatus('connected', 'Verbindung erfolgreich!');
         showNotification('Verbindung erfolgreich! ✅');
         updateSyncStatus();
     } catch (error) {
-        statusEl.className = 'connection-status disconnected';
-        statusEl.innerHTML = `<span>❌</span><span>Verbindungsfehler: ${error.message}</span>`;
+        updateSettingsConnectionStatus('error', error.message);
         showNotification('Verbindung fehlgeschlagen', 'error');
     }
 }
@@ -1845,14 +2064,16 @@ function switchTab(tabName, options = {}) {
         }
     }
 
-    if (tabName === 'history') updateHistory();
-    else if (tabName === 'cashflow') {
+    if (tabName === 'history') {
+        updateHistory();
+    } else if (tabName === 'cashflow') {
         updateCashflowDisplay();
         updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
-    } else if (tabName === 'history') {
-        updateHistory();
-    } else if (tabName === 'platforms') updatePlatformDetails();
+    } else if (tabName === 'platforms') {
+        updatePlatformDetails();
+    }
+    updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
 }
 
 // =================================================================================
@@ -2261,6 +2482,7 @@ async function saveAllEntries() {
     let newEntriesCount = 0;
     let zeroedCount = 0;
     let strategyChanged = false;
+    let autoZeroSkipped = false;
 
     const dayStrategy = document.getElementById('dailyStrategy')?.value || '';
     const oldStrategy = getStrategyForDate(date);
@@ -2269,35 +2491,43 @@ async function saveAllEntries() {
         strategyChanged = true;
     }
     
-    const platformsToZero = getPlatformsToAutoZero();
-    if (platformsToZero.length > 0) {
-        const listHtml = `<ul>${platformsToZero.map(p => `<li>${p}</li>`).join('')}</ul>`;
+    // Logik für Auto-Zeroing für nicht ausgewählte Plattformen
+    const unselectedPlatformsToZero = getPlatformsToAutoZero();
+    if (unselectedPlatformsToZero.length > 0) {
+        const listHtml = `<ul>${unselectedPlatformsToZero.map(p => `<li>${p}</li>`).join('')}</ul>`;
         const confirmed = await showCustomPrompt({
             title: 'Auto-Zero Bestätigung',
             text: 'Sollen die folgenden Plattformen, die nicht ausgewählt wurden, für dieses Datum auf 0 gesetzt werden?',
             listHtml: listHtml,
             actions: [
                 { text: 'Nein' },
-                { text: 'Ja, auf 0 setzen', class: 'btn-success', value: true }
+                { text: 'Ja, auf 0 setzen', class: 'btn-success', value: 'true' }
             ]
         });
 
-        if (confirmed) {
-            platformsToZero.forEach(platformName => {
+        if (confirmed === 'true') {
+            unselectedPlatformsToZero.forEach(platformName => {
                 entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
                 entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)' });
                 zeroedCount++;
             });
+        } else {
+            autoZeroSkipped = true;
         }
     }
 
+    // Speichere die Werte für alle ausgewählten Plattformen
     selectedPlatforms.forEach(platformName => {
         const inputId = platformName.replace(/\s+/g, '_');
         const balanceInput = document.getElementById(`balance_${inputId}`);
         const noteInput = document.getElementById(`note_${inputId}`);
-        if (balanceInput && balanceInput.value) {
-            const balance = parseLocaleNumberString(balanceInput.value);
-            if (isNaN(balance)) return;
+        if (balanceInput) {
+            const value = balanceInput.value.trim();
+            const balance = value === '' ? 0 : parseLocaleNumberString(value);
+            if (isNaN(balance)) {
+                showNotification(`Ungültiger Wert für ${platformName} übersprungen.`, 'warning');
+                return; // continue
+            }
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
             entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
             newEntriesCount++;
@@ -2305,7 +2535,11 @@ async function saveAllEntries() {
     });
 
     if (newEntriesCount === 0 && zeroedCount === 0 && !strategyChanged) {
-        return showNotification('Keine Änderungen zum Speichern!', 'error');
+        if (autoZeroSkipped) {
+            return showNotification('Auto-Zeroing übersprungen. Keine weiteren Änderungen.', 'info');
+        } else {
+            return showNotification('Keine Änderungen zum Speichern!', 'error');
+        }
     }
 
     saveData();
@@ -2324,9 +2558,13 @@ async function saveAllEntries() {
 
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
-    if (zeroedCount > 0) message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+    if (zeroedCount > 0) {
+        message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+    } else if (autoZeroSkipped) {
+        message += 'Auto-Zeroing übersprungen. ';
+    }
     if (strategyChanged) message += `Tages-Strategie gespeichert.`;
-    showNotification(message.trim());
+    showNotification(message.trim(), 'success');
 }
 
 function saveCashflow() {
@@ -2371,39 +2609,48 @@ function parseLocaleNumberString(str) {
 }
 
 async function deleteEntry(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (entry) {
+        saveToUndoStack('delete_entry', entry);
+    }
     entries = entries.filter(e => e.id != entryId);
     saveData();
     applyDateFilter();
-    showNotification('Eintrag gelöscht!');
 }
 
 async function deleteCashflow(cashflowId) {
+    const cashflow = cashflows.find(c => c.id == cashflowId);
+    if (cashflow) {
+        saveToUndoStack('delete_cashflow', cashflow);
+    }
     cashflows = cashflows.filter(c => c.id != cashflowId);
     saveData();
     applyDateFilter();
-    showNotification('Cashflow gelöscht!');
 }
 
 async function deletePlatform(platformName) {
     const confirmed = await showCustomPrompt({
         title: 'Plattform löschen',
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
-        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
+        actions: [{ text: 'Abbrechen' }, { text: 'Löschen', class: 'btn-danger', value: true }]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
+        const platformToDelete = platforms.find(p => p.name === platformName);
+        if (!platformToDelete) return;
+
+        const entriesToDelete = entries.filter(e => e.protocol === platformName);
+        const wasFavorite = favorites.includes(platformName);
+
+        const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
+        saveToUndoStack('delete_platform', undoData);
+
         platforms = platforms.filter(p => p.name !== platformName);
         favorites = favorites.filter(f => f !== platformName);
         entries = entries.filter(e => e.protocol !== platformName);
-        
-        if (selectedPlatforms.includes(platformName)) {
-            removePlatformInput(platformName);
-        }
-        
         saveData();
         applyDateFilter();
         renderPlatformButtons();
         updateCashflowTargets();
-        showNotification(`Plattform '${platformName}' und alle Einträge gelöscht!`);
     }
 }
 
@@ -2842,11 +3089,11 @@ async function deleteEntriesForDate(date) {
         ]
     });
 
-    if (confirmed) {
+    if (confirmed === 'true') {
+        saveToUndoStack('delete_entries', entriesOnDate);
         entries = entries.filter(e => e.date !== date);
         saveData();
         applyDateFilter(); // This will re-render the history view
-        showNotification(`Alle Einträge für ${formatDate(date)} gelöscht.`, 'success');
     }
 }
 
@@ -2901,7 +3148,8 @@ function updateHistory() {
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
-            (e.note && e.note.toLowerCase().includes(searchTerm))
+            (e.note && e.note.toLowerCase().includes(searchTerm)) ||
+            (getStrategyForDate(e.date) && getStrategyForDate(e.date).toLowerCase().includes(searchTerm))
         );
     }
 
@@ -2935,11 +3183,11 @@ function updateHistory() {
 
     tbody.innerHTML = '';
     if (augmentedData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Keine Einträge gefunden</div></td></tr>`;
+        renderEmptyState(document.getElementById('historyListView'), 'history');
         return;
     }
 
-    augmentedData.forEach((entry, index) => {
+    tbody.innerHTML = augmentedData.map((entry, index) => {
         const row = document.createElement('tr');
         row.dataset.id = entry.id;
         row.dataset.index = index;
@@ -2948,18 +3196,18 @@ function updateHistory() {
         }
         
         row.onclick = (e) => handleHistoryRowClick(e, row, entry.id, index);
-
-        row.innerHTML = `
-            <td><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
-            <td>${formatDate(entry.date)}</td>
-            <td style="font-weight: 600;">${entry.protocol}</td>
-            <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
-            <td>${entry.strategy || '-'}</td>
-            <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
+        return `
+            <tr data-id="${entry.id}" data-index="${index}" class="${selectedHistoryEntries.has(entry.id) ? 'multi-selected-row' : ''}" onclick="handleHistoryRowClick(event, this, ${entry.id}, ${index})">
+                <td data-label="Select"><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
+                <td data-label="Datum">${formatDate(entry.date)}</td>
+                <td data-label="Plattform" style="font-weight: 600;">${entry.protocol}</td>
+                <td data-label="Balance" class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
+                <td data-label="Strategie">${entry.strategy || '-'}</td>
+                <td data-label="Notiz" class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+                <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
+            </tr>
         `;
-        tbody.appendChild(row);
-    });
+    }).join('');
     
     // Render mobile cards
     renderHistoryMobileCards(augmentedData);
@@ -3046,7 +3294,7 @@ function renderGroupedHistoryByDate() {
         `;
     });
     
-    container.innerHTML = html || '<div class="empty-state">Keine Einträge vorhanden</div>';
+    container.innerHTML = html || renderEmptyState(container, 'history');
 }
 
 function renderGroupedHistory(searchTerm = '') {
@@ -3211,7 +3459,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
         deleteEntry(entryId);
     }
 }
@@ -3294,12 +3542,15 @@ async function deleteSelectedEntries() {
         text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
+        const deletedEntries = entries.filter(e => selectedHistoryEntries.has(e.id));
+        if (deletedEntries.length > 0) {
+            saveToUndoStack('bulk_delete', deletedEntries);
+        }
         entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
         selectedHistoryEntries.clear();
         saveData();
         applyDateFilter();
-        showNotification('Ausgewählte Einträge gelöscht');
     }
 }
 
@@ -3524,7 +3775,7 @@ function renderCashflowTable(container, dataToDisplay) {
 
     tbody.innerHTML = '';
     if (dataToDisplay.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Keine Cashflows gefunden</td></tr>`;
+        renderEmptyState(container, 'cashflow');
         return;
     }
 
@@ -3532,12 +3783,12 @@ function renderCashflowTable(container, dataToDisplay) {
         const row = document.createElement('tr');
         row.dataset.id = cf.id;
         row.innerHTML = `
-            <td>${formatDate(cf.date)}</td>
-            <td><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
-            <td>${cf.platform || '-'}</td>
-            <td class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
+            <td data-label="Datum">${formatDate(cf.date)}</td>
+            <td data-label="Typ"><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
+            <td data-label="Betrag" class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
+            <td data-label="Plattform">${cf.platform || '-'}</td>
+            <td data-label="Notiz" class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+            <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
@@ -3549,7 +3800,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === 'true') {
         deleteCashflow(cashflowId);
     }
 }
@@ -3603,12 +3854,12 @@ function updatePlatformDetails() {
     dataToDisplay.forEach(data => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td style="font-weight: 600;">${data.platform}</td>
-            <td>${data.entries}</td>
-            <td>${formatDate(data.first)}</td>
-            <td>${formatDate(data.last)}</td>
-            <td class="dollar-value">${formatDollar(data.avg)}</td>
-            <td class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
+            <td data-label="Plattform" style="font-weight: 600;">${data.platform}</td>
+            <td data-label="Einträge">${data.entries}</td>
+            <td data-label="Erster Eintrag">${formatDate(data.first)}</td>
+            <td data-label="Letzter Eintrag">${formatDate(data.last)}</td>
+            <td data-label="Avg Balance" class="dollar-value">${formatDollar(data.avg)}</td>
+            <td data-label="Total Return" class="dollar-value ${data.total >= 0 ? 'positive' : 'negative'}">${data.total.toLocaleString('de-DE', {signDisplay: 'always', minimumFractionDigits: 2})}</td>
         `;
         tbody.appendChild(row);
     });
@@ -4041,14 +4292,16 @@ async function fetchAndCache(cacheKey, url, options, dataProcessor, cacheDuratio
 function interpolateBenchmarkData(benchmarkKey, dates) {
     const benchmarkPoints = benchmarkData[benchmarkKey] || [];
     if (!benchmarkPoints || benchmarkPoints.length < 2) return [];
-
-    const firstBenchmarkDate = new Date(benchmarkPoints[0].date);
-    const lastBenchmarkDate = new Date(benchmarkPoints[benchmarkPoints.length - 1].date);
     
+    // KORREKTUR: Alle Datums-Strings explizit als UTC behandeln, um Zeitzonenfehler zu vermeiden.
+    // Dies stellt sicher, dass die Vergleiche konsistent sind, egal wo auf der Welt der Benutzer ist.
+    const firstBenchmarkDate = new Date(benchmarkPoints[0].date + 'T00:00:00Z');
+    const lastBenchmarkDate = new Date(benchmarkPoints[benchmarkPoints.length - 1].date + 'T00:00:00Z');
+
     const result = [];
     
     for (const date of dates) {
-        const dateObj = new Date(date);
+        const dateObj = new Date(date + 'T00:00:00Z');
 
         if (dateObj < firstBenchmarkDate || dateObj > lastBenchmarkDate) {
             result.push([dateObj.getTime(), null]);
@@ -4060,7 +4313,7 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
         let after = null;
         
         for (let i = 0; i < benchmarkPoints.length; i++) {
-            const pointDate = new Date(benchmarkPoints[i].date);
+            const pointDate = new Date(benchmarkPoints[i].date + 'T00:00:00Z');
             
             if (pointDate <= dateObj) {
                 before = benchmarkPoints[i];
@@ -4073,8 +4326,8 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
         let value;
         if (before && after && before !== after) {
             // Linear interpolieren zwischen zwei Punkten
-            const beforeDate = new Date(before.date);
-            const afterDate = new Date(after.date);
+            const beforeDate = new Date(before.date + 'T00:00:00Z');
+            const afterDate = new Date(after.date + 'T00:00:00Z');
             const totalDays = (afterDate - beforeDate) / (1000 * 60 * 60 * 24);
             const daysPassed = (dateObj - beforeDate) / (1000 * 60 * 60 * 24);
             const ratio = totalDays > 0 ? (daysPassed / totalDays) : 0;
@@ -4095,24 +4348,38 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
 
 async function fetchCoinGeckoData(id, from, to) {
     const url = `${CORS_PROXY}${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
-    
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            const error = new Error(`HTTP error! status: ${response.status}`);
-            error.status = response.status; // Attach status to error object
-            throw error;
+    const MAX_RETRIES = 3;
+    const INITIAL_DELAY = 1000; // 1 second
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const error = new Error(`HTTP error! status: ${response.status}`);
+                error.status = response.status; // Attach status to error object
+                throw error;
+            }
+            const data = await response.json();
+            return data.prices || []; // Success, return data
+        } catch (error) {
+            // Specific handling for rate limiting
+            if (error.status === 429 && attempt < MAX_RETRIES) {
+                const delay = INITIAL_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+                console.warn(`CoinGecko rate limit hit for ${id}. Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; // Go to next attempt
+            }
+
+            // Handle final failure or other errors
+            if (error.status === 429) {
+                console.error(`CoinGecko API rate limit hit for ${id} after ${MAX_RETRIES} attempts. Using fallback.`);
+            } else {
+                console.error(`Failed to fetch ${id} data, using fallback:`, error);
+            }
+            return []; // Return empty array as a fallback
         }
-        const data = await response.json();
-        return data.prices || [];
-    } catch (error) {
-        if (error.status === 429) {
-            console.warn(`CoinGecko API rate limit hit for ${id}. Consider waiting before refreshing. Using fallback.`);
-        } else {
-            console.error(`Failed to fetch ${id} data, using fallback:`, error);
-        }
-        return []; // Return empty array as a fallback
     }
+    return []; // Should not be reached, but as a safeguard
 }
 
 function calculateTWR(dates, values, cashflowsToConsider) {
@@ -4238,8 +4505,10 @@ async function updateChartWithBenchmarks() {
                     const change = ((currentPrice - baselinePrice) / baselinePrice) * 100;
                     results.push(change);
                 } else {
-                    // Wenn kein Kurs gefunden wird, den letzten gültigen Wert weitertragen oder 0, wenn es der erste ist.
-                    results.push(results.length > 0 ? results[results.length - 1] : 0);
+                    // KORREKTUR: Wenn für ein Datum kein Benchmark-Wert gefunden wird (z.B. am Ende des Zeitraums),
+                    // füge 'null' ein. Chart.js wird dadurch eine Lücke in der Linie erzeugen,
+                    // anstatt eine irreführende flache Linie zu zeichnen.
+                    results.push(null);
                 }
             }
             return results;
@@ -4287,12 +4556,57 @@ function useStaticFallback(ticker) {
     return [];
 }
 
+async function fetchAlphaVantageData(symbol) {
+    // Ersetze 'YOUR_API_KEY_HERE' durch deinen tatsächlichen Schlüssel
+    const url = `${ALPHA_VANTAGE_API_URL}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}&outputsize=full`;
+    
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Alpha Vantage API error: ${response.status}`);
+        const data = await response.json();
+
+        if (data['Error Message'] || !data['Time Series (Daily)']) {
+            if (data['Information']) console.warn(`Alpha Vantage info for ${symbol}: ${data['Information']}`);
+            else throw new Error(data['Error Message'] || 'Invalid data from Alpha Vantage');
+            return null; // Fehler signalisieren
+        }
+
+        const timeSeries = data['Time Series (Daily)'];
+        const prices = Object.entries(timeSeries).map(([date, values]) => {
+            const timestamp = new Date(date + 'T00:00:00Z').getTime(); // Datum als UTC behandeln
+            const price = parseFloat(values['5. adjusted close']);
+            return [timestamp, price];
+        });
+        
+        prices.sort((a, b) => a[0] - b[0]); // Nach Datum aufsteigend sortieren
+        console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${symbol} von Alpha Vantage geladen.`, 'color: green; font-weight: bold;');
+        return prices;
+
+    } catch (error) {
+        console.error(`Fehler beim Abrufen von Alpha Vantage für ${symbol}:`, error);
+        return null; 
+    }
+}
+
 async function fetchMarketData(ticker, from, to) {
     const decodedTicker = decodeURIComponent(ticker);
 
     // Direkte Weiterleitung zu CoinGecko für Kryptowährungen, da dies zuverlässiger als Google Docs ist.
     if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
         return fetchCoinGeckoData(decodedTicker, from, to);
+    }
+
+    // NEU: Bevorzugter Abruf über Alpha Vantage, falls konfiguriert
+    if (ALPHA_VANTAGE_API_KEY && ALPHA_VANTAGE_API_KEY !== 'YOUR_API_KEY_HERE') {
+        const avSymbol = ALPHA_VANTAGE_SYMBOL_MAP[decodedTicker];
+        if (avSymbol) {
+            console.log(`Versuche ${decodedTicker} (als ${avSymbol}) von Alpha Vantage abzurufen...`);
+            const avData = await fetchAlphaVantageData(avSymbol);
+            if (avData && avData.length > 0) {
+                return avData; // Erfolg, Alpha Vantage Daten verwenden
+            }
+            console.warn(`Alpha Vantage Abruf für ${decodedTicker} fehlgeschlagen. Fallback auf Google Sheets.`);
+        }
     }
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
@@ -4303,75 +4617,74 @@ async function fetchMarketData(ticker, from, to) {
     }
     const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const csvText = await response.text();
+    // NEU: Wiederholungslogik für den Abruf
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 Sekunden
 
-        // NEU: Explizite Prüfung auf den Ladezustand von Google Sheets.
-        const csvTextLower = csvText.trim().toLowerCase();
-        if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
-            console.warn(`Google Sheet für ${decodeURIComponent(ticker)} lädt noch. Fallback wird genutzt.`);
-            showNotification(`Sheet für ${decodedTicker} lädt noch. Fallback wird genutzt.`, 'info');
-            return useStaticFallback(ticker);
-        }
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+            const csvText = await response.text();
 
+            const csvTextLower = csvText.trim().toLowerCase();
+            if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
+                // Dies ist ein temporärer Fehler, wir werfen einen Fehler, um einen neuen Versuch auszulösen.
+                throw new Error('Google Sheet is still loading');
+            }
 
-        const lines = csvText.split(/\r\n|\n/);
-        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        
-        // Flexiblere Spaltenerkennung, die auf Schlüsselwörtern basiert
-        const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
-        const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
+            // Wenn wir hier sind, sind die Daten gültig. Verarbeite sie.
+            const lines = csvText.split(/\r\n|\n/);
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+            
+            const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
+            const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
-        if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
-            showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
-            return useStaticFallback(ticker);
-        }
+            if (dateColIndex === -1 || closeColIndex === -1) {
+                console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
+                showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
+                return useStaticFallback(ticker); // Dies ist ein permanenter Fehler, kein neuer Versuch.
+            }
 
-        const prices = [];
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-            if (!line) continue;
-            const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
-            const dateStr = fields[dateColIndex];
-            const priceStr = fields[closeColIndex];
-            if (dateStr && priceStr) {
-                const datePart = dateStr.split(' ')[0]; // Handle "DD.MM.YYYY HH:MM:SS"
-                const [day, month, year] = datePart.split('.');
-                
-                // Verbesserte, robustere Preis-Umwandlung, die deutsche und amerikanische Formate handhaben kann.
-                const lastComma = priceStr.lastIndexOf(',');
-                const lastDot = priceStr.lastIndexOf('.');
-                let cleanedPriceStr;
+            const prices = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line) continue;
+                const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
+                const dateStr = fields[dateColIndex] || '';
+                const priceStr = fields[closeColIndex] || '';
+                if (dateStr && priceStr) {
+                    const datePart = dateStr.split(' ')[0];
+                    const [day, month, year] = datePart.split('.');
 
-                if (lastComma > lastDot) {
-                    // Annahme: Deutsches Format (z.B. "1.234,56")
-                    cleanedPriceStr = priceStr.replace(/\./g, '').replace(',', '.');
-                } else {
-                    // Annahme: US/ISO Format (z.B. "1,234.56" oder "1234.56")
-                    cleanedPriceStr = priceStr.replace(/,/g, '');
-                }
-
-                if (month && day && year) { // Ensure date components are valid
-                    const date = new Date(Date.UTC(year, month - 1, day)); // Month is 0-indexed
-                    const price = parseFloat(cleanedPriceStr);
-                    if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) { // Ensure valid date and positive price
-                        prices.push([date.getTime(), price]);
+                    if (month && day && year) {
+                        const date = new Date(Date.UTC(year, month - 1, day));
+                        const price = parseLocaleNumberString(priceStr);
+                        if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) {
+                            prices.push([date.getTime(), price]);
+                        }
                     }
                 }
             }
+            if (prices.length > 0) {
+                console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
+            }
+            return prices; // Erfolg, die Schleife wird verlassen.
+
+        } catch (error) {
+            console.warn(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen: ${error.message}`);
+            if (attempt === MAX_RETRIES) {
+                // Nach dem letzten Versuch aufgeben und Fallback nutzen.
+                console.error(`Fehler beim Laden des Google Sheets für ${decodeURIComponent(ticker)} nach ${MAX_RETRIES} Versuchen:`, error);
+                showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
+                return useStaticFallback(ticker);
+            }
+            // Warten vor dem nächsten Versuch.
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
-        if (prices.length > 0) {
-            console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
-        }
-        return prices;
-    } catch (error) {
-        console.error(`Fehler beim Laden oder Verarbeiten des Google Sheets für ${decodeURIComponent(ticker)}:`, error);
-        showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
-        return useStaticFallback(ticker);
     }
+    // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
+    return useStaticFallback(ticker);
 }
 
 function toggleBenchmarkView() {
@@ -4593,7 +4906,7 @@ async function handleCsvImport(event) {
                 }
                 
                 const [type, date, protocolOrStrategy, amountStr, note] = fields;
-                const amount = parseFloat(String(amountStr || '0').replace(',', '.'));
+                const amount = parseLocaleNumberString(amountStr || '0');
 
                 if (type && date) {
                     const lowerType = type.toLowerCase();
@@ -4976,6 +5289,33 @@ async function restoreFromLocalBackup() {
         } catch (error) {
             showNotification('Fehler bei der Wiederherstellung.', 'error');
             console.error("Fehler beim Wiederherstellen aus Backup:", error);
+        }
+    }
+}
+
+async function clearApiCache() {
+    const confirmed = await showCustomPrompt({
+        title: 'API Cache leeren',
+        text: 'Dies löscht alle zwischengespeicherten Marktdaten. Die App wird sie beim nächsten Mal neu laden. Fortfahren?',
+        actions: [{ text: 'Abbrechen' }, { text: 'Cache leeren', class: 'btn-warning', value: true }]
+    });
+
+    if (confirmed) {
+        if ('serviceWorker' in navigator) {
+            // VERBESSERT: .ready wartet, bis der SW aktiv ist, anstatt .controller sofort zu prüfen.
+            // Das verhindert Race Conditions nach dem Neuladen der Seite.
+            navigator.serviceWorker.ready.then(registration => {
+                if (registration.active) {
+                    registration.active.postMessage({ action: 'clearApiCache' });
+                } else {
+                    showNotification('Service Worker ist nicht aktiv. Bitte laden Sie die Seite neu.', 'error');
+                }
+            }).catch(error => {
+                console.error('Fehler beim Zugriff auf den Service Worker:', error);
+                showNotification('Fehler beim Zugriff auf den Service Worker.', 'error');
+            });
+        } else {
+            showNotification('Service Worker wird von diesem Browser nicht unterstützt.', 'error');
         }
     }
 }
@@ -6184,6 +6524,314 @@ function initializeMobileNavigation() {
         // Update badges
         updateMobileNavBadges();
     }
+}
+
+// =================================================================================
+// UI/UX ENHANCEMENT FUNCTIONS (Implementation)
+// =================================================================================
+
+function setupSwipeNavigation() {
+    const mainContainer = document.querySelector('.container');
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    mainContainer.addEventListener('touchstart', e => {
+        // Ignore swipes on interactive elements
+        if (e.target.closest('button, a, input, select, textarea, .chart-container, .data-table-wrapper, .bottom-sheet-content')) {
+            return;
+        }
+        touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    mainContainer.addEventListener('touchend', e => {
+        if (e.target.closest('button, a, input, select, textarea, .chart-container, .data-table-wrapper, .bottom-sheet-content')) {
+            return;
+        }
+        touchEndX = e.changedTouches[0].screenX;
+        handleSwipe(touchStartX, touchEndX);
+    }, { passive: true });
+}
+
+function improveKeyboardNavigation() {
+    // Diese Funktion wird absichtlich leer gelassen, da die "Enter"-Logik
+    // in `addPlatformInput` bereits das vom Benutzer gewünschte Verhalten
+    // (Speichern und zum nächsten Feld springen) implementiert.
+}
+
+function addAriaLabels() {
+    document.querySelectorAll('button, .btn').forEach(btn => {
+        if (!btn.getAttribute('aria-label') && btn.title) {
+            btn.setAttribute('aria-label', btn.title);
+        } else if (!btn.getAttribute('aria-label')) {
+            const text = btn.textContent.trim().replace(/\s+/g, ' ');
+            if (text) btn.setAttribute('aria-label', text);
+        }
+    });
+
+    document.querySelectorAll('input').forEach(input => {
+        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
+            const label = input.closest('div, label')?.querySelector('label, .setting-label, .platform-name');
+            if (label) {
+                if (!label.id) label.id = `label-${Math.random().toString(36).substr(2, 9)}`;
+                input.setAttribute('aria-labelledby', label.id);
+            }
+        }
+    });
+}
+
+function convertTablesToMobile() {
+    if (window.innerWidth > 768) return;
+
+    document.querySelectorAll('.data-table').forEach(table => {
+        const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+        if (headers.length === 0) return;
+
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.querySelectorAll('td').forEach((td, index) => {
+                if (headers[index]) {
+                    td.setAttribute('data-label', headers[index]);
+                }
+            });
+        });
+    });
+}
+
+function validateInput(input) {
+    const value = input.value;
+    const type = input.dataset.validateType;
+
+    const existingError = input.parentElement.querySelector('.input-error-message');
+    if (existingError) existingError.remove();
+
+    let isValid = true;
+    let errorMessage = '';
+
+    if (type === 'number') {
+        const parsed = parseLocaleNumberString(value);
+        if (value && (isNaN(parsed) || parsed < 0)) {
+            isValid = false;
+            errorMessage = 'Bitte eine positive Zahl eingeben.';
+        }
+    }
+
+    if (!isValid) {
+        input.classList.add('input-error');
+        input.classList.remove('input-success');
+        const error = document.createElement('span');
+        error.className = 'input-error-message';
+        error.textContent = errorMessage;
+        input.parentElement.appendChild(error);
+    } else {
+        input.classList.remove('input-error');
+        if (value) {
+            input.classList.add('input-success');
+        } else {
+            input.classList.remove('input-success');
+        }
+    }
+    return isValid;
+}
+
+function enableBatchSelection() {
+    const container = document.getElementById('platformGrid');
+    if (!container) return;
+
+    let isSelecting = false;
+    let batchSelectedPlatforms = new Set();
+    let longPressTimer;
+
+    const startSelection = (e) => {
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn || platformBtn.textContent.includes('Andere')) return;
+        
+        isSelecting = true;
+        container.classList.add('selection-mode');
+        if (navigator.vibrate) navigator.vibrate(50);
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+
+    container.addEventListener('touchstart', e => {
+        longPressTimer = setTimeout(() => startSelection(e), 500);
+    }, { passive: true });
+
+    const clearLongPress = () => clearTimeout(longPressTimer);
+    container.addEventListener('touchend', clearLongPress);
+    container.addEventListener('touchmove', clearLongPress);
+
+    container.addEventListener('click', e => {
+        if (!isSelecting) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn) return;
+
+        platformBtn.classList.toggle('batch-selected');
+        const name = platformBtn.dataset.platform;
+
+        if (batchSelectedPlatforms.has(name)) {
+            batchSelectedPlatforms.delete(name);
+        } else {
+            batchSelectedPlatforms.add(name);
+        }
+        updateBatchActionBar(batchSelectedPlatforms);
+    });
+
+    window.addSelectedPlatforms = () => {
+        batchSelectedPlatforms.forEach(name => {
+            const btn = document.querySelector(`.platform-btn[data-platform="${name}"]`);
+            if (btn && !btn.classList.contains('selected')) {
+                togglePlatform(btn, name);
+            }
+        });
+        cancelBatchSelection();
+    };
+
+    window.cancelBatchSelection = () => {
+        isSelecting = false;
+        container.classList.remove('selection-mode');
+        container.querySelectorAll('.batch-selected').forEach(el => el.classList.remove('batch-selected'));
+        batchSelectedPlatforms.clear();
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+}
+
+function updateBatchActionBar(selected) {
+    let bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+
+    if (selected.size === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span>${selected.size} ausgewählt</span>
+        <div>
+            <button class="btn btn-primary btn-small" onclick="addSelectedPlatforms()">Hinzufügen</button>
+            <button class="btn btn-small" onclick="cancelBatchSelection()">Abbrechen</button>
+        </div>
+    `;
+}
+
+function improveKeyboardNavigation() {
+    document.body.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.matches('.input-field, .note-input')) {
+            const form = e.target.closest('form, .section');
+            if (!form) return;
+
+            const focusable = Array.from(form.querySelectorAll('input, select, button, textarea')).filter(el => !el.disabled && el.offsetParent !== null);
+            const index = focusable.indexOf(e.target);
+
+            if (index > -1 && (index < focusable.length - 1)) {
+                e.preventDefault();
+                const nextElement = focusable[index + 1];
+                nextElement.focus();
+                if (typeof nextElement.select === 'function') {
+                    nextElement.select();
+                }
+            }
+        }
+    });
+}
+
+function enableBatchSelection() {
+    const container = document.getElementById('platformGrid');
+    if (!container) return;
+
+    let isSelecting = false;
+    let batchSelectedPlatforms = new Set();
+
+    container.addEventListener('touchstart', e => {
+        const timer = setTimeout(() => {
+            isSelecting = true;
+            container.classList.add('selection-mode');
+            if (navigator.vibrate) navigator.vibrate(50);
+            updateBatchActionBar(batchSelectedPlatforms);
+        }, 500);
+
+        const clearTimer = () => clearTimeout(timer);
+        container.addEventListener('touchend', clearTimer, { once: true });
+        container.addEventListener('touchmove', clearTimer, { once: true });
+    });
+
+    container.addEventListener('click', e => {
+        if (!isSelecting) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const platformBtn = e.target.closest('.platform-btn');
+        if (!platformBtn) return;
+
+        platformBtn.classList.toggle('batch-selected');
+        const name = platformBtn.dataset.platform;
+
+        if (batchSelectedPlatforms.has(name)) {
+            batchSelectedPlatforms.delete(name);
+        } else {
+            batchSelectedPlatforms.add(name);
+        }
+        updateBatchActionBar(batchSelectedPlatforms);
+    });
+
+    window.addSelectedPlatforms = () => {
+        batchSelectedPlatforms.forEach(name => {
+            const btn = document.querySelector(`.platform-btn[data-platform="${name}"]`);
+            if (btn && !btn.classList.contains('selected')) {
+                togglePlatform(btn, name);
+            }
+        });
+        cancelBatchSelection();
+    };
+
+    window.cancelBatchSelection = () => {
+        isSelecting = false;
+        container.classList.remove('selection-mode');
+        container.querySelectorAll('.batch-selected').forEach(el => el.classList.remove('batch-selected'));
+        batchSelectedPlatforms.clear();
+        updateBatchActionBar(batchSelectedPlatforms);
+    };
+}
+
+function updateBatchActionBar(selected) {
+    let bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+
+    if (selected.size === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span>${selected.size} ausgewählt</span>
+        <div>
+            <button class="btn btn-primary btn-small" onclick="addSelectedPlatforms()">Hinzufügen</button>
+            <button class="btn btn-small" onclick="cancelBatchSelection()">Abbrechen</button>
+        </div>
+    `;
+}
+
+function addAriaLabels() {
+    document.querySelectorAll('button, .btn').forEach(btn => {
+        if (!btn.getAttribute('aria-label') && !btn.getAttribute('title')) {
+            const text = btn.textContent.trim().replace(/\s+/g, ' ');
+            if (text) btn.setAttribute('aria-label', text);
+        } else if (btn.getAttribute('title')) {
+            btn.setAttribute('aria-label', btn.getAttribute('title'));
+        }
+    });
+
+    document.querySelectorAll('input').forEach(input => {
+        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
+            const label = input.closest('div, label')?.querySelector('label, .setting-label, .platform-name');
+            if (label) {
+                if (!label.id) label.id = `label-${Math.random().toString(36).substr(2, 9)}`;
+                input.setAttribute('aria-labelledby', label.id);
+            }
+        }
+    });
 }
 
 // Update Mobile Navigation Badges
