@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
     
     <link rel="manifest" href="manifest.json">
@@ -699,23 +699,25 @@
     </div>
 
     <!-- Mobile Bottom Navigation -->
-    <nav class="mobile-bottom-nav" id="mobileBottomNav">
-        <button class="mobile-nav-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
-            <span class="nav-icon">📊</span>
-            <span class="nav-label">Dashboard</span>
-        </button>
-        <button class="mobile-nav-item" onclick="switchTab('entry')" data-tab="entry">
-            <span class="nav-icon">📝</span>
-            <span class="nav-label">Eintrag</span>
-        </button>
-        <button class="mobile-nav-item" onclick="switchTab('cashflow')" data-tab="cashflow">
-            <span class="nav-icon">💸</span>
-            <span class="nav-label">Cashflow</span>
-        </button>
-        <button class="mobile-nav-item" onclick="switchTab('history')" data-tab="history">
-            <span class="nav-icon">📜</span>
-            <span class="nav-label">Historie</span>
-        </button>
+    <nav class="mobile-nav" id="mobileNav">
+        <div class="mobile-nav-container">
+            <a class="mobile-nav-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Dashboard</span>
+            </a>
+            <a class="mobile-nav-item" onclick="switchTab('entry')" data-tab="entry">
+                <span class="nav-icon">✏️</span>
+                <span class="nav-label">Eintrag</span>
+            </a>
+            <a class="mobile-nav-item" onclick="switchTab('cashflow')" data-tab="cashflow">
+                <span class="nav-icon">💸</span>
+                <span class="nav-label">Cashflow</span>
+            </a>
+            <a class="mobile-nav-item" onclick="switchTab('history')" data-tab="history">
+                <span class="nav-icon">📜</span>
+                <span class="nav-label">Geschichte</span>
+            </a>
+        </div>
     </nav>
 
     <script src="script.js"></script>

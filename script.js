@@ -2022,7 +2022,7 @@ function switchTab(tabName, options = {}) {
         const hasExistingInputs = document.getElementById('platformInputs').children.length > 0;
         if (!hasExistingInputs && entries.length > 0) {
             setTimeout(() => {
-                loadLastEntries();
+                loadLastEntries(true); // true = silent mode, keine Meldung
             }, 100);
         }
     }
@@ -2402,10 +2402,10 @@ function removePlatformInput(platformName) {
 }
 
 
-function loadLastEntries() {
+function loadLastEntries(silent = false) {
     const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (sortedDates.length === 0) {
-        showNotification('Keine früheren Einträge gefunden.', 'error');
+        if (!silent) showNotification('Keine früheren Einträge gefunden.', 'error');
         return;
     }
     const lastEntryDate = sortedDates[0];
@@ -2413,7 +2413,7 @@ function loadLastEntries() {
     const platformsToLoad = [...new Set(entriesFromLastDate.map(e => e.protocol))];
 
     if (platformsToLoad.length === 0) {
-        showNotification(`Keine Plattformen mit Saldo > 0 am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        if (!silent) showNotification(`Keine Plattformen mit Saldo > 0 am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
         return;
     }
     
@@ -2433,16 +2433,17 @@ function loadLastEntries() {
         document.getElementById('dailyStrategy').value = lastStrategy;
     }
 
-    // NEU: Fokussiere und selektiere das erste Eingabefeld
-    setTimeout(() => {
-        const firstInput = document.querySelector('#platformInputs .input-field');
-        if (firstInput) {
-            firstInput.focus();
-            firstInput.select(); // Wert wird selektiert für schnelles Überschreiben
-        }
-    }, 200);
-
-    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+    // NEU: Fokussiere und selektiere das erste Eingabefeld (nur wenn nicht silent)
+    if (!silent) {
+        setTimeout(() => {
+            const firstInput = document.querySelector('#platformInputs .input-field');
+            if (firstInput) {
+                firstInput.focus();
+                firstInput.select(); // Wert wird selektiert für schnelles Überschreiben
+            }
+        }, 200);
+        showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+    }
 }
 
 // =================================================================================
