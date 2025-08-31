@@ -388,6 +388,16 @@ const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
+// NEU: Konfiguration für Alpha Vantage als robustere Datenquelle
+const ALPHA_VANTAGE_API_KEY = 'YOUR_API_KEY_HERE'; // Kostenlosen Key auf alphavantage.co erstellen und hier eintragen
+const ALPHA_VANTAGE_API_URL = 'https://www.alphavantage.co/query';
+
+// Mapping von internen Tickern zu Alpha Vantage Symbolen
+const ALPHA_VANTAGE_SYMBOL_MAP = {
+    '^GSPC': 'SPY',       // SPY ist ein ETF, der den S&P 500 abbildet und eine gute Annäherung ist.
+    '^GDAXI': '^GDAXI'      // DAX Index Symbol bei Alpha Vantage
+};
+
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
@@ -405,7 +415,9 @@ const DEFAULT_BENCHMARK_DATA = {
         { date: '2024-05-15', value: 18738 },
         { date: '2024-06-14', value: 18265 },
         { date: '2024-07-15', value: 18530 },
-        { date: '2024-08-23', value: 18130 }
+        { date: '2024-08-23', value: 18130 },
+        { date: '2025-02-13', value: 19000 },
+        { date: '2025-02-14', value: 19050 } // NEU: Wert für den Test-Tag hinzugefügt
     ],
     'SP500': [
         // Hier könntest du die echten Werte für den S&P 500 eintragen
@@ -415,7 +427,9 @@ const DEFAULT_BENCHMARK_DATA = {
         { date: '2024-05-15', value: 5308 },
         { date: '2024-06-14', value: 5431 },
         { date: '2024-07-15', value: 5574 },
-        { date: '2024-08-23', value: 5460 }
+        { date: '2024-08-23', value: 5460 },
+        { date: '2025-02-13', value: 5600 },
+        { date: '2025-02-14', value: 5650 } // NEU: Wert für den Test-Tag hinzugefügt
     ]
 };
 
@@ -528,6 +542,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.addEventListener('resize', convertTablesToMobile);
 });
+
+// NEU: Listener für Nachrichten vom Service Worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.status === 'apiCacheCleared') {
+            showNotification('API Cache erfolgreich geleert!', 'success');
+        }
+    });
+}
 
 // =================================================================================
 // LOKALES BACKUP (INDEXEDDB)
@@ -2911,16 +2934,16 @@ function updateStats() {
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats();
+    updateCashflowStats(filteredCashflows, filteredEntries);
 }
 
-function updateCashflowStats() {
-    const totalDeposits = cashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = cashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+function updateCashflowStats(cashflowsToUse, entriesToUse) {
+    const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
     const netCashflow = totalDeposits - totalWithdrawals;
     
-    const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-    const currentValue = lastDateOverall ? entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    const lastDateOverall = [...new Set(entriesToUse.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+    const currentValue = lastDateOverall ? entriesToUse.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
     
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
@@ -4269,14 +4292,16 @@ async function fetchAndCache(cacheKey, url, options, dataProcessor, cacheDuratio
 function interpolateBenchmarkData(benchmarkKey, dates) {
     const benchmarkPoints = benchmarkData[benchmarkKey] || [];
     if (!benchmarkPoints || benchmarkPoints.length < 2) return [];
-
-    const firstBenchmarkDate = new Date(benchmarkPoints[0].date);
-    const lastBenchmarkDate = new Date(benchmarkPoints[benchmarkPoints.length - 1].date);
     
+    // KORREKTUR: Alle Datums-Strings explizit als UTC behandeln, um Zeitzonenfehler zu vermeiden.
+    // Dies stellt sicher, dass die Vergleiche konsistent sind, egal wo auf der Welt der Benutzer ist.
+    const firstBenchmarkDate = new Date(benchmarkPoints[0].date + 'T00:00:00Z');
+    const lastBenchmarkDate = new Date(benchmarkPoints[benchmarkPoints.length - 1].date + 'T00:00:00Z');
+
     const result = [];
     
     for (const date of dates) {
-        const dateObj = new Date(date);
+        const dateObj = new Date(date + 'T00:00:00Z');
 
         if (dateObj < firstBenchmarkDate || dateObj > lastBenchmarkDate) {
             result.push([dateObj.getTime(), null]);
@@ -4288,7 +4313,7 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
         let after = null;
         
         for (let i = 0; i < benchmarkPoints.length; i++) {
-            const pointDate = new Date(benchmarkPoints[i].date);
+            const pointDate = new Date(benchmarkPoints[i].date + 'T00:00:00Z');
             
             if (pointDate <= dateObj) {
                 before = benchmarkPoints[i];
@@ -4301,8 +4326,8 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
         let value;
         if (before && after && before !== after) {
             // Linear interpolieren zwischen zwei Punkten
-            const beforeDate = new Date(before.date);
-            const afterDate = new Date(after.date);
+            const beforeDate = new Date(before.date + 'T00:00:00Z');
+            const afterDate = new Date(after.date + 'T00:00:00Z');
             const totalDays = (afterDate - beforeDate) / (1000 * 60 * 60 * 24);
             const daysPassed = (dateObj - beforeDate) / (1000 * 60 * 60 * 24);
             const ratio = totalDays > 0 ? (daysPassed / totalDays) : 0;
@@ -4323,24 +4348,38 @@ function interpolateBenchmarkData(benchmarkKey, dates) {
 
 async function fetchCoinGeckoData(id, from, to) {
     const url = `${CORS_PROXY}${COINGECKO_API}/coins/${id}/market_chart/range?vs_currency=usd&from=${from}&to=${to}`;
-    
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            const error = new Error(`HTTP error! status: ${response.status}`);
-            error.status = response.status; // Attach status to error object
-            throw error;
+    const MAX_RETRIES = 3;
+    const INITIAL_DELAY = 1000; // 1 second
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const error = new Error(`HTTP error! status: ${response.status}`);
+                error.status = response.status; // Attach status to error object
+                throw error;
+            }
+            const data = await response.json();
+            return data.prices || []; // Success, return data
+        } catch (error) {
+            // Specific handling for rate limiting
+            if (error.status === 429 && attempt < MAX_RETRIES) {
+                const delay = INITIAL_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+                console.warn(`CoinGecko rate limit hit for ${id}. Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; // Go to next attempt
+            }
+
+            // Handle final failure or other errors
+            if (error.status === 429) {
+                console.error(`CoinGecko API rate limit hit for ${id} after ${MAX_RETRIES} attempts. Using fallback.`);
+            } else {
+                console.error(`Failed to fetch ${id} data, using fallback:`, error);
+            }
+            return []; // Return empty array as a fallback
         }
-        const data = await response.json();
-        return data.prices || [];
-    } catch (error) {
-        if (error.status === 429) {
-            console.warn(`CoinGecko API rate limit hit for ${id}. Consider waiting before refreshing. Using fallback.`);
-        } else {
-            console.error(`Failed to fetch ${id} data, using fallback:`, error);
-        }
-        return []; // Return empty array as a fallback
     }
+    return []; // Should not be reached, but as a safeguard
 }
 
 function calculateTWR(dates, values, cashflowsToConsider) {
@@ -4466,8 +4505,10 @@ async function updateChartWithBenchmarks() {
                     const change = ((currentPrice - baselinePrice) / baselinePrice) * 100;
                     results.push(change);
                 } else {
-                    // Wenn kein Kurs gefunden wird, den letzten gültigen Wert weitertragen oder 0, wenn es der erste ist.
-                    results.push(results.length > 0 ? results[results.length - 1] : 0);
+                    // KORREKTUR: Wenn für ein Datum kein Benchmark-Wert gefunden wird (z.B. am Ende des Zeitraums),
+                    // füge 'null' ein. Chart.js wird dadurch eine Lücke in der Linie erzeugen,
+                    // anstatt eine irreführende flache Linie zu zeichnen.
+                    results.push(null);
                 }
             }
             return results;
@@ -4515,12 +4556,57 @@ function useStaticFallback(ticker) {
     return [];
 }
 
+async function fetchAlphaVantageData(symbol) {
+    // Ersetze 'YOUR_API_KEY_HERE' durch deinen tatsächlichen Schlüssel
+    const url = `${ALPHA_VANTAGE_API_URL}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}&outputsize=full`;
+    
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Alpha Vantage API error: ${response.status}`);
+        const data = await response.json();
+
+        if (data['Error Message'] || !data['Time Series (Daily)']) {
+            if (data['Information']) console.warn(`Alpha Vantage info for ${symbol}: ${data['Information']}`);
+            else throw new Error(data['Error Message'] || 'Invalid data from Alpha Vantage');
+            return null; // Fehler signalisieren
+        }
+
+        const timeSeries = data['Time Series (Daily)'];
+        const prices = Object.entries(timeSeries).map(([date, values]) => {
+            const timestamp = new Date(date + 'T00:00:00Z').getTime(); // Datum als UTC behandeln
+            const price = parseFloat(values['5. adjusted close']);
+            return [timestamp, price];
+        });
+        
+        prices.sort((a, b) => a[0] - b[0]); // Nach Datum aufsteigend sortieren
+        console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${symbol} von Alpha Vantage geladen.`, 'color: green; font-weight: bold;');
+        return prices;
+
+    } catch (error) {
+        console.error(`Fehler beim Abrufen von Alpha Vantage für ${symbol}:`, error);
+        return null; 
+    }
+}
+
 async function fetchMarketData(ticker, from, to) {
     const decodedTicker = decodeURIComponent(ticker);
 
     // Direkte Weiterleitung zu CoinGecko für Kryptowährungen, da dies zuverlässiger als Google Docs ist.
     if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
         return fetchCoinGeckoData(decodedTicker, from, to);
+    }
+
+    // NEU: Bevorzugter Abruf über Alpha Vantage, falls konfiguriert
+    if (ALPHA_VANTAGE_API_KEY && ALPHA_VANTAGE_API_KEY !== 'YOUR_API_KEY_HERE') {
+        const avSymbol = ALPHA_VANTAGE_SYMBOL_MAP[decodedTicker];
+        if (avSymbol) {
+            console.log(`Versuche ${decodedTicker} (als ${avSymbol}) von Alpha Vantage abzurufen...`);
+            const avData = await fetchAlphaVantageData(avSymbol);
+            if (avData && avData.length > 0) {
+                return avData; // Erfolg, Alpha Vantage Daten verwenden
+            }
+            console.warn(`Alpha Vantage Abruf für ${decodedTicker} fehlgeschlagen. Fallback auf Google Sheets.`);
+        }
     }
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
@@ -4531,62 +4617,74 @@ async function fetchMarketData(ticker, from, to) {
     }
     const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const csvText = await response.text();
+    // NEU: Wiederholungslogik für den Abruf
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 Sekunden
 
-        // NEU: Explizite Prüfung auf den Ladezustand von Google Sheets.
-        const csvTextLower = csvText.trim().toLowerCase();
-        if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
-            console.warn(`Google Sheet für ${decodeURIComponent(ticker)} lädt noch. Fallback wird genutzt.`);
-            showNotification(`Sheet für ${decodedTicker} lädt noch. Fallback wird genutzt.`, 'info');
-            return useStaticFallback(ticker);
-        }
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+            const csvText = await response.text();
 
+            const csvTextLower = csvText.trim().toLowerCase();
+            if (csvTextLower.startsWith('wird geladen...') || csvTextLower.startsWith('loading...')) {
+                // Dies ist ein temporärer Fehler, wir werfen einen Fehler, um einen neuen Versuch auszulösen.
+                throw new Error('Google Sheet is still loading');
+            }
 
-        const lines = csvText.split(/\r\n|\n/);
-        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        
-        // Flexiblere Spaltenerkennung, die auf Schlüsselwörtern basiert
-        const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
-        const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
+            // Wenn wir hier sind, sind die Daten gültig. Verarbeite sie.
+            const lines = csvText.split(/\r\n|\n/);
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+            
+            const dateColIndex = headers.findIndex(h => h.includes('date') || h.includes('datum'));
+            const closeColIndex = headers.findIndex(h => h.includes('close') || h.includes('schluss'));
 
-        if (dateColIndex === -1 || closeColIndex === -1) {
-            console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
-            showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
-            return useStaticFallback(ticker);
-        }
+            if (dateColIndex === -1 || closeColIndex === -1) {
+                console.warn(`Konnte Header "Date/Datum" und "Close/Schluss" im CSV für ${ticker} nicht finden. Gefundene Header:`, headers);
+                showNotification(`Fehler im CSV-Format für ${decodedTicker}. Fallback wird genutzt.`, 'warning');
+                return useStaticFallback(ticker); // Dies ist ein permanenter Fehler, kein neuer Versuch.
+            }
 
-        const prices = [];
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-            if (!line) continue;
-            const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
-            const dateStr = fields[dateColIndex] || '';
-            const priceStr = fields[closeColIndex] || '';
-            if (dateStr && priceStr) {
-                const datePart = dateStr.split(' ')[0];
-                const [day, month, year] = datePart.split('.');
+            const prices = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line) continue;
+                const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
+                const dateStr = fields[dateColIndex] || '';
+                const priceStr = fields[closeColIndex] || '';
+                if (dateStr && priceStr) {
+                    const datePart = dateStr.split(' ')[0];
+                    const [day, month, year] = datePart.split('.');
 
-                if (month && day && year) { // Ensure date components are valid
-                    const date = new Date(Date.UTC(year, month - 1, day)); // Month is 0-indexed
-                    const price = parseLocaleNumberString(priceStr);
-                    if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) { // Ensure valid date and positive price
-                        prices.push([date.getTime(), price]);
+                    if (month && day && year) {
+                        const date = new Date(Date.UTC(year, month - 1, day));
+                        const price = parseLocaleNumberString(priceStr);
+                        if (!isNaN(date.getTime()) && !isNaN(price) && price > 0) {
+                            prices.push([date.getTime(), price]);
+                        }
                     }
                 }
             }
+            if (prices.length > 0) {
+                console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
+            }
+            return prices; // Erfolg, die Schleife wird verlassen.
+
+        } catch (error) {
+            console.warn(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen: ${error.message}`);
+            if (attempt === MAX_RETRIES) {
+                // Nach dem letzten Versuch aufgeben und Fallback nutzen.
+                console.error(`Fehler beim Laden des Google Sheets für ${decodeURIComponent(ticker)} nach ${MAX_RETRIES} Versuchen:`, error);
+                showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
+                return useStaticFallback(ticker);
+            }
+            // Warten vor dem nächsten Versuch.
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
-        if (prices.length > 0) {
-            console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${decodedTicker} aus Google Sheet geladen.`, 'color: green; font-weight: bold;');
-        }
-        return prices;
-    } catch (error) {
-        console.error(`Fehler beim Laden oder Verarbeiten des Google Sheets für ${decodeURIComponent(ticker)}:`, error);
-        showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
-        return useStaticFallback(ticker);
     }
+    // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
+    return useStaticFallback(ticker);
 }
 
 function toggleBenchmarkView() {
@@ -5191,6 +5289,33 @@ async function restoreFromLocalBackup() {
         } catch (error) {
             showNotification('Fehler bei der Wiederherstellung.', 'error');
             console.error("Fehler beim Wiederherstellen aus Backup:", error);
+        }
+    }
+}
+
+async function clearApiCache() {
+    const confirmed = await showCustomPrompt({
+        title: 'API Cache leeren',
+        text: 'Dies löscht alle zwischengespeicherten Marktdaten. Die App wird sie beim nächsten Mal neu laden. Fortfahren?',
+        actions: [{ text: 'Abbrechen' }, { text: 'Cache leeren', class: 'btn-warning', value: true }]
+    });
+
+    if (confirmed) {
+        if ('serviceWorker' in navigator) {
+            // VERBESSERT: .ready wartet, bis der SW aktiv ist, anstatt .controller sofort zu prüfen.
+            // Das verhindert Race Conditions nach dem Neuladen der Seite.
+            navigator.serviceWorker.ready.then(registration => {
+                if (registration.active) {
+                    registration.active.postMessage({ action: 'clearApiCache' });
+                } else {
+                    showNotification('Service Worker ist nicht aktiv. Bitte laden Sie die Seite neu.', 'error');
+                }
+            }).catch(error => {
+                console.error('Fehler beim Zugriff auf den Service Worker:', error);
+                showNotification('Fehler beim Zugriff auf den Service Worker.', 'error');
+            });
+        } else {
+            showNotification('Service Worker wird von diesem Browser nicht unterstützt.', 'error');
         }
     }
 }
