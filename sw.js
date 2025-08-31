@@ -44,15 +44,32 @@ self.addEventListener('fetch', event => {
   const url = new URL(request.url);
 
   // API Caching Strategy: Stale-while-revalidate
-  if (url.href.includes('api.coingecko.com')) {
+  // Cache both CoinGecko and Google Sheets API calls
+  if (url.href.includes('api.coingecko.com') || url.href.includes('docs.google.com') || url.href.includes('alphavantage.co')) {
     event.respondWith(
       caches.open(API_CACHE_NAME).then(cache => {
-        return cache.match(request).then(cachedResponse => {
+        return cache.match(request).then(async (cachedResponse) => {
+          // NEU: Cache-Gültigkeit prüfen, um unnötige Anfragen zu vermeiden
+          if (cachedResponse) {
+            const dateHeader = cachedResponse.headers.get('date');
+            if (dateHeader) {
+              const age = (Date.now() - new Date(dateHeader).getTime()) / 1000;
+              const maxAgeSeconds = 6 * 60 * 60; // 6 Stunden
+
+              // Cache ist frisch, direkt zurückgeben und keine neue Anfrage stellen.
+              if (age < maxAgeSeconds) {
+                return cachedResponse;
+              }
+            }
+          }
+
+          // Stale-While-Revalidate Logik (wie bisher)
           const fetchPromise = fetch(request).then(networkResponse => {
             if (networkResponse.ok) cache.put(request, networkResponse.clone());
             return networkResponse;
           });
-          return cachedResponse || fetchPromise;
+
+          return cachedResponse || fetchPromise; // Gebe alte Daten zurück, während im Hintergrund neue geladen werden
         });
       })
     );
@@ -61,4 +78,18 @@ self.addEventListener('fetch', event => {
 
   // App Shell Caching Strategy: Cache-first
   event.respondWith(caches.match(request).then(response => response || fetch(request)));
+});
+
+// NEU: Listener für Nachrichten von der Hauptanwendung
+self.addEventListener('message', event => {
+  if (event.data && event.data.action === 'clearApiCache') {
+    console.log('SW: API-Cache wird geleert...');
+    caches.delete(API_CACHE_NAME).then(() => {
+      console.log('SW: API-Cache erfolgreich gelöscht.');
+      // Benachrichtige alle offenen Clients über den Erfolg
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => client.postMessage({ status: 'apiCacheCleared' }));
+      });
+    });
+  }
 });

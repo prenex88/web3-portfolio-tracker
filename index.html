@@ -645,9 +645,10 @@
                         <!-- Danger Zone -->
                         <div class="danger-zone">
                             <h3>⚠️ Gefahrenbereich</h3>
-                            <p>Diese Aktionen können nicht rückgängig gemacht werden!</p>
+                            <p>Diese Aktionen können nicht rückgängig gemacht werden! Das Leeren des Caches kann bei API-Problemen helfen.</p>
                             <div class="danger-actions">
-                                <button class="btn btn-danger" onclick="resetPlatforms()">🔄 Plattformen zurücksetzen</button>
+                                <button class="btn btn-warning" onclick="clearApiCache()">🔄 API Cache leeren</button>
+                                <button class="btn btn-danger" onclick="resetPlatforms()">Plattformen zurücksetzen</button>
                                 <button class="btn btn-danger" onclick="clearAllData()">🗑️ Alle Daten löschen</button>
                             </div>
                         </div>
