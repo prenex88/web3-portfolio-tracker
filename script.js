@@ -2934,16 +2934,16 @@ function updateStats() {
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats();
+    updateCashflowStats(filteredCashflows, filteredEntries);
 }
 
-function updateCashflowStats() {
-    const totalDeposits = cashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = cashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+function updateCashflowStats(cashflowsToUse, entriesToUse) {
+    const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
     const netCashflow = totalDeposits - totalWithdrawals;
     
-    const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-    const currentValue = lastDateOverall ? entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    const lastDateOverall = [...new Set(entriesToUse.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+    const currentValue = lastDateOverall ? entriesToUse.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
     
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
