@@ -1326,9 +1326,22 @@ function setupTouchGestures() {
     }, { passive: true });
 }
 
-function handleSwipe() {
-    // Die Wisch-Geste zum Wechseln der Tabs ist auf Wunsch vollständig deaktiviert.
-    return;
+function handleSwipe(startX, endX) {
+    const swipeThreshold = 50;
+    const diff = startX - endX;
+    
+    if (Math.abs(diff) < swipeThreshold) return;
+    
+    const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
+    const currentIndex = tabs.indexOf(currentTab);
+    
+    if (diff > 0 && currentIndex < tabs.length - 1) {
+        // Swipe left - next tab
+        switchTab(tabs[currentIndex + 1]);
+    } else if (diff < 0 && currentIndex > 0) {
+        // Swipe right - previous tab
+        switchTab(tabs[currentIndex - 1]);
+    }
 }
 
 // =================================================================================
@@ -2429,9 +2442,7 @@ function loadLastEntries() {
         }
     }, 200);
 
-    if (!isMobileDevice()) {
-        showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
-    }
+    showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
 }
 
 // =================================================================================
