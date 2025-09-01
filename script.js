@@ -1125,6 +1125,17 @@ function addEventListeners() {
             setChartDateFilter(period);
         });
     });
+
+    // Tooltip während des Scrollens deaktivieren
+    let isScrolling;
+    window.addEventListener('scroll', () => {
+        document.body.classList.add('scrolling');
+
+        clearTimeout(isScrolling);
+        isScrolling = setTimeout(() => {
+            document.body.classList.remove('scrolling');
+        }, 200); // Entfernt die Klasse nach 200ms Inaktivität
+    });
 }
 
 function setupMobileTitle() {

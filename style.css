@@ -1146,6 +1146,12 @@ body.has-sync-bar .tab-navigation {
     z-index: 9999; /* Sehr hoher z-index, um über allem zu schweben */
 }
 
+body.scrolling .chartjs-tooltip {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: none !important;
+}
+
 .tooltip-header {
     display: flex;
     justify-content: space-between;
@@ -2178,6 +2184,10 @@ body.privacy-mode .dollar-value::after {
         right: -10px;
         min-width: 200px;
     }
+    /* Erfolgsmeldungen auf mobilen Geräten ausblenden */
+    .notification.show {
+        display: none !important;
+    }
 }
 
 /* Globale Suche Modal */
@@ -2813,7 +2823,7 @@ body.dark-mode .search-quick-filters .btn {
         transition: all 0.3s ease;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        line-height: 1;
+        line-height: 3;
         text-align: center;
         white-space: nowrap;
         overflow: hidden;
