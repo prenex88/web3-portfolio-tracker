@@ -1326,22 +1326,9 @@ function setupTouchGestures() {
     }, { passive: true });
 }
 
-function handleSwipe(startX, endX) {
-    const swipeThreshold = 50;
-    const diff = startX - endX;
-    
-    if (Math.abs(diff) < swipeThreshold) return;
-    
-    const tabs = ['dashboard', 'entry', 'cashflow', 'history'];
-    const currentIndex = tabs.indexOf(currentTab);
-    
-    if (diff > 0 && currentIndex < tabs.length - 1) {
-        // Swipe left - next tab
-        switchTab(tabs[currentIndex + 1]);
-    } else if (diff < 0 && currentIndex > 0) {
-        // Swipe right - previous tab
-        switchTab(tabs[currentIndex - 1]);
-    }
+function handleSwipe() {
+    // Die Wisch-Geste zum Wechseln der Tabs ist auf Wunsch vollständig deaktiviert.
+    return;
 }
 
 // =================================================================================
@@ -2443,6 +2430,9 @@ function loadLastEntries() {
     }, 200);
 
     showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+     if (!isMobileDevice()) {
+        showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+    }
 }
 
 // =================================================================================
@@ -4123,7 +4113,11 @@ function initializeCharts() {
                     },
                     tooltip: {
                         enabled: false,
-                        external: externalTooltipHandler
+                        external: externalTooltipHandler,
+                        // NEU: Verhindert, dass der Tooltip beim Scrollen auf Mobilgeräten ausgelöst wird.
+                        // Der Tooltip wird nur noch bei einem echten "Klick" (Tap) angezeigt, nicht bei
+                        // einer Touch-Bewegung, die Teil eines Scrolls ist.
+                        events: isMobile ? ['click'] : ['mousemove', 'mouseout', 'click']
                     },
                     datalabels: {
                         display: false
