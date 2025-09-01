@@ -2813,7 +2813,7 @@ body.dark-mode .search-quick-filters .btn {
         transition: all 0.3s ease;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        line-height: 1;
+        line-height: 3;
         text-align: center;
         white-space: nowrap;
         overflow: hidden;
