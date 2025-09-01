@@ -4114,10 +4114,8 @@ function initializeCharts() {
                     tooltip: {
                         enabled: false,
                         external: externalTooltipHandler,
-                        // NEU: Verhindert, dass der Tooltip beim Scrollen auf Mobilgeräten ausgelöst wird.
-                        // Der Tooltip wird nur noch bei einem echten "Klick" (Tap) angezeigt, nicht bei
-                        // einer Touch-Bewegung, die Teil eines Scrolls ist.
-                        events: isMobile ? ['click'] : ['mousemove', 'mouseout', 'click']
+                        // Tooltip-Events werden für Mobile manuell gehandhabt, um Scrollen von Taps zu unterscheiden.
+                        events: isMobile ? [] : ['mousemove', 'mouseout', 'click']
                     },
                     datalabels: {
                         display: false
@@ -4134,16 +4132,46 @@ function initializeCharts() {
             portfolioChart.data.datasets[5].hidden = true; // DeFi Pulse Index
         }
 
-        // Verbessertes Touch-Verhalten für den Tooltip auf Mobilgeräten
-        portfolioCtx.canvas.addEventListener('touchstart', (e) => {
-            const tooltipEl = document.querySelector('.chartjs-tooltip');
-            // Wenn der Tooltip sichtbar ist, wird er bei einem erneuten Touch auf den Chart geschlossen.
-            if (tooltipEl && tooltipEl.style.opacity === '1') {
-                tooltipEl.style.opacity = '0';
-                // Verhindert, dass Chart.js sofort einen neuen Tooltip an der Touch-Position öffnet.
-                e.preventDefault();
-            }
-        }, { passive: false }); // passive: false ist notwendig, damit preventDefault() funktioniert.
+        // NEU: Robuste Touch-Logik für den Tooltip auf Mobilgeräten
+        if (isMobile) {
+            let touchStartPos = { x: 0, y: 0 };
+            let isDragging = false;
+
+            portfolioCtx.canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                touchStartPos = { x: touch.clientX, y: touch.clientY };
+                isDragging = false;
+            }, { passive: true });
+
+            portfolioCtx.canvas.addEventListener('touchmove', (e) => {
+                const touch = e.touches[0];
+                const deltaX = Math.abs(touch.clientX - touchStartPos.x);
+                const deltaY = Math.abs(touch.clientY - touchStartPos.y);
+
+                // Wenn die vertikale Bewegung größer als die horizontale ist und einen Schwellenwert überschreitet,
+                // wird dies als Scrollen gewertet.
+                if (deltaY > 10 && deltaY > deltaX) {
+                    isDragging = true;
+                }
+            }, { passive: true });
+
+            portfolioCtx.canvas.addEventListener('touchend', (e) => {
+                // Wenn es eine Drag-Bewegung (Scrollen) war, wird die Funktion beendet.
+                if (isDragging) {
+                    return;
+                }
+
+                // Wenn der Tooltip bereits aktiv ist, wird er ausgeblendet.
+                if (portfolioChart.tooltip && portfolioChart.tooltip.getActiveElements().length > 0) {
+                    portfolioChart.tooltip.setActiveElements([], { x: 0, y: 0 });
+                } else {
+                    // Andernfalls wird der Tooltip für das angetippte Element angezeigt.
+                    const points = portfolioChart.getElementsAtEventForMode(e, 'index', { intersect: false });
+                    if (points.length) portfolioChart.tooltip.setActiveElements(points, { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY });
+                }
+                portfolioChart.update();
+            });
+        }
     }
 
     const allocationCtx = document.getElementById('allocationChart')?.getContext('2d');
