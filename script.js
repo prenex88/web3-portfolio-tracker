@@ -447,7 +447,7 @@ let multiSelectStartIndex = -1;
 let selectedHistoryEntries = new Set();
 let lastSelectedHistoryRow = null;
 let favorites = [];
-let portfolioChart, allocationChart;
+let portfolioChart, allocationChart, forecastChart;
 let historySort = { key: 'date', order: 'desc' };
 let cashflowSort = { key: 'date', order: 'desc' };
 let platformDetailsSort = { key: 'platform', order: 'asc' };
@@ -472,6 +472,8 @@ let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
 
+let currentForecastPeriod = 5;
+let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
@@ -1400,10 +1402,9 @@ function toggleCompactMode() {
 function togglePrivacyMode() {
     document.body.classList.toggle('privacy-mode');
     const isActive = document.body.classList.contains('privacy-mode');
-    document.getElementById('privacyToggle').innerHTML = isActive ? '🙈' : '👁️';
-
-    if (portfolioChart) portfolioChart.update();
-    if (allocationChart) allocationChart.update();
+    
+    // Ruft alle Update-Funktionen auf, um die Beträge aus- oder einzublenden
+    updateDisplay();
     
     showNotification(isActive ? 'Privacy Mode aktiviert' : 'Privacy Mode deaktiviert');
 }
@@ -2117,7 +2118,7 @@ function loadTheme() {
 function updateChartTheme() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
-    [portfolioChart, allocationChart].forEach(chart => {
+    [portfolioChart, allocationChart, forecastChart].forEach(chart => {
         if (chart) {
             if (chart.options.scales?.y) {
                 chart.options.scales.y.ticks.color = textColor;
@@ -2825,6 +2826,7 @@ function setCashflowView(mode) {
 function updateDisplay() {
     updateStats();
     updateHistory();
+    updateForecastChart();
     updateCharts();
     updateCashflowDisplay();
     updatePlatformDetails();
@@ -3032,6 +3034,164 @@ function updateKeyMetrics() {
         if (drawdown < maxDrawdown) maxDrawdown = drawdown;
     });
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
+}
+
+// --- NEUE, VERBESSERTE PROGNOSE-FUNKTIONEN ---
+
+function setForecastPeriod(years) {
+    currentForecastPeriod = years;
+    // Update active button
+    document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+    // Safely find the button that was clicked.
+    const buttons = document.querySelectorAll('.time-selector .time-btn');
+    buttons.forEach(btn => {
+        if (btn.textContent.includes(years)) {
+            btn.classList.add('active');
+        }
+    });
+    updateForecastChart();
+}
+
+function toggleScenarios() {
+    showForecastScenarios = !showForecastScenarios;
+    const btn = document.querySelector('.scenario-toggle');
+    if(btn) btn.textContent = showForecastScenarios ? '📊 Szenarien' : '📈 Einfach';
+    updateForecastChart();
+}
+
+function updateForecastChart() {
+    const forecastWidget = document.getElementById('forecastWidget');
+    if (!forecastWidget) return;
+
+    // Hide widget if not enough data
+    if (entries.length < 2) {
+        forecastWidget.style.display = 'none';
+        return;
+    }
+
+    const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const firstDate = new Date(sortedEntries[0].date);
+    const lastDate = new Date(sortedEntries[sortedEntries.length - 1].date);
+    const durationMs = lastDate - firstDate;
+    const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+
+    if (durationDays < 30) {
+        forecastWidget.style.display = 'none';
+        return;
+    }
+    forecastWidget.style.display = 'block';
+
+    // --- Berechnungen ---
+    const durationYears = durationDays / 365.25;
+    const currentPortfolioValue = sortedEntries.filter(e => e.date === sortedEntries[sortedEntries.length - 1].date).reduce((s, e) => s + e.balance, 0);
+    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+    const totalReturnSum = currentPortfolioValue - totalNetInvested;
+    const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
+    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
+
+    // Szenarien definieren
+    const realisticReturn = annualizedReturn;
+    const conservativeReturn = annualizedReturn * 0.5; // Annahme: 50% der hist. Rendite
+    const optimisticReturn = annualizedReturn * 1.5;   // Annahme: 150% der hist. Rendite
+
+    const generateScenario = (startValue, annualReturn, years) => {
+        const data = [startValue];
+        for (let i = 1; i <= years; i++) {
+            data.push(startValue * Math.pow(1 + annualReturn, i));
+        }
+        return data;
+    };
+
+    const realisticData = generateScenario(currentPortfolioValue, realisticReturn, currentForecastPeriod);
+    const conservativeData = generateScenario(currentPortfolioValue, conservativeReturn, currentForecastPeriod);
+    const optimisticData = generateScenario(currentPortfolioValue, optimisticReturn, currentForecastPeriod);
+
+    // --- DOM Updates ---
+    document.getElementById('forecastMetricRealisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
+    document.getElementById('forecastMetricRealisticLabel').textContent = `Erwarteter Wert (${currentForecastPeriod}J)`;
+    document.getElementById('forecastMetricAnnualReturn').textContent = `${(realisticReturn * 100).toFixed(1)}%`;
+    document.getElementById('forecastMetricTotalProfit').textContent = formatDollar(realisticData[realisticData.length - 1] - currentPortfolioValue);
+    document.getElementById('forecastMetricConservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
+    document.getElementById('forecastMetricConservativeLabel').textContent = `"Pessimistisch" (${currentForecastPeriod}J)`;
+    
+    document.getElementById('conservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
+    document.getElementById('realisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
+    document.getElementById('optimisticValue').textContent = formatDollar(optimisticData[optimisticData.length - 1]);
+    document.getElementById('conservativeReturnLabel').textContent = `+${(conservativeReturn * 100).toFixed(1)}% jährlich`;
+    document.getElementById('realisticReturnLabel').textContent = `+${(realisticReturn * 100).toFixed(1)}% jährlich`;
+    document.getElementById('optimisticReturnLabel').textContent = `+${(optimisticReturn * 100).toFixed(1)}% jährlich`;
+
+    // --- Chart Update ---
+    const ctx = document.getElementById('forecastChart').getContext('2d');
+    const labels = Array.from({length: currentForecastPeriod + 1}, (_, i) => i === 0 ? 'Heute' : `Jahr ${i}`);
+
+    const datasets = [{
+        label: 'Realistisch',
+        data: realisticData,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        fill: false,
+        tension: 0.4,
+        borderWidth: 3,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+    }];
+
+    if (showForecastScenarios) {
+        datasets.push({
+            label: 'Konservativ',
+            data: conservativeData,
+            borderColor: '#ef4444',
+            fill: false,
+            tension: 0.4,
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 4,
+        }, {
+            label: 'Optimistisch',
+            data: optimisticData,
+            borderColor: '#10b981',
+            fill: false,
+            tension: 0.4,
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 4,
+        });
+    }
+
+    if (forecastChart) {
+        forecastChart.destroy();
+    }
+
+    forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'bottom', align: 'center', labels: { usePointStyle: true, padding: 20, font: { size: 14, weight: '500' }}},
+                tooltip: {
+                    callbacks: {
+                        label: (c) => `${c.dataset.label}: ${formatDollar(c.parsed.y)}`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { callback: (value) => formatDollar(value), font: { size: 12 }},
+                    grid: { color: 'rgba(0, 0, 0, 0.08)', drawBorder: false }
+                },
+                x: {
+                    ticks: { font: { size: 12 }},
+                    grid: { display: false }
+                }
+            },
+            elements: { point: { backgroundColor: '#ffffff', borderWidth: 2 }}
+        }
+    });
 }
 
 async function editEntry(entryId) {
@@ -5382,6 +5542,205 @@ function addMissingStyles() {
             background: #1f2937;
             border-color: #374151;
             color: #f9fafb;
+        }
+
+        /* --- NEUE STILE FÜR PROGNOSE-WIDGET --- */
+        .forecast-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .forecast-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 0;
+        }
+        .forecast-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .forecast-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .time-selector {
+            display: flex;
+            background: var(--background-alt);
+            border-radius: 12px;
+            padding: 4px;
+            border: 1px solid var(--border);
+        }
+        .time-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .time-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+        .scenario-toggle {
+            background: var(--primary-dark);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .scenario-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .forecast-chart-container {
+            height: 350px;
+            margin-bottom: 24px;
+            position: relative;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .dark-mode .forecast-chart-container {
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .forecast-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .metric-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .dark-mode .metric-card {
+            background: rgba(31, 41, 55, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .metric-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--primary);
+        }
+        .metric-card.success::before { background: var(--success); }
+        .metric-card.warning::before { background: var(--warning); }
+        .metric-card.danger::before { background: var(--danger); }
+        .metric-icon { font-size: 28px; margin-bottom: 8px; display: block; }
+        .metric-value { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+        .metric-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; }
+        
+        .scenario-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        .scenario-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .dark-mode .scenario-card {
+            background: rgba(31, 41, 55, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .scenario-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; }
+        .scenario-card.conservative::before { background: var(--danger); }
+        .scenario-card.realistic::before { background: var(--primary); }
+        .scenario-card.optimistic::before { background: var(--success); }
+        .scenario-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .scenario-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; }
+        .conservative .scenario-icon { background: var(--danger); }
+        .realistic .scenario-icon { background: var(--primary); }
+        .optimistic .scenario-icon { background: var(--success); }
+        .scenario-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+        .scenario-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        .scenario-value { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+        .conservative .scenario-value { color: var(--danger); }
+        .realistic .scenario-value { color: var(--primary); }
+        .optimistic .scenario-value { color: var(--success); }
+
+        .scenario-details {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .probability-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--background-alt);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 12px 0;
+        }
+        .probability-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s ease-in-out;
+        }
+        .conservative .probability-fill { background: var(--danger); width: 25%; }
+        .realistic .probability-fill { background: var(--primary); width: 50%; }
+        .optimistic .probability-fill { background: var(--success); width: 25%; }
+        .disclaimer {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-top: 24px;
+        }
+        .disclaimer-icon { color: var(--warning); margin-right: 8px; }
+
+        @media (max-width: 768px) {
+            .forecast-header { flex-direction: column; align-items: stretch; }
+            .forecast-controls { justify-content: center; }
+            .forecast-chart-container { height: 300px; }
+            .forecast-metrics { grid-template-columns: 1fr 1fr; }
+            .scenario-cards { grid-template-columns: 1fr; }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        #forecastWidget { animation: slideUp 0.6s ease-out; }
+        .metric-card, .scenario-card {
+            animation: slideUp 0.6s ease-out;
+            animation-fill-mode: both;
         }
 
         /* Mobile Tooltip Optimierungen */

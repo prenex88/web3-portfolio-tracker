@@ -248,6 +248,118 @@
                         </div>
                     </div>
                 </div>
+                <!-- NEUES, VERBESSERTES PROGNOSE-WIDGET -->
+                <div id="forecastWidget" class="section" style="display: none;">
+                    <div class="forecast-header">
+                        <div>
+                            <div class="forecast-title">🔮 Portfolio Prognose</div>
+                            <p class="forecast-subtitle">
+                                Basierend auf historischer Performance und verschiedenen Szenarien.<br>
+                                Vergangene Performance ist keine Garantie für zukünftige Ergebnisse.
+                            </p>
+                        </div>
+                        <div class="forecast-controls">
+                            <div class="time-selector">
+                                <button class="time-btn" onclick="setForecastPeriod(3)">3 Jahre</button>
+                                <button class="time-btn active" onclick="setForecastPeriod(5)">5 Jahre</button>
+                                <button class="time-btn" onclick="setForecastPeriod(10)">10 Jahre</button>
+                            </div>
+                            <button class="scenario-toggle" onclick="toggleScenarios()">
+                                📊 Szenarien
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="forecast-metrics">
+                        <div class="metric-card">
+                            <span class="metric-icon">🎯</span>
+                            <div class="metric-value" id="forecastMetricRealisticValue">$0</div>
+                            <div class="metric-label" id="forecastMetricRealisticLabel">Erwarteter Wert (5J)</div>
+                        </div>
+                        <div class="metric-card success">
+                            <span class="metric-icon">📈</span>
+                            <div class="metric-value" id="forecastMetricAnnualReturn">-</div>
+                            <div class="metric-label">Jährliche Rendite</div>
+                        </div>
+                        <div class="metric-card warning">
+                            <span class="metric-icon">💰</span>
+                            <div class="metric-value" id="forecastMetricTotalProfit">$0</div>
+                            <div class="metric-label">Prognostizierter Gewinn</div>
+                        </div>
+                        <div class="metric-card danger">
+                            <span class="metric-icon">📉</span>
+                            <div class="metric-value" id="forecastMetricConservativeValue">$0</div>
+                            <div class="metric-label" id="forecastMetricConservativeLabel">"Pessimistisch" (5J)</div>
+                        </div>
+                    </div>
+
+                    <div class="forecast-chart-container">
+                        <canvas id="forecastChart"></canvas>
+                    </div>
+
+                    <div class="scenario-cards">
+                        <div class="scenario-card conservative">
+                            <div class="scenario-header">
+                                <div class="scenario-icon">🛡️</div>
+                                <div>
+                                    <div class="scenario-title">Konservativ</div>
+                                    <div class="scenario-subtitle" id="conservativeReturnLabel">Vorsichtige Schätzung</div>
+                                </div>
+                            </div>
+                            <div class="scenario-value" id="conservativeValue">$0</div>
+                            <div class="probability-bar">
+                                <div class="probability-fill"></div>
+                            </div>
+                            <div class="scenario-details">
+                                Berücksichtigt niedrigere Marktrenditen und höhere Volatilität. 
+                                Wahrscheinlichkeit: 25%
+                            </div>
+                        </div>
+
+                        <div class="scenario-card realistic">
+                            <div class="scenario-header">
+                                <div class="scenario-icon">🎯</div>
+                                <div>
+                                    <div class="scenario-title">Realistisch</div>
+                                    <div class="scenario-subtitle" id="realisticReturnLabel">Bisherige Performance</div>
+                                </div>
+                            </div>
+                            <div class="scenario-value" id="realisticValue">$0</div>
+                            <div class="probability-bar">
+                                <div class="probability-fill"></div>
+                            </div>
+                            <div class="scenario-details">
+                                Basiert auf historischer Portfolio-Performance und Markttrends. 
+                                Wahrscheinlichkeit: 50%
+                            </div>
+                        </div>
+
+                        <div class="scenario-card optimistic">
+                            <div class="scenario-header">
+                                <div class="scenario-icon">🚀</div>
+                                <div>
+                                    <div class="scenario-title">Optimistisch</div>
+                                    <div class="scenario-subtitle" id="optimisticReturnLabel">Starkes Wachstum</div>
+                                </div>
+                            </div>
+                            <div class="scenario-value" id="optimisticValue">$0</div>
+                            <div class="probability-bar">
+                                <div class="probability-fill"></div>
+                            </div>
+                            <div class="scenario-details">
+                                Optimiert für Wachstumsmärkte und starke Portfolio-Performance. 
+                                Wahrscheinlichkeit: 25%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="disclaimer">
+                        <span class="disclaimer-icon">⚠️</span>
+                        <strong>Wichtiger Hinweis:</strong> Diese Prognosen sind Schätzungen basierend auf historischen Daten 
+                        und mathematischen Modellen. Tatsächliche Ergebnisse können erheblich abweichen. Investitionen sind 
+                        mit Risiken verbunden und vergangene Performance ist keine Garantie für zukünftige Ergebnisse.
+                    </div>
+                </div>
             </div>
         </div>
 
