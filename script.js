@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     addEventListeners();
     setupBottomSheet();
     setupKeyboardShortcuts();
-    setupTouchGestures();
+    // setupTouchGestures(); // Deaktiviert, um versehentliches Swipen zu verhindern
     setupMobileTitle();
     setupAutocomplete();
     setupQuickActions();
@@ -535,7 +535,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeDragAndDrop();
 
     // UX Improvements
-    setupSwipeNavigation();
+    // setupSwipeNavigation(); // Deaktiviert, um nur Button-Navigation zu erlauben
     addTooltips();
     addAriaLabels();
     enableBatchSelection();
@@ -3172,6 +3172,9 @@ function updateForecastChart() {
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
+                datalabels: {
+                    display: false // Verhindert, dass die Zahlen direkt auf dem Chart angezeigt werden
+                },
                 legend: { position: 'bottom', align: 'center', labels: { usePointStyle: true, padding: 20, font: { size: 14, weight: '500' }}},
                 tooltip: {
                     callbacks: {
@@ -6168,9 +6171,7 @@ function addMissingStyles() {
                 padding-top: 6px;
             }
             
-            /* Hide settings and platforms tabs on mobile */
-            .tab-btn[onclick="switchTab('settings')"],
-            .tab-btn[data-tab="settings"],
+            /* Hide platforms tab on mobile */
             .tab-btn[onclick="switchTab('platforms')"],
             .tab-btn[data-tab="platforms"] {
                 display: none !important;
@@ -6182,6 +6183,13 @@ function addMissingStyles() {
         .tab-content#platforms,
         [data-tab="platforms"],
         .tab-btn[onclick*="platforms"] {
+            display: none !important;
+        }
+        
+        /* Hide settings tab from main menu as it's in the dropdown */
+        .tab-btn[onclick="switchTab('settings')"],
+        .tab-btn[data-tab="settings"]
+        {
             display: none !important;
         }
         
