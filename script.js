@@ -349,8 +349,6 @@ const GIST_ID_FX = '753ec1f447c375c9a96c05feb66c05a6'; // Für die /fx Version
 
 // Automatische Erkennung der Version
 const isFxVersion = window.location.pathname.includes('/fx');
-// *** NEU: Konfiguration für die Datenbereinigung ***
-const DELETED_ITEM_RETENTION_DAYS = 30; // Items marked as deleted will be permanently removed after this many days.
 // *** GEÄNDERT: Neue Version für die Datenstruktur ***
 const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
@@ -496,85 +494,6 @@ function isMobileDevice() {
     return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-// *** NEU: Helper für Komprimierung und Dekomprimierung ***
-function saveCompressed(key, data) {
-    try {
-        const compressed = LZString.compressToUTF16(JSON.stringify(data));
-        localStorage.setItem(key, compressed);
-    } catch (e) {
-        console.error(`Failed to save compressed data for key: ${key}`, e);
-        throw e; // Fehler weiterleiten, um von saveData behandelt zu werden
-    }
-}
-
-function loadCompressed(key) {
-    const item = localStorage.getItem(key);
-    if (!item) return null;
-
-    try {
-        // Prüfen, ob die Daten im alten, unkomprimierten Format vorliegen
-        if (item.startsWith('{') || item.startsWith('[')) {
-            console.warn(`Data for key ${key} is uncompressed. It will be compressed on next save.`);
-            return JSON.parse(item);
-        }
-        const decompressed = LZString.decompressFromUTF16(item);
-        return JSON.parse(decompressed);
-    } catch (e) {
-        console.error(`Failed to decompress data for key: ${key}. Data might be corrupt.`, e);
-        localStorage.removeItem(key); // Entferne korrupte Daten
-        return null;
-    }
-}
-
-// Füge diese Debug-Funktion temporär hinzu
-async function debugSync() {
-    console.log('=== SYNC DEBUG ===');
-    console.log('Token vorhanden:', !!githubToken);
-    console.log('Token (erste 10 Zeichen):', githubToken ? githubToken.substring(0, 10) + '...' : 'KEIN TOKEN');
-    console.log('Gist ID:', gistId);
-    console.log('Storage Prefix:', STORAGE_PREFIX);
-    
-    if (!githubToken || !gistId) {
-        console.error('❌ Token oder Gist ID fehlt!');
-        return;
-    }
-    
-    // Teste die Verbindung
-    try {
-        const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
-            headers: { 
-                'Authorization': `token ${githubToken}`,
-                'Accept': 'application/vnd.github.v3+json'
-            }
-        });
-        
-        console.log('API Response Status:', response.status);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('API Fehler:', errorText);
-            return;
-        }
-        
-        const gist = await response.json();
-        console.log('Gist gefunden:', gist.description);
-        console.log('Dateien im Gist:', Object.keys(gist.files));
-        
-        // Prüfe ob die erwartete Datei existiert
-        if (gist.files['portfolio-data-v11.json']) {
-            console.log('✅ portfolio-data-v11.json existiert');
-            const content = JSON.parse(gist.files['portfolio-data-v11.json'].content);
-            console.log('Daten-Version:', content.version);
-            console.log('Letzter Sync:', content.lastSync);
-        } else {
-            console.warn('⚠️ portfolio-data-v11.json existiert nicht im Gist');
-        }
-        
-    } catch (error) {
-        console.error('Fehler beim Debug:', error);
-    }
-}
-
 // UNDO SYSTEM
 let undoStack = [];
 const MAX_UNDO_STACK = 20;
@@ -592,8 +511,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     setupIndexedDB();
     loadGitHubConfig();
-    await loadData();
-    await pruneOldDeletedItems(); // Bereinigt alte, gelöschte Einträge, um Speicherplatz zu sparen
+    loadData();
     loadTheme();
     setToToday(); // Setzt das Datum im Eingabe-Tab
     setDateFilter('all'); // Setzt den initialen Filter für die gesamte App
@@ -625,19 +543,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     convertTablesToMobile();
 
     window.addEventListener('resize', convertTablesToMobile);
-
-    // Version Info initialisieren
-    document.getElementById('appVersion').textContent = '1.2.1'; // Manuell updaten bei neuen Releases
-    document.getElementById('deviceId').textContent = getDeviceId();
-
-    // Sync Info aus Daten laden
-    const lastCloudData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}lastCloudSync`) || '{}');
-    if (lastCloudData.version) {
-        document.getElementById('syncVersion').textContent = `v${lastCloudData.version} (${new Date(lastCloudData.lastSync).toLocaleTimeString('de-DE')})`;
-    }
-
-    // Führe den Debug aus
-    debugSync();
 });
 
 // NEU: Listener für Nachrichten vom Service Worker
@@ -1508,11 +1413,11 @@ function togglePrivacyMode() {
 // DATA HANDLING & FILTERING
 // =================================================================================
 async function loadData() {
-    let platformsData = loadCompressed(`${STORAGE_PREFIX}portfolioPlatforms`);
-    let entriesData = loadCompressed(`${STORAGE_PREFIX}portfolioEntries`);
-    let cashflowsData = loadCompressed(`${STORAGE_PREFIX}portfolioCashflows`);
-    let dayStrategiesData = loadCompressed(`${STORAGE_PREFIX}portfolioDayStrategies`);
-    let favoritesData = loadCompressed(`${STORAGE_PREFIX}portfolioFavorites`);
+    let platformsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioPlatforms`));
+    let entriesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioEntries`));
+    let cashflowsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows`));
+    let dayStrategiesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioDayStrategies`));
+    let favoritesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites`));
 
     if (!entriesData || entriesData.length === 0) {
         console.log("LocalStorage ist leer, versuche Wiederherstellung aus IndexedDB-Backup...");
@@ -1531,114 +1436,24 @@ async function loadData() {
         }
     }
 
-    platforms = (platformsData || [...DEFAULT_PLATFORMS]).map(p => ({
-        id: p.id || Date.now() + Math.random(),
+    platforms = platformsData || [...DEFAULT_PLATFORMS];
+    platforms = platforms.map(p => ({
         ...p,
-        tags: p.tags || [],
-        lastModified: p.lastModified || new Date(0).toISOString(),
-        isDeleted: !!p.isDeleted
+        tags: p.tags || []
     }));
-    entries = (entriesData || []).map(e => ({
-        ...e,
-        lastModified: e.lastModified || new Date(0).toISOString(),
-        isDeleted: !!e.isDeleted
-    }));
-    cashflows = (cashflowsData || []).map(c => ({
-        id: c.id || Date.now() + Math.random(),
-        ...c,
-        lastModified: c.lastModified || new Date(0).toISOString(),
-        isDeleted: !!c.isDeleted
-    }));
-    dayStrategies = (dayStrategiesData || []).map(d => ({
-        id: d.id || Date.now() + Math.random(),
-        ...d,
-        lastModified: d.lastModified || new Date(0).toISOString(),
-        isDeleted: !!d.isDeleted
-    }));
+    entries = entriesData || [];
+    cashflows = cashflowsData || [];
+    dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
     applyDateFilter();
 }
 
-/**
- * Cleans up local data by permanently removing items that were soft-deleted a long time ago.
- * This runs on startup to prevent localStorage from exceeding its quota.
- */
-async function pruneOldDeletedItems() {
-    const retentionPeriod = DELETED_ITEM_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    const cutoffDate = new Date(Date.now() - retentionPeriod);
-    let itemsPruned = 0;
-
-    const pruneList = (list) => {
-        if (!Array.isArray(list)) return [];
-        const originalLength = list.length;
-        const newList = list.filter(item => {
-            if (item.isDeleted) {
-                const modifiedDate = new Date(item.lastModified || 0);
-                if (modifiedDate < cutoffDate) {
-                    return false; // Prune this item
-                }
-            }
-            return true; // Keep this item
-        });
-        itemsPruned += originalLength - newList.length;
-        return newList;
-    };
-
-    entries = pruneList(entries);
-    cashflows = pruneList(cashflows);
-    platforms = pruneList(platforms);
-    dayStrategies = pruneList(dayStrategies);
-
-    if (itemsPruned > 0) {
-        console.log(`Pruned ${itemsPruned} old, deleted items from local storage.`);
-        // Save pruned data locally without triggering a sync, as this is just local cleanup.
-        saveData(false); 
-        showNotification(`${itemsPruned} alte Einträge endgültig gelöscht.`, 'info');
-    }
-}
-
-async function deleteEntry(entryId) {
-    const entryIndex = entries.findIndex(e => e.id == entryId);
-    if (entryIndex > -1) {
-        entries[entryIndex].isDeleted = true;
-        entries[entryIndex].lastModified = new Date().toISOString();
-        saveData();
-        applyDateFilter();
-        showNotification('Eintrag zum Löschen markiert', 'info');
-    }
-}
-
-async function deleteCashflow(cashflowId) {
-    const cashflowIndex = cashflows.findIndex(c => c.id == cashflowId);
-    if (cashflowIndex > -1) {
-        cashflows[cashflowIndex].isDeleted = true;
-        cashflows[cashflowIndex].lastModified = new Date().toISOString();
-        saveData();
-        applyDateFilter();
-        showNotification('Cashflow zum Löschen markiert', 'info');
-    }
-}
-
 function saveData(triggerSync = true) {
-    try {
-        saveCompressed(`${STORAGE_PREFIX}portfolioPlatforms`, platforms);
-        saveCompressed(`${STORAGE_PREFIX}portfolioEntries`, entries);
-        saveCompressed(`${STORAGE_PREFIX}portfolioCashflows`, cashflows);
-        saveCompressed(`${STORAGE_PREFIX}portfolioDayStrategies`, dayStrategies);
-        saveCompressed(`${STORAGE_PREFIX}portfolioFavorites`, favorites);
-    } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            console.error("CRITICAL: Failed to save data even with compression.", e);
-            showNotification('KRITISCHER FEHLER: Speicherlimit überschritten! Daten konnten nicht gespeichert werden. Bitte exportiere deine Daten als Backup.', 'error');
-            // Hier könnte man den Benutzer anleiten, ein JSON-Backup zu erstellen.
-            return;
-        } else {
-            console.error("Error in saveData:", e);
-            showNotification('Ein unbekannter Speicherfehler ist aufgetreten.', 'error');
-            throw e;
-        }
-    }
-
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
+    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
     localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
     saveBackupToIndexedDB();
 
@@ -1653,24 +1468,21 @@ function applyDateFilter() {
     const startDateStr = document.getElementById('filterStartDate').value;
     const endDateStr = document.getElementById('filterEndDate').value;
 
-    const activeEntries = entries.filter(e => !e.isDeleted);
-    const activeCashflows = cashflows.filter(c => !c.isDeleted);
-
     if (startDateStr || endDateStr) {
-        filteredEntries = activeEntries.filter(e => {
+        filteredEntries = entries.filter(e => {
             const isAfterStart = startDateStr ? e.date >= startDateStr : true;
             const isBeforeEnd = endDateStr ? e.date <= endDateStr : true;
             return isAfterStart && isBeforeEnd;
         });
 
-        filteredCashflows = activeCashflows.filter(c => {
+        filteredCashflows = cashflows.filter(c => {
             const isAfterStart = startDateStr ? c.date >= startDateStr : true;
             const isBeforeEnd = endDateStr ? c.date <= endDateStr : true;
             return isAfterStart && isBeforeEnd;
         });
     } else {
-        filteredEntries = [...activeEntries];
-        filteredCashflows = [...activeCashflows];
+        filteredEntries = [...entries];
+        filteredCashflows = [...cashflows];
     }
     updateDisplay();
 }
@@ -1780,22 +1592,14 @@ function updateFilterBadge() {
 
 function saveStrategyForDate(date, strategy) {
     const existingIndex = dayStrategies.findIndex(s => s.date === date);
-    if (existingIndex >= 0 && !dayStrategies[existingIndex].isDeleted) {
+    if (existingIndex >= 0) {
         if (strategy) {
             dayStrategies[existingIndex].strategy = strategy;
-            dayStrategies[existingIndex].lastModified = new Date().toISOString();
         } else {
-            dayStrategies[existingIndex].isDeleted = true;
-            dayStrategies[existingIndex].lastModified = new Date().toISOString();
+            dayStrategies.splice(existingIndex, 1);
         }
     } else if (strategy) {
-        dayStrategies.push({
-            id: Date.now() + Math.random(),
-            date,
-            strategy,
-            lastModified: new Date().toISOString(),
-            isDeleted: false
-        });
+        dayStrategies.push({ date, strategy });
     }
 }
 
@@ -1810,14 +1614,7 @@ function saveSingleEntry(inputElement) {
     if (!inputElement.value || isNaN(balance)) return;
 
     entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-    entries.push({
-        id: Date.now() + Math.random(),
-        date,
-        protocol: platformName,
-        balance,
-        note,
-        lastModified: new Date().toISOString(),
-        isDeleted: false });
+    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
 
     saveData();
     applyDateFilter();
@@ -1968,228 +1765,56 @@ async function syncNow() {
 }
 
 async function fetchGistData() {
-    console.log('Lade Gist-Daten...');
-    
     const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
-        headers: { 
-            'Authorization': `token ${githubToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-        }
+        headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json' }
     });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Fehler beim Abrufen:', response.status, errorText);
-        
-        // Spezifische Fehlermeldungen
-        if (response.status === 401) {
-            throw new Error('Ungültiger GitHub Token. Bitte prüfe deinen Personal Access Token.');
-        } else if (response.status === 404) {
-            throw new Error('Gist nicht gefunden. Überprüfe die Gist ID oder erstelle einen neuen Gist.');
-        } else if (response.status === 403) {
-            throw new Error('Zugriff verweigert. Stelle sicher, dass dein Token die "gist" Berechtigung hat.');
-        }
-        throw new Error(`GitHub API Fehler: ${response.status}`);
-    }
-    
+    if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
     const gist = await response.json();
-    console.log('Gist geladen, Dateien:', Object.keys(gist.files));
-    
-    // Prüfe verschiedene mögliche Dateinamen (Rückwärtskompatibilität)
-    const possibleFiles = ['portfolio-data-v11.json', 'portfolio-data.json'];
-    let content = null;
-    
-    for (const fileName of possibleFiles) {
-        if (gist.files[fileName]) {
-            console.log(`Verwende Datei: ${fileName}`);
-            content = gist.files[fileName].content;
-            break;
-        }
-    }
-    
-    if (!content) {
-        console.warn('Keine Daten-Datei gefunden, erstelle neue Struktur');
-        return { 
-            platforms: [...DEFAULT_PLATFORMS],
-            entries: [],
-            cashflows: [],
-            dayStrategies: [],
-            favorites: [],
-            lastSync: null
-        };
-    }
-    
-    const data = JSON.parse(content);
-    console.log('Daten geladen, Version:', data.version);
-    
-    // Speichere Cloud-Version für Anzeige
-    localStorage.setItem(`${STORAGE_PREFIX}lastCloudSync`, JSON.stringify({
-        version: data.version || 0,
-        lastSync: data.lastSync,
-        deviceId: data.deviceId
-    }));
-    
-    return data;
+    const content = gist.files['portfolio-data-v11.json']?.content;
+    if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], lastSync: null };
+    return JSON.parse(content);
 }
 
 async function saveToGist(data) {
-    // Füge mehr Logging hinzu
-    console.log('Speichere zu Gist, Daten-Keys:', Object.keys(data));
-    
-    data.version = (data.version || 0) + 1;
-    data.deviceId = getDeviceId();
-    data.lastSync = new Date().toISOString();
-    
-    const payload = {
-        files: {
-            'portfolio-data-v11.json': {
-                content: JSON.stringify(data, null, 2)
-            }
-        },
-        description: `Portfolio Sync v${data.version} - ${new Date().toLocaleString('de-DE')}`
-    };
-    
-    console.log('Sende Payload mit Dateien:', Object.keys(payload.files));
-    
     const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
         method: 'PATCH',
-        headers: {
-            'Authorization': `token ${githubToken}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+        headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: JSON.stringify(data, null, 2) } } })
     });
-    
-    console.log('Save Response Status:', response.status);
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Fehler beim Speichern:', errorText);
-        throw new Error(`GitHub API Fehler: ${response.status} - ${errorText}`);
-    }
-    
-    // Update UI
-    document.getElementById('syncVersion').textContent = `v${data.version} (jetzt)`;
+    if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
 }
 
-/**
- * Permanently removes items that were marked as deleted more than DELETED_ITEM_RETENTION_DAYS ago.
- * This is a garbage collection mechanism to prevent data from growing indefinitely.
- * @param {object} data The data object to prune.
- * @returns {object} The pruned data object.
- */
-function pruneData(data) {
-    const retentionPeriod = DELETED_ITEM_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    const cutoffDate = new Date(Date.now() - retentionPeriod);
-    let itemsPruned = 0;
-
-    const pruneList = (list = []) => {
-        if (!Array.isArray(list)) return [];
-        const originalLength = list.length;
-        const newList = list.filter(item => {
-            if (item.isDeleted) {
-                const modifiedDate = new Date(item.lastModified || 0);
-                if (modifiedDate < cutoffDate) {
-                    return false; // Prune this item
-                }
-            }
-            return true; // Keep this item
-        });
-        itemsPruned += originalLength - newList.length;
-        return newList;
-    };
-
-    const prunedData = {
-        ...data,
-        entries: pruneList(data.entries),
-        cashflows: pruneList(data.cashflows),
-        platforms: pruneList(data.platforms),
-        dayStrategies: pruneList(data.dayStrategies)
-    };
-
-    if (itemsPruned > 0) {
-        console.log(`Garbage Collection: Permanently removed ${itemsPruned} old items during sync.`);
-    }
-
-    return prunedData;
-}
-
-/**
- * Führt eine intelligente, item-basierte Zusammenführung von lokalen und Cloud-Daten durch.
- * Verhindert Datenverlust, indem Änderungen auf Eintragsebene verglichen werden.
- *
- * @param {object} localData Die lokalen Daten des Geräts.
- * @param {object} cloudData Die aus dem Gist geladenen Daten.
- * @returns {object} Die zusammengeführten, finalen Daten.
- */
 async function mergeData(localData, cloudData) {
-    console.log("Starte intelligente Synchronisierung...");
-
-    // Fall 1: Keine Cloud-Daten vorhanden. Lokale Daten gewinnen und werden hochgeladen.
     if (!cloudData || !cloudData.lastSync) {
-        console.log("Keine Cloud-Daten gefunden. Lade lokale Daten hoch.");
-        localData.version = 1;
         return localData;
     }
-
-    // Eine Hilfsfunktion, um zwei Listen von Objekten (z.B. alle Einträge) zu mergen.
-    const mergeLists = (localList, cloudList) => {
-        const mergedMap = new Map();
-
-        // 1. Alle Cloud-Items in eine Map legen, um schnellen Zugriff zu haben.
-        cloudList.forEach(item => mergedMap.set(item.id, item));
-
-        // 2. Alle lokalen Items durchgehen und mit der Cloud-Version vergleichen.
-        localList.forEach(localItem => {
-            const cloudItem = mergedMap.get(localItem.id);
-
-            if (cloudItem) {
-                // Item existiert an beiden Orten: Nimm das Neueste.
-                const localDate = new Date(localItem.lastModified || 0);
-                const cloudDate = new Date(cloudItem.lastModified || 0);
-                if (localDate > cloudDate) {
-                    mergedMap.set(localItem.id, localItem); // Lokal ist neuer
-                }
-            } else {
-                // Item existiert nur lokal: Füge es hinzu.
-                mergedMap.set(localItem.id, localItem);
-            }
+    
+    const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
+    const cloudTime = new Date(cloudData.lastSync);
+    
+    // Wenn Cloud-Daten neuer sind, frage den Benutzer
+    if (cloudTime > localTime) {
+        const result = await showCustomPrompt({
+            title: 'Sync-Konflikt erkannt',
+            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}). Sollen die lokalen Daten überschrieben werden?`,
+            actions: [
+                { text: 'Lokale behalten', value: 'local' },
+                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' }
+            ]
         });
-
-        // Konvertiere die Map zurück in ein Array.
-        // Wichtig: Physisch gelöschte Einträge (isDeleted: true) werden nicht entfernt,
-        // damit die Löschung auf andere Geräte synchronisiert wird.
-        return Array.from(mergedMap.values());
-    };
-
-    // Führe den Merge-Prozess für jeden Datentyp durch.
-    const finalEntries = mergeLists(localData.entries, cloudData.entries);
-    const finalCashflows = mergeLists(localData.cashflows, cloudData.cashflows);
-    const finalPlatforms = mergeLists(localData.platforms, cloudData.platforms);
-    const finalDayStrategies = mergeLists(localData.dayStrategies, cloudData.dayStrategies);
-
-    // Bei Favoriten (einfache Liste von Strings) ist eine simple Vereinigung sinnvoll.
-    const finalFavorites = [...new Set([...(localData.favorites || []), ...(cloudData.favorites || [])])];
+        
+        if (result === 'cloud') {
+            showNotification("Neuere Daten aus der Cloud geladen.", "warning");
+            return cloudData;
+        }
+        
+        // Lokale Daten behalten (oder bei Abbruch des Prompts)
+        showNotification("Lokale Daten werden beibehalten und beim nächsten Sync hochgeladen.", "info");
+        localData.lastSync = new Date().toISOString();
+        return localData;
+    }
     
-    // Die finale, zusammengeführte Datenstruktur.
-    const mergedData = {
-        platforms: finalPlatforms,
-        entries: finalEntries,
-        cashflows: finalCashflows,
-        dayStrategies: finalDayStrategies,
-        favorites: finalFavorites,
-        // Metadaten aktualisieren
-        version: (cloudData.version || 0) + 1,
-        lastSync: new Date().toISOString(),
-        deviceId: getDeviceId()
-    };
-
-    console.log(`Merge abgeschlossen. Neue Version: ${mergedData.version}`);
-    
-    // NEU: Datenbereinigung vor dem Zurückgeben, um die Cloud-Daten sauber zu halten.
-    const finalPrunedData = pruneData(mergedData);
-    return finalPrunedData;
+    return localData;
 }
 
 function openCloudSettings() { switchTab('settings'); }
@@ -2251,49 +1876,6 @@ function clearGitHubToken() {
             showNotification('GitHub Token gelöscht');
         }
     });
-}
-
-// Device ID generieren/laden
-function getDeviceId() {
-    let deviceId = localStorage.getItem(`${STORAGE_PREFIX}deviceId`);
-    if (!deviceId) {
-        deviceId = 'D-' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem(`${STORAGE_PREFIX}deviceId`, deviceId);
-    }
-    return deviceId;
-}
-
-async function forceRefresh() {
-    showNotification('Aktualisierung wird erzwungen...', 'info');
-    try {
-        // 1. Unregister all service workers to ensure a clean slate.
-        // NEU: Nur ausführen, wenn im sicheren Kontext (https oder localhost)
-        if ('serviceWorker' in navigator && window.isSecureContext) {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            for (const registration of registrations) {
-                await registration.unregister();
-                console.log('Service Worker de-registriert:', registration.scope);
-            }
-        } else {
-            console.warn("Service Worker API nicht verfügbar oder unsicherer Kontext. Überspringe De-Registrierung.");
-        }
-
-        // 2. Clear all caches.
-        if ('caches' in window) {
-            const cacheNames = await caches.keys();
-            await Promise.all(cacheNames.map(name => caches.delete(name)));
-            console.log('Alle Caches gelöscht.');
-        }
-        
-        // 3. Clear session storage
-        sessionStorage.clear();
-        
-        // 4. Reload the page from the network, bypassing any remaining caches.
-        window.location.reload(true);
-    } catch (error) {
-        console.error('Fehler beim Force Refresh:', error);
-        showNotification('Fehler beim Aktualisieren.', 'error');
-    }
 }
 
 async function testConnection() {
@@ -2498,6 +2080,7 @@ function switchTab(tabName, options = {}) {
         updateHistory();
     } else if (tabName === 'cashflow') {
         updateCashflowDisplay();
+        updateCashflowStats();
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'platforms') {
         updatePlatformDetails();
@@ -2565,15 +2148,14 @@ function renderPlatformButtons() {
     platformGrid.innerHTML = '';
 
     const lastDate = [...entries].sort((a,b) => new Date(b.date) - new Date(a.date))[0]?.date;
-    const activePlatforms = platforms.filter(p => !p.isDeleted);
-    const platformsWithLastBalance = new Set( // Use all entries, even deleted ones, to determine if a balance existed
+    const platformsWithLastBalance = new Set(
         entries.filter(e => e.date === lastDate && e.balance > 0).map(e => e.protocol)
     );
     
-    activePlatforms.sort((a, b) => a.name.localeCompare(b.name));
+    platforms.sort((a, b) => a.name.localeCompare(b.name));
     
-    const sortedFavorites = favorites.map(favName => activePlatforms.find(p => p.name === favName)).filter(Boolean);
-    let nonFavoritePlatforms = activePlatforms.filter(p => !favorites.includes(p.name));
+    const sortedFavorites = favorites.map(favName => platforms.find(p => p.name === favName)).filter(Boolean);
+    let nonFavoritePlatforms = platforms.filter(p => !favorites.includes(p.name));
     
     if (activeCategory !== 'all') {
         nonFavoritePlatforms = nonFavoritePlatforms.filter(p => p.category === activeCategory);
@@ -2701,15 +2283,12 @@ async function addCustomPlatform() {
     
     const tags = tagsInput ? tagsInput.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
 
-    platforms.push({
-        id: Date.now() + Math.random(),
+    platforms.push({ 
         name: name.trim(), 
         type: type ? type.trim() : 'Custom',
         category: category ? category.trim() : 'Custom',
         icon: '💎',
-        tags: tags,
-        lastModified: new Date().toISOString(),
-        isDeleted: false
+        tags: tags
     });
     saveData();
     renderPlatformButtons();
@@ -2941,14 +2520,7 @@ async function saveAllEntries() {
         if (confirmed === 'true') {
             unselectedPlatformsToZero.forEach(platformName => {
                 entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-                entries.push({
-                    id: Date.now() + Math.random(),
-                    date,
-                    protocol: platformName,
-                    balance: 0,
-                    note: 'Auto-Zero (Kapital verschoben)',
-                    lastModified: new Date().toISOString(),
-                    isDeleted: false });
+                entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)' });
                 zeroedCount++;
             });
         } else {
@@ -2969,14 +2541,7 @@ async function saveAllEntries() {
                 return; // continue
             }
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-            entries.push({
-                id: Date.now() + Math.random(),
-                date,
-                protocol: platformName,
-                balance,
-                note: noteInput?.value || '',
-                lastModified: new Date().toISOString(),
-                isDeleted: false });
+            entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
             newEntriesCount++;
         }
     });
@@ -3023,15 +2588,7 @@ function saveCashflow() {
 
     if (!type || !amount || isNaN(amount) || !date) return showNotification('Bitte alle Pflichtfelder ausfüllen!', 'error');
 
-    cashflows.push({
-        id: Date.now() + Math.random(),
-        type,
-        amount,
-        date,
-        platform: type === 'deposit' ? (target || 'Portfolio') : 'Portfolio',
-        note,
-        lastModified: new Date().toISOString(),
-        isDeleted: false });
+    cashflows.push({ id: Date.now() + Math.random(), type, amount, date, platform: type === 'deposit' ? (target || 'Portfolio') : 'Portfolio', note });
     saveData();
     applyDateFilter();
     
@@ -3061,6 +2618,52 @@ function parseLocaleNumberString(str) {
     // Case 2: US/ISO format (dot is decimal separator), e.g., "1,234.56" or "1234.56"
     // The comma is a thousands separator and must be removed.
     return parseFloat(cleanedStr.replace(/,/g, ''));
+}
+
+async function deleteEntry(entryId) {
+    const entry = entries.find(e => e.id == entryId);
+    if (entry) {
+        saveToUndoStack('delete_entry', entry);
+    }
+    entries = entries.filter(e => e.id != entryId);
+    saveData();
+    applyDateFilter();
+}
+
+async function deleteCashflow(cashflowId) {
+    const cashflow = cashflows.find(c => c.id == cashflowId);
+    if (cashflow) {
+        saveToUndoStack('delete_cashflow', cashflow);
+    }
+    cashflows = cashflows.filter(c => c.id != cashflowId);
+    saveData();
+    applyDateFilter();
+}
+
+async function deletePlatform(platformName) {
+    const confirmed = await showCustomPrompt({
+        title: 'Plattform löschen',
+        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
+        actions: [{ text: 'Abbrechen' }, { text: 'Löschen', class: 'btn-danger', value: true }]
+    });
+    if (confirmed === 'true') {
+        const platformToDelete = platforms.find(p => p.name === platformName);
+        if (!platformToDelete) return;
+
+        const entriesToDelete = entries.filter(e => e.protocol === platformName);
+        const wasFavorite = favorites.includes(platformName);
+
+        const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
+        saveToUndoStack('delete_platform', undoData);
+
+        platforms = platforms.filter(p => p.name !== platformName);
+        favorites = favorites.filter(f => f !== platformName);
+        entries = entries.filter(e => e.protocol !== platformName);
+        saveData();
+        applyDateFilter();
+        renderPlatformButtons();
+        updateCashflowTargets();
+    }
 }
 
 async function clearAllData() {
@@ -3097,7 +2700,6 @@ async function makeDateEditable(cell, entryId, type) {
         const dateValue = document.getElementById('bottomSheet_date_input').value;
         if (dateValue) {
             entry.date = dateValue;
-            entry.lastModified = new Date().toISOString();
             saveData();
             applyDateFilter();
             showNotification('Datum geändert.');
@@ -3125,7 +2727,6 @@ function makeNoteEditable(cell, entryId, type) {
     
     const save = () => {
         entry.note = input.value;
-        entry.lastModified = new Date().toISOString();
         saveData();
         applyDateFilter(); // Re-render the entire view for consistency
         showNotification('Notiz aktualisiert!');
@@ -3173,10 +2774,8 @@ function makeBalanceEditable(cell, entryId, type) {
         
         if (type === 'entry') {
             entry.balance = newValue;
-            entry.lastModified = new Date().toISOString();
         } else {
             entry.amount = newValue;
-            entry.lastModified = new Date().toISOString();
         }
         
         saveData();
@@ -3236,98 +2835,122 @@ function updateDisplay() {
 }
 
 function updateStats() {
-    // If there are no entries, display the welcome card and hide the dashboard.
     if (entries.length === 0) {
-        document.getElementById('welcomeCard').style.display = 'block';
-        document.getElementById('dashboardContent').style.display = 'none';
+        document.getElementById('totalValue').textContent = '$0.00';
+        ['totalChangeValue', 'totalChangePercent', 'dailyChangePercent', 'dailyChangeValue', 'netInvested', 'netInvestedChange', 'totalProfit', 'profitPercent'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '-';
+        });
+        ['totalChange', 'dailyChangeAmount'].forEach(id => {
+             const el = document.getElementById(id);
+             if(el) el.className = 'stat-change';
+        });
         return;
     }
-    document.getElementById('welcomeCard').style.display = 'none';
-    document.getElementById('dashboardContent').style.display = 'block';
 
-    // 1. Determine the date range for calculation
-    const allDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(a) - new Date(b));
     const filterStartDateStr = document.getElementById('filterStartDate').value;
     const filterEndDateStr = document.getElementById('filterEndDate').value;
     const isFiltered = filterStartDateStr || filterEndDateStr;
+    
+    const allDates = [...new Set(entries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+    const latestDateOverall = allDates[allDates.length - 1];
+    
+    const currentPortfolioValue = entries
+        .filter(e => e.date === latestDateOverall)
+        .reduce((sum, e) => sum + e.balance, 0);
 
-    const periodStartDate = isFiltered ? filterStartDateStr : allDates[0];
-    const periodEndDate = isFiltered ? filterEndDateStr : allDates[allDates.length - 1];
+    let startBalance = 0;
+    let endBalance = currentPortfolioValue;
 
-    // 2. Calculate Start Balance for the period
-    const dayBeforePeriodStart = new Date(periodStartDate);
-    dayBeforePeriodStart.setDate(dayBeforePeriodStart.getDate() - 1);
-    const dayBeforePeriodStartStr = dayBeforePeriodStart.toISOString().split('T')[0];
-    const lastDateBeforePeriod = allDates.filter(d => d <= dayBeforePeriodStartStr).pop();
-    const startBalance = lastDateBeforePeriod ? entries.filter(e => e.date === lastDateBeforePeriod).reduce((sum, e) => sum + e.balance, 0) : 0;
+    if (isFiltered) {
+        const filteredDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
+        if (filteredDates.length > 0) {
+            const firstDateInFilter = filteredDates[0];
+            const lastDateInFilter = filteredDates[filteredDates.length - 1];
 
-    // 3. Calculate End Balance for the period
-    const lastDateInPeriod = allDates.filter(d => d <= periodEndDate).pop();
-    const endBalance = lastDateInPeriod ? entries.filter(e => e.date === lastDateInPeriod).reduce((sum, e) => sum + e.balance, 0) : startBalance;
+            const dateBeforeFilter = allDates.filter(d => d < firstDateInFilter).pop();
+            startBalance = dateBeforeFilter 
+                ? entries.filter(e => e.date === dateBeforeFilter).reduce((s, e) => s + e.balance, 0)
+                : 0;
 
-    // 4. Calculate Net Cashflow for the period
-    const cashflowsInPeriod = cashflows.filter(c => c.date >= periodStartDate && c.date <= periodEndDate);
-    const depositsInPeriod = cashflowsInPeriod.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const withdrawalsInPeriod = cashflowsInPeriod.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+            endBalance = entries.filter(e => e.date === lastDateInFilter).reduce((s, e) => s + e.balance, 0);
+        } else {
+            startBalance = 0;
+            endBalance = 0;
+        }
+    } else {
+        startBalance = 0;
+        endBalance = currentPortfolioValue;
+    }
+
+    const relevantCashflows = (isFiltered ? filteredCashflows : cashflows);
+    const depositsInPeriod = relevantCashflows.filter(c => c.type === 'deposit').reduce((s, c) => s + c.amount, 0);
+    const withdrawalsInPeriod = relevantCashflows.filter(c => c.type === 'withdraw').reduce((s, c) => s + c.amount, 0);
     const netCashflowInPeriod = depositsInPeriod - withdrawalsInPeriod;
 
-    // 5. Calculate Profit and ROI for the period
+    // Berechne den Perioden-ROI korrekt
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    const investedCapital = startBalance + netCashflowInPeriod;
+    const investedCapital = startBalance + netCashflowInPeriod;  // Startkapital + Netto-Cashflow in der Periode
+
+    // ROI für die gewählte Periode
     const periodRoiPercent = investedCapital > 0 ? (periodProfit / investedCapital) * 100 : 0;
 
-    // 6. Calculate Daily Change (independent of the filter)
+    // Für die Anzeige "Reale Performance" 
+    const totalProfit = periodProfit;  // Verwende den Perioden-Profit
+
+    document.getElementById('totalValue').textContent = formatDollar(currentPortfolioValue);
+    
+    const changeSign = periodProfit >= 0 ? '+' : '';
+    document.getElementById('totalChangeValue').textContent = `${changeSign}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
+    document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+
     const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
-    let dailyAbsChange = 0;
-    let dailyPctChange = 0;
     if (allUniqueDates.length >= 2) {
         const latestDate = allUniqueDates[0];
         const previousDate = allUniqueDates[1];
         const latestTotal = entries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
         const previousTotal = entries.filter(e => e.date === previousDate).reduce((sum, e) => sum + e.balance, 0);
-
+        
         const cashflowBetween = cashflows
             .filter(c => c.date > previousDate && c.date <= latestDate)
             .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
 
-        dailyAbsChange = latestTotal - previousTotal - cashflowBetween;
-        dailyPctChange = previousTotal > 0 ? (dailyAbsChange / previousTotal) * 100 : 0;
+        const absChange = latestTotal - previousTotal - cashflowBetween;
+        const pctChange = previousTotal !== 0 ? (absChange / previousTotal) * 100 : 0;
+
+        document.getElementById('dailyChangePercent').textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+        document.getElementById('dailyChangeValue').textContent = `${absChange >= 0 ? '+' : ''}${absChange.toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
+        document.getElementById('dailyChangeAmount').className = `stat-change ${absChange >= 0 ? 'positive' : 'negative'}`;
+    } else {
+        document.getElementById('dailyChangePercent').textContent = '-';
+        document.getElementById('dailyChangeValue').textContent = '-';
+        document.getElementById('dailyChangeAmount').className = 'stat-change';
     }
-
-    // 7. Calculate Total Portfolio Value (always the latest value, regardless of filter)
-    const latestDateOverall = allDates[allDates.length - 1];
-    const totalPortfolioValue = entries.filter(e => e.date === latestDateOverall).reduce((sum, e) => sum + e.balance, 0);
-
-    // 8. Update DOM
-    // "Portfolio Gesamtwert" card
-    document.getElementById('totalValue').textContent = formatDollar(totalPortfolioValue);
-    const totalChangeSign = periodProfit >= 0 ? '+' : '';
-    document.getElementById('totalChangeValue').textContent = `${totalChangeSign}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
-    document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
-    document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
-
-    // "LETZTE VERÄNDERUNG" card
-    document.getElementById('dailyChangePercent').textContent = `${dailyPctChange >= 0 ? '+' : ''}${dailyPctChange.toFixed(2)}%`;
-    document.getElementById('dailyChangeValue').textContent = `${dailyAbsChange >= 0 ? '+' : ''}${dailyAbsChange.toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
-    document.getElementById('dailyChangeAmount').className = `stat-change ${dailyAbsChange >= 0 ? 'positive' : 'negative'}`;
-
-    // "Netto Investiert (Zeitraum)" card
+    
     document.getElementById('netInvested').textContent = formatDollar(netCashflowInPeriod);
     document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
-
-    // "Reale Performance (Zeitraum)" card
-    document.getElementById('totalProfit').textContent = formatDollar(periodProfit);
+    
+    document.getElementById('totalProfit').textContent = formatDollar(totalProfit);
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
+    // NEU: Chart-Header aktualisieren
+    const chartHeaderValueEl = document.getElementById('chartHeaderValue');
+    const chartHeaderChangeEl = document.getElementById('chartHeaderChange');
+
+    if (chartHeaderValueEl) {
+        chartHeaderValueEl.textContent = formatDollar(endBalance);
+    }
+    if (chartHeaderChangeEl) {
+        chartHeaderChangeEl.innerHTML = `<span class="dollar-value">${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}</span> <span>(${periodRoiPercent.toFixed(2)}%)</span>`;
+        chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
+    }
+
+    updateCashflowStats(filteredCashflows, filteredEntries);
 }
 
 function updateCashflowStats(cashflowsToUse, entriesToUse) {
-    if (!cashflowsToUse || !entriesToUse) {
-        console.warn("updateCashflowStats called with invalid arguments. Aborting.");
-        return;
-    }
-
     const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
     const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
     const netCashflow = totalDeposits - totalWithdrawals;
@@ -3353,70 +2976,64 @@ function updateCashflowStats(cashflowsToUse, entriesToUse) {
 // KEY METRICS CALCULATION
 // =================================================================================
 function updateKeyMetrics() {
-    const activeEntries = entries.filter(e => !e.isDeleted);
-    const activeCashflows = cashflows.filter(c => !c.isDeleted);
-
-    if (activeEntries.length < 2) {
+    if (entries.length === 0) {
         document.getElementById('welcomeCard').style.display = 'block';
         document.getElementById('dashboardContent').style.display = 'none';
-        // Reset metrics if not enough data
-        ['metricStartDate', 'metricDuration', 'metricStartCapital', 'metricTotalReturnPercent', 'metricTotalReturnSum', 'metricAvgMonthlyReturn', 'metricAnnualForecast', 'metricMaxDrawdown', 'metricPortfolioForecast'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = '-';
-        });
         return;
     }
     document.getElementById('welcomeCard').style.display = 'none';
     document.getElementById('dashboardContent').style.display = 'block';
 
-    const allDates = [...new Set(activeEntries.map(e => e.date))].sort((a, b) => new Date(a) - new Date(b));
-    const portfolioHistoryValues = allDates.map(date =>
-        activeEntries.filter(e => e.date === date).reduce((sum, e) => sum + e.balance, 0)
-    );
+    const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
+    
+    if (sortedEntries.length === 0) return;
 
-    const firstDate = new Date(allDates[0]);
-    const lastDate = new Date(allDates[allDates.length - 1]);
-    const durationDays = (lastDate - firstDate) / (1000 * 60 * 60 * 24);
-    const durationYears = durationDays / 365.25;
+    const startDate = new Date(sortedEntries[0].date);
+    document.getElementById('metricStartDate').textContent = formatDate(startDate);
+    const durationMs = new Date() - startDate;
+    const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+    document.getElementById('metricDuration').textContent = `${durationDays} Tage`;
 
-    // TWR Calculation for accurate performance percentage
-    const twrPercentages = calculateTWR(allDates, portfolioHistoryValues, activeCashflows);
-    const totalTwrPercent = twrPercentages.length > 0 ? twrPercentages[twrPercentages.length - 1] : 0;
+    const startCapital = sortedCashflows
+        .filter(c => new Date(c.date) <= startDate && c.type === 'deposit')
+        .reduce((sum, c) => sum + c.amount, 0);
+    document.getElementById('metricStartCapital').textContent = formatDollar(startCapital);
 
-    // MWRR (simple ROI) Calculation for absolute profit sum
-    const currentPortfolioValue = portfolioHistoryValues[portfolioHistoryValues.length - 1];
-    const totalNetInvested = activeCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+    const latestDate = sortedEntries[sortedEntries.length - 1].date;
+    const currentPortfolioValue = sortedEntries.filter(e => e.date === latestDate).reduce((s, e) => s + e.balance, 0);
+    const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
     const totalReturnSum = currentPortfolioValue - totalNetInvested;
+    const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
+    
+    document.getElementById('metricTotalReturnSum').textContent = formatDollar(totalReturnSum);
+    document.getElementById('metricTotalReturnPercent').textContent = `${totalReturnPercent.toFixed(2)}%`;
 
-    // Annualized Return based on the more accurate TWR
-    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalTwrPercent / 100), 1 / durationYears) - 1 : 0;
+    const durationYears = durationDays / 365.25;
+    
+    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
+    document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
+    
     const avgMonthlyReturn = durationYears > 0 ? Math.pow(1 + annualizedReturn, 1/12) - 1 : 0;
+    document.getElementById('metricAvgMonthlyReturn').textContent = `${(avgMonthlyReturn * 100).toFixed(2)}%`;
+    
     const portfolioForecast = currentPortfolioValue * (1 + annualizedReturn);
+    document.getElementById('metricPortfolioForecast').textContent = formatDollar(portfolioForecast);
 
-    // Max Drawdown Calculation
     let peak = 0;
     let maxDrawdown = 0;
-    portfolioHistoryValues.forEach(value => {
+    const portfolioHistory = [...new Set(sortedEntries.map(e => e.date))]
+        .sort((a,b) => new Date(a) - new Date(b))
+        .map(date => {
+            return sortedEntries.filter(e => e.date === date).reduce((sum, e) => sum + e.balance, 0);
+        });
+
+    portfolioHistory.forEach(value => {
         if (value > peak) peak = value;
         const drawdown = peak > 0 ? (value - peak) / peak : 0;
         if (drawdown < maxDrawdown) maxDrawdown = drawdown;
     });
-
-    // Start Capital
-    const startCapital = activeCashflows
-        .filter(c => new Date(c.date) <= firstDate && c.type === 'deposit')
-        .reduce((sum, c) => sum + c.amount, 0);
-
-    // Update DOM with corrected values
-    document.getElementById('metricStartDate').textContent = formatDate(firstDate);
-    document.getElementById('metricDuration').textContent = `${Math.round(durationDays)} Tage`;
-    document.getElementById('metricStartCapital').textContent = formatDollar(startCapital);
-    document.getElementById('metricTotalReturnPercent').textContent = `${totalTwrPercent.toFixed(2)}%`; // Use TWR
-    document.getElementById('metricTotalReturnSum').textContent = formatDollar(totalReturnSum); // Profit sum is still MWRR-based
-    document.getElementById('metricAvgMonthlyReturn').textContent = `${(avgMonthlyReturn * 100).toFixed(2)}%`;
-    document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
-    document.getElementById('metricPortfolioForecast').textContent = formatDollar(portfolioForecast);
 }
 
 // --- NEUE, VERBESSERTE PROGNOSE-FUNKTIONEN ---
@@ -3464,20 +3081,14 @@ function updateForecastChart() {
     }
     forecastWidget.style.display = 'block';
 
-    // --- Genaue Renditeberechnung mit Time-Weighted-Return (TWR) ---
+    // --- Berechnungen ---
     const durationYears = durationDays / 365.25;
-    const allDates = [...new Set(sortedEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    const portfolioHistoryValues = allDates.map(date => {
-        return sortedEntries.filter(e => e.date === date).reduce((sum, e) => sum + e.balance, 0);
-    });
-    const fullCashflowHistory = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
-
-    const twrPercentages = calculateTWR(allDates, portfolioHistoryValues, fullCashflowHistory);
-    const totalTwrPercent = twrPercentages.length > 0 ? twrPercentages[twrPercentages.length - 1] : 0;
-
-    // --- Annualisierte Rendite basierend auf TWR ---
-    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalTwrPercent / 100), 1 / durationYears) - 1 : 0;
-    const currentPortfolioValue = portfolioHistoryValues.length > 0 ? portfolioHistoryValues[portfolioHistoryValues.length - 1] : 0;
+    const currentPortfolioValue = sortedEntries.filter(e => e.date === sortedEntries[sortedEntries.length - 1].date).reduce((s, e) => s + e.balance, 0);
+    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+    const totalReturnSum = currentPortfolioValue - totalNetInvested;
+    const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
+    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
 
     // Szenarien definieren
     const realisticReturn = annualizedReturn;
@@ -3627,7 +3238,6 @@ function saveEntryEdit(entryId) {
     entry.balance = parseLocaleNumberString(document.getElementById('editEntryBalance').value);
     entry.note = document.getElementById('editEntryNote').value;
 
-    entry.lastModified = new Date().toISOString();
     if (isNaN(entry.balance)) {
         return showNotification('Ungültiger Betrag.', 'error');
     }
@@ -3639,14 +3249,14 @@ function saveEntryEdit(entryId) {
 }
 
 async function deleteEntriesForDate(date) {
-    const entriesOnDate = entries.filter(e => e.date === date && !e.isDeleted);
+    const entriesOnDate = entries.filter(e => e.date === date);
     if (entriesOnDate.length === 0) {
         return showNotification('Keine Einträge an diesem Datum zum Löschen vorhanden.', 'warning');
     }
 
     const confirmed = await showCustomPrompt({
         title: 'Einträge löschen',
-        text: `Möchtest du wirklich alle ${entriesOnDate.length} Einträge vom ${formatDate(date)} löschen?`,
+        text: `Möchtest du wirklich alle ${entriesOnDate.length} Einträge vom ${formatDate(date)} löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
         actions: [
             { text: 'Abbrechen' },
             { text: 'Löschen', class: 'btn-danger', value: true }
@@ -3654,7 +3264,8 @@ async function deleteEntriesForDate(date) {
     });
 
     if (confirmed === 'true') {
-        entries.forEach(e => { if (e.date === date) { e.isDeleted = true; e.lastModified = new Date().toISOString(); } });
+        saveToUndoStack('delete_entries', entriesOnDate);
+        entries = entries.filter(e => e.date !== date);
         saveData();
         applyDateFilter(); // This will re-render the history view
     }
@@ -3679,19 +3290,14 @@ function updateHistory() {
     const searchInput = document.getElementById('historySearch');
 
     const tbody = document.getElementById('historyTableBody');
-    // *** FIX: Gracefully handle if tbody is not found to prevent crash ***
-    if (!tbody) {
-        console.warn("updateHistory called but historyTableBody not found. Aborting render.");
-        return;
-    }
     const historySection = tbody.closest('.section');
-    let clearBtnContainer = historySection?.querySelector('.clear-filter-btn-container');
+    let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
     if (clearBtnContainer) clearBtnContainer.remove();
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
     if (singleItemFilter && singleItemFilter.type === 'history') {
-        dataToDisplay = entries.filter(e => !e.isDeleted && singleItemFilter.filterFunction(e));
+        dataToDisplay = entries.filter(singleItemFilter.filterFunction);
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
         tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
     } else {
@@ -3750,11 +3356,8 @@ function updateHistory() {
     });
 
     tbody.innerHTML = '';
-    // *** FIX: Show empty state inside the table to preserve DOM structure ***
     if (augmentedData.length === 0) {
-        const colSpan = document.querySelector('#historyListView thead th')?.parentElement.childElementCount || 7;
-        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="empty-state" style="padding: 40px;">Keine Einträge für die aktuelle Auswahl gefunden.</td></tr>`;
-        mobileCards.innerHTML = `<div class="empty-state">Keine Einträge gefunden.</div>`;
+        renderEmptyState(document.getElementById('historyListView'), 'history');
         return;
     }
 
@@ -3775,7 +3378,7 @@ function updateHistory() {
                 <td data-label="Balance" class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
                 <td data-label="Strategie">${entry.strategy || '-'}</td>
                 <td data-label="Notiz" class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-                <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteEntry(${entry.id})">Löschen</button></td>
+                <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
             </tr>
         `;
     }).join('');
@@ -3858,7 +3461,7 @@ function renderGroupedHistoryByDate() {
                                 <span class="entry-note">${entry.note || ''}</span>
                                 <button class="btn btn-primary btn-small" onclick="editEntry(${entry.id})">✏️</button>
                             </div>
-                        `).join('') || '<div class="empty-state" style="padding: 10px 0;">Keine Einträge für diesen Tag.</div>'}
+                        `).join('')}
                     </div>
                 </div>
             </details>
@@ -3930,7 +3533,7 @@ function renderGroupedHistory(searchTerm = '') {
                                 ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}
                             </div>
                             <div class="history-card-actions">
-                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteEntry(${entry.id})">
+                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
                                     🗑️
                                 </button>
                             </div>
@@ -3949,7 +3552,7 @@ function renderGroupedHistory(searchTerm = '') {
                                         <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
                                         <td>${getStrategyForDate(entry.date) || '-'}</td>
                                         <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteEntry(${entry.id})">🗑️</button></td>
+                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">🗑️</button></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -4013,7 +3616,7 @@ function renderHistoryMobileCards(entries) {
                     ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz hinzufügen...</span>'}
                 </div>
                 <div class="history-card-actions">
-                    <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteEntry(${entry.id})">
+                    <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
                         🗑️
                     </button>
                 </div>
@@ -4022,6 +3625,17 @@ function renderHistoryMobileCards(entries) {
         
         mobileCardsContainer.appendChild(card);
     });
+}
+
+async function deleteSingleEntryWithConfirmation(entryId) {
+    const confirmed = await showCustomPrompt({
+        title: 'Löschen bestätigen',
+        text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
+    });
+    if (confirmed === 'true') {
+        deleteEntry(entryId);
+    }
 }
 
 function updateBulkActionsBar() {
@@ -4049,7 +3663,6 @@ async function bulkChangeDate() {
             entries.forEach(entry => {
                 if (selectedHistoryEntries.has(entry.id)) {
                     entry.date = dateValue;
-                    entry.lastModified = new Date().toISOString();
                 }
             });
             selectedHistoryEntries.clear();
@@ -4084,7 +3697,6 @@ async function bulkChangeAmount() {
         entries.forEach(entry => {
             if (selectedHistoryEntries.has(entry.id)) {
                 entry.balance = newAmount;
-                entry.lastModified = new Date().toISOString();
             }
         });
 
@@ -4099,7 +3711,6 @@ async function deleteSelectedEntries() {
     if (selectedHistoryEntries.size === 0) {
         return showNotification('Keine Einträge ausgewählt', 'warning');
     }
-    const selectionSize = selectedHistoryEntries.size;
     const confirmed = await showCustomPrompt({
         title: 'Auswahl löschen',
         text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`,
@@ -4107,12 +3718,10 @@ async function deleteSelectedEntries() {
     });
     if (confirmed === 'true') {
         const deletedEntries = entries.filter(e => selectedHistoryEntries.has(e.id));
-        entries.forEach(e => {
-            if (selectedHistoryEntries.has(e.id)) {
-                e.isDeleted = true;
-                e.lastModified = new Date().toISOString();
-            }
-        });
+        if (deletedEntries.length > 0) {
+            saveToUndoStack('bulk_delete', deletedEntries);
+        }
+        entries = entries.filter(e => !selectedHistoryEntries.has(e.id));
         selectedHistoryEntries.clear();
         saveData();
         applyDateFilter();
@@ -4222,11 +3831,8 @@ function updateCashflowDisplay() {
     const container = document.getElementById('cashflowDisplayContainer');
     if (!container) return;
 
-    // Update the stats on the cashflow tab
-    updateCashflowStats(filteredCashflows, filteredEntries);
-
     if (singleItemFilter && singleItemFilter.type === 'cashflow') {
-        const dataForDisplay = cashflows.filter(c => !c.isDeleted && singleItemFilter.filterFunction(c));
+        const dataForDisplay = cashflows.filter(singleItemFilter.filterFunction);
         
         // Manuell auf Listenansicht umschalten, um Rekursion zu vermeiden
         cashflowViewMode = 'list';
@@ -4355,8 +3961,8 @@ function renderCashflowTable(container, dataToDisplay) {
             <td data-label="Typ"><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
             <td data-label="Betrag" class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
             <td data-label="Plattform">${cf.platform || '-'}</td>
-            <td data-label="Notiz" class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteCashflow(${cf.id})">Löschen</button></td>
+            <td data-label="Notiz" class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
+            <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
         `;
         tbody.appendChild(row);
     });
@@ -4374,32 +3980,20 @@ async function deleteCashflowWithConfirmation(cashflowId) {
 }
 
 async function deletePlatformWithConfirmation(platformName) {
-    const platformIndex = platforms.findIndex(p => p.name === platformName);
-    if (platformIndex > -1) {
-        platforms[platformIndex].isDeleted = true;
-        platforms[platformIndex].lastModified = new Date().toISOString();
-    }
-
-    entries.forEach(entry => {
-        if (entry.protocol === platformName) {
-            entry.isDeleted = true;
-            entry.lastModified = new Date().toISOString();
-        }
+    const confirmed = await showCustomPrompt({
+        title: 'Plattform löschen',
+        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
+        actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-
-    favorites = favorites.filter(f => f !== platformName);
-    saveData();
-    applyDateFilter();
-    renderPlatformButtons();
-    updateCashflowTargets();
-    showNotification(`Plattform '${platformName}' und Einträge zum Löschen markiert.`, 'info');
+    if (confirmed) {
+        deletePlatform(platformName);
+    }
 }
 
 function updatePlatformDetails() {
     const tbody = document.getElementById('platformDetailsBody');
-    const activeEntries = entries.filter(e => !e.isDeleted);
     const platformStats = {};
-    activeEntries.forEach(entry => {
+    entries.forEach(entry => {
         if (!platformStats[entry.protocol]) {
             platformStats[entry.protocol] = { entries: [], totalBalance: 0 };
         }
@@ -5608,7 +5202,7 @@ function getLastEntryForPlatform(platformName) {
 function updateCashflowTargets() {
     const select = document.getElementById('cashflowTarget');
     select.innerHTML = '<option value="">Portfolio (Allgemein)</option>';
-    platforms.filter(p => !p.isDeleted).sort((a,b) => a.name.localeCompare(b.name)).forEach(p => {
+    platforms.sort((a,b) => a.name.localeCompare(b.name)).forEach(p => {
         select.innerHTML += `<option value="${p.name}">${p.name}</option>`;
     });
 }
@@ -5823,7 +5417,6 @@ function savePlatformEdit() {
         platform.type = type;
         platform.category = category;
         platform.tags = tags;
-        platform.lastModified = new Date().toISOString();
         
         entries.forEach(e => { if (e.protocol === oldName) e.protocol = newName; });
         cashflows.forEach(c => { if (c.platform === oldName) c.platform = newName; });

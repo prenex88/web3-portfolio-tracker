@@ -1,12 +1,10 @@
-// Version erhöhen bei jedem Deploy
-const APP_VERSION = 'v1.2.1';
-const CACHE_NAME = `portfolio-cache-${APP_VERSION}`;
+const APP_CACHE_NAME = 'portfolio-tracker-v2'; // Updated version for the app shell
 const API_CACHE_NAME = 'api-cache-v1';       // New cache for API data
 const urlsToCache = [
   './',
   './index.html',
-  `./style.css?v=${APP_VERSION}`,
-  `./script.js?v=${APP_VERSION}`,
+  './style.css',
+  './script.js',
   './manifest.json',
   './icon.svg'
 ];
@@ -14,7 +12,7 @@ const urlsToCache = [
 // Install: Cache the app shell and activate immediately
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches.open(APP_CACHE_NAME)
       .then(cache => {
         console.log('SW: Caching app shell');
         return cache.addAll(urlsToCache);
@@ -25,14 +23,18 @@ self.addEventListener('install', event => {
 
 // Activate: Clean up old caches and take control
 self.addEventListener('activate', event => {
+  const cacheWhitelist = [APP_CACHE_NAME, API_CACHE_NAME];
   event.waitUntil(
-      caches.keys().then(cacheNames => {
-          return Promise.all(
-              cacheNames
-                  .filter(cacheName => cacheName.startsWith('portfolio-cache-') && cacheName !== CACHE_NAME)
-                  .map(cacheName => caches.delete(cacheName))
-          );
-      }).then(() => self.clients.claim())
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
+            console.log('SW: Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => self.clients.claim()) // Take control of all clients
   );
 });
 

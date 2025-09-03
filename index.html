@@ -4,12 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web3 Portfolio Tracker Pro - Cloud Edition</title>
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    
-    <!-- Version in Meta-Tag -->
-    <meta name="app-version" content="1.2.1">
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#6366f1">
@@ -20,11 +14,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <!-- Scripts mit Cache-Busting -->
-    <link rel="stylesheet" href="style.css?v=1.2.1">
+    <link rel="stylesheet" href="style.css">
     <style>
         /* Verhindert, dass der Browser scrollt, während wir das Bottom Sheet ziehen. */
         .bottom-sheet-header {
@@ -674,9 +666,6 @@
                             <button class="btn btn-primary" onclick="testConnection()">
                                 <span>🔌</span><span>Verbindung testen</span>
                             </button>
-                            <button class="btn btn-warning btn-small" onclick="forceRefresh()">
-                                <span>🔄</span> Force Update
-                            </button>
                         </div>
                     </div>
                 </details>
@@ -781,10 +770,6 @@
         </div>
     </div>
     
-    <div class="app-footer" style="text-align: center; padding: 20px; color: var(--text-secondary); font-size: 12px;">
-        <div>v<span id="appVersion">1.2.1</span> | Sync: <span id="syncVersion">-</span> | Device: <span id="deviceId">-</span></div>
-    </div>
-    
     <div id="bottomSheet" class="bottom-sheet-overlay">
         <div class="bottom-sheet-content">
             <div class="bottom-sheet-header">
@@ -845,7 +830,7 @@
         </button>
     </nav>
 
-    <script src="script.js?v=1.2.1"></script>
+    <script src="script.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         // --- Bottom Sheet Swipe-Logik ---
