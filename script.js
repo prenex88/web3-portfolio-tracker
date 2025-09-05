@@ -548,6 +548,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     convertTablesToMobile();
 
     window.addEventListener('resize', convertTablesToMobile);
+    window.addEventListener('resize', initializeMobileNavigation);
 });
 
 // NEU: Listener für Nachrichten vom Service Worker
@@ -1119,7 +1120,10 @@ function addEventListeners() {
             document.getElementById('cashflowTargetDiv').style.display = e.target.value === 'deposit' ? 'block' : 'none';
         });
     });
-    document.getElementById('selectAllHistory').addEventListener('change', toggleSelectAllHistory);
+    const selectAllHistory = document.getElementById('selectAllHistory');
+    if (selectAllHistory) {
+        selectAllHistory.addEventListener('change', toggleSelectAllHistory);
+    }
 
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
@@ -2301,7 +2305,7 @@ function switchTab(tabName, options = {}) {
         updateHistory();
     } else if (tabName === 'cashflow') {
         updateCashflowDisplay();
-        updateCashflowStats();
+        updateCashflowStats(cashflows, entries);
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'platforms') {
         updatePlatformDetails();
@@ -3216,25 +3220,63 @@ function updateStats() {
 }
 
 function updateCashflowStats(cashflowsToUse, entriesToUse) {
-    const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    // Ensure arrays exist and are valid
+    const validCashflows = Array.isArray(cashflowsToUse) ? cashflowsToUse : [];
+    const validEntries = Array.isArray(entriesToUse) ? entriesToUse : [];
+    
+    console.log('updateCashflowStats called with:', validCashflows.length, 'cashflows,', validEntries.length, 'entries');
+    
+    const totalDeposits = validCashflows.filter(c => c && c.type === 'deposit').reduce((sum, c) => sum + (c.amount || 0), 0);
+    const totalWithdrawals = validCashflows.filter(c => c && c.type === 'withdraw').reduce((sum, c) => sum + (c.amount || 0), 0);
     const netCashflow = totalDeposits - totalWithdrawals;
     
-    const lastDateOverall = [...new Set(entriesToUse.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-    const currentValue = lastDateOverall ? entriesToUse.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    // Get current value from entries
+    let currentValue = 0;
+    if (validEntries.length > 0) {
+        const lastDateOverall = [...new Set(validEntries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+        currentValue = lastDateOverall ? validEntries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + (e.balance || 0), 0) : 0;
+    }
     
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
     
+    console.log('Calculated values:', { totalDeposits, totalWithdrawals, netCashflow, currentValue, totalProfit, roi });
+    
+    // Update DOM elements
     const totalDepositsEl = document.getElementById('totalDeposits');
     const totalWithdrawalsEl = document.getElementById('totalWithdrawals');
     const netCashflowEl = document.getElementById('netCashflow');
     const roiPercentEl = document.getElementById('roiPercent');
     
-    if (totalDepositsEl) totalDepositsEl.textContent = formatDollar(totalDeposits);
-    if (totalWithdrawalsEl) totalWithdrawalsEl.textContent = formatDollar(totalWithdrawals);
-    if (netCashflowEl) netCashflowEl.textContent = formatDollar(netCashflow);
-    if (roiPercentEl) roiPercentEl.textContent = `${roi.toFixed(2)}%`;
+    if (totalDepositsEl) {
+        totalDepositsEl.textContent = formatDollar(totalDeposits);
+        console.log('Updated totalDeposits:', formatDollar(totalDeposits));
+    } else {
+        console.warn('totalDeposits element not found');
+    }
+    
+    if (totalWithdrawalsEl) {
+        totalWithdrawalsEl.textContent = formatDollar(totalWithdrawals);
+        console.log('Updated totalWithdrawals:', formatDollar(totalWithdrawals));
+    } else {
+        console.warn('totalWithdrawals element not found');
+    }
+    
+    if (netCashflowEl) {
+        netCashflowEl.textContent = formatDollar(netCashflow);
+        netCashflowEl.className = `cashflow-stat-value dollar-value ${netCashflow >= 0 ? 'positive' : 'negative'}`;
+        console.log('Updated netCashflow:', formatDollar(netCashflow));
+    } else {
+        console.warn('netCashflow element not found');
+    }
+    
+    if (roiPercentEl) {
+        roiPercentEl.textContent = `${roi.toFixed(2)}%`;
+        roiPercentEl.className = `cashflow-stat-value ${roi >= 0 ? 'positive' : 'negative'}`;
+        console.log('Updated roiPercent:', `${roi.toFixed(2)}%`);
+    } else {
+        console.warn('roiPercent element not found');
+    }
 }
 
 // =================================================================================
@@ -7171,19 +7213,37 @@ function initializeMobileNavigation() {
         const mobileNav = document.querySelector('.mobile-bottom-nav');
         if (mobileNav) {
             mobileNav.style.display = 'flex';
+        } else {
+            console.warn('Mobile navigation not found');
         }
         
         // Sync mit aktivem Tab
         const activeTab = document.querySelector(".tab-btn.active");
         if (activeTab) {
-            const tabName = activeTab.getAttribute('onclick').match(/switchTab\('(.+?)'\)/)[1];
-            document.querySelectorAll(".mobile-nav-item").forEach(btn => {
-                btn.classList.toggle("active", btn.dataset.tab === tabName);
-            });
+            const onclickAttr = activeTab.getAttribute('onclick');
+            if (onclickAttr) {
+                const match = onclickAttr.match(/switchTab\('(.+?)'\)/);
+                if (match) {
+                    const tabName = match[1];
+                    document.querySelectorAll(".mobile-nav-item").forEach(btn => {
+                        btn.classList.toggle("active", btn.dataset.tab === tabName);
+                    });
+                }
+            }
         }
         
         // Theme Icon initialisieren
         updateThemeIcon();
+        
+        // Ensure functions are globally available
+        window.openMobileMenu = openMobileMenu;
+    } else {
+        // Hide mobile nav on desktop
+        const mobileNav = document.querySelector('.mobile-bottom-nav');
+        if (mobileNav) {
+            mobileNav.style.display = 'none';
+        }
+        document.body.classList.remove("has-mobile-nav");
     }
 }
 
@@ -7218,6 +7278,10 @@ function updateThemeIcon() {
         themeIcon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
     }
 }
+
+// Make mobile menu functions globally available
+window.openMobileMenu = openMobileMenu;
+window.updateThemeIcon = updateThemeIcon;
 
 // =================================================================================
 // UI/UX ENHANCEMENT FUNCTIONS (Implementation)
