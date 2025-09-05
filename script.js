@@ -519,7 +519,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPlatformButtons();
     initializeCharts();
     addEventListeners();
+    
+    // Warte kurz, bis alle DOM-Elemente geladen sind
+    await new Promise(resolve => setTimeout(resolve, 100));
     setupBottomSheet();
+    
     setupKeyboardShortcuts();
     // setupTouchGestures(); // Deaktiviert, um versehentliches Swipen zu verhindern
     setupMobileTitle();
@@ -1446,19 +1450,108 @@ async function loadData() {
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
+    
+    console.log(`📊 Loaded data: ${entries.length} entries, ${platforms.length} platforms, ${favorites.length} favorites`);
+    if (entries.length > 0) {
+        const dates = [...new Set(entries.map(e => e.date))].sort().reverse();
+        console.log(`📅 Entry dates: ${dates.slice(0, 5).join(', ')}${dates.length > 5 ? '...' : ''}`);
+    }
+    
     applyDateFilter();
 }
 
 function saveData(triggerSync = true) {
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
-    const timestamp = new Date().toISOString();
-    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
-    localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
-    saveBackupToIndexedDB();
+    try {
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
+        const timestamp = new Date().toISOString();
+        localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
+        localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
+        saveBackupToIndexedDB();
+    } catch (error) {
+        if (error.name === 'QuotaExceededError') {
+            showNotification('⚠️ Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
+            // Zeige alle localStorage Keys für Debugging
+            const allKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                allKeys.push(localStorage.key(i));
+            }
+            console.error('LocalStorage quota exceeded:', {
+                platformsCount: platforms.length,
+                entriesCount: entries.length,
+                platformsSize: JSON.stringify(platforms).length,
+                entriesSize: JSON.stringify(entries).length,
+                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites}).length,
+                localStorageKeys: allKeys.length,
+                allKeys: allKeys.slice(0, 20), // Erste 20 Keys zeigen
+                storageUsage: JSON.stringify(localStorage).length
+            });
+            
+            // Bereinige aggressiv alte/unnötige localStorage Einträge
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (
+                    !key.startsWith(STORAGE_PREFIX) && 
+                    !key.includes('theme') &&
+                    !key.includes('biometric') &&
+                    !key.includes('auth')
+                )) {
+                    keysToRemove.push(key);
+                }
+            }
+            
+            // Entferne auch alte v10 Daten falls vorhanden
+            const oldKeys = allKeys.filter(k => k && (
+                k.includes('_v10_') || 
+                k.includes('portfolio_') || 
+                k.startsWith('w3pt_') && !k.startsWith(STORAGE_PREFIX)
+            ));
+            keysToRemove.push(...oldKeys);
+            
+            keysToRemove.forEach(key => {
+                try {
+                    localStorage.removeItem(key);
+                } catch (e) {
+                    console.warn('Could not remove key:', key);
+                }
+            });
+            
+            // Versuche nur die wichtigsten Daten zu speichern
+            try {
+                // WICHTIG: Erst Einträge speichern (höchste Priorität)
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
+                console.log(`✅ Saved ${entries.length} entries successfully`);
+                
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows || []));
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies || []));
+                
+                // Minimale Plattformen (nur die mit Daten)
+                const usedPlatformNames = new Set(entries.map(e => e.protocol));
+                const minimalPlatforms = platforms.filter(p => 
+                    usedPlatformNames.has(p.name) || DEFAULT_PLATFORMS.some(dp => dp.name === p.name)
+                );
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(minimalPlatforms));
+                
+                const timestamp = new Date().toISOString();
+                localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
+                localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
+                
+                showNotification(`⚠️ ${keysToRemove.length} alte Keys entfernt, ${entries.length} Einträge gesichert`, 'warning');
+                console.log(`✅ Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
+                console.log(`Removed ${keysToRemove.length} old keys:`, keysToRemove.slice(0, 10));
+            } catch (e) {
+                console.error('Critical storage error:', e);
+                showNotification('❌ Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
+            }
+            return;
+        }
+        throw error;
+    }
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
@@ -1763,7 +1856,22 @@ async function syncNow() {
         const mergedData = await mergeData(localData, cloudData);
         await saveToGist(mergedData);
 
-        platforms = mergedData.platforms;
+        // Stelle sicher, dass alle DEFAULT_PLATFORMS vorhanden sind (ohne Duplikate)
+        const mergedPlatformNames = new Set(mergedData.platforms.map(p => p.name));
+        const missingDefaults = DEFAULT_PLATFORMS.filter(p => !mergedPlatformNames.has(p.name));
+        
+        platforms = [...mergedData.platforms, ...missingDefaults];
+        
+        // Entferne mögliche Duplikate basierend auf Namen
+        const uniquePlatforms = [];
+        const seenNames = new Set();
+        platforms.forEach(platform => {
+            if (!seenNames.has(platform.name)) {
+                seenNames.add(platform.name);
+                uniquePlatforms.push(platform);
+            }
+        });
+        platforms = uniquePlatforms;
         entries = mergedData.entries;
         cashflows = mergedData.cashflows;
         dayStrategies = mergedData.dayStrategies || [];
@@ -1866,13 +1974,18 @@ async function mergeData(localData, cloudData) {
 async function smartMerge(localData, cloudData) {
     const merged = { ...localData };
     
-    // Merge Plattformen (neue hinzufügen, nicht überschreiben)
+    // Merge Plattformen (neue hinzufügen, nicht überschreiben) + DEFAULT_PLATFORMS sicherstellen
     const localPlatformNames = new Set(localData.platforms.map(p => p.name));
     cloudData.platforms.forEach(cloudPlatform => {
         if (!localPlatformNames.has(cloudPlatform.name)) {
             merged.platforms.push(cloudPlatform);
         }
     });
+    
+    // Stelle sicher, dass alle DEFAULT_PLATFORMS vorhanden sind
+    const allPlatformNames = new Set(merged.platforms.map(p => p.name));
+    const missingDefaults = DEFAULT_PLATFORMS.filter(p => !allPlatformNames.has(p.name));
+    merged.platforms.push(...missingDefaults);
     
     // Merge Einträge basierend auf ID
     const localEntryIds = new Set(localData.entries.map(e => e.id));
@@ -1927,18 +2040,35 @@ function setupGitHubToken() {
 
 function saveGitHubToken() {
     const tokenInput = document.getElementById('githubTokenInput');
-    if (!tokenInput) return;
+    if (!tokenInput) {
+        console.error('Token Input nicht gefunden');
+        return;
+    }
+    
     const token = tokenInput.value.trim();
     if (!token) return showNotification('Bitte Token eingeben', 'error');
-    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+        return showNotification('Ungültiges Token Format', 'error');
+    }
+    
     githubToken = token;
     localStorage.setItem(`${STORAGE_PREFIX}githubToken`, token);
-    document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
+    
+    // Prüfe ob das Element existiert bevor du es updatest
+    const tokenDisplay = document.getElementById('tokenDisplay');
+    if (tokenDisplay) {
+        tokenDisplay.textContent = 'ghp_****' + token.slice(-4);
+    }
+    
     closeBottomSheet();
     showNotification('Token gespeichert!');
     updateSyncStatus();
     updateSyncBarVisibility();
-    testConnection();
+    
+    // Verzögere testConnection() minimal
+    setTimeout(() => {
+        testConnection();
+    }, 100);
 }
 
 function clearGitHubToken() {
@@ -2116,10 +2246,17 @@ function switchTab(tabName, options = {}) {
     if (tabName === 'entry') {
         // Prüfe ob bereits Einträge vorhanden sind
         const hasExistingInputs = document.getElementById('platformInputs').children.length > 0;
+        console.log(`🔄 Switching to entry tab. Has existing inputs: ${hasExistingInputs}, Total entries: ${entries.length}`);
+        
         if (!hasExistingInputs && entries.length > 0) {
+            console.log('🚀 Loading last entries...');
             setTimeout(() => {
                 loadLastEntries();
             }, 100);
+        } else if (hasExistingInputs) {
+            console.log('ℹ️ Skipping loadLastEntries - inputs already exist');
+        } else {
+            console.log('ℹ️ Skipping loadLastEntries - no entries available');
         }
     }
     
@@ -2505,11 +2642,15 @@ function loadLastEntries() {
         return;
     }
     const lastEntryDate = sortedDates[0];
-    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate && e.balance > 0);
+    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate);
     const platformsToLoad = [...new Set(entriesFromLastDate.map(e => e.protocol))];
 
+    console.log(`📊 Loading entries from ${lastEntryDate}: ${entriesFromLastDate.length} entries, ${platformsToLoad.length} platforms`);
+    console.log(`📋 Platforms to load:`, platformsToLoad);
+    console.log(`💰 Entry balances:`, entriesFromLastDate.map(e => `${e.protocol}: ${e.balance}`));
+
     if (platformsToLoad.length === 0) {
-        showNotification(`Keine Plattformen mit Saldo > 0 am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        showNotification(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
         return;
     }
     
@@ -2517,10 +2658,49 @@ function loadLastEntries() {
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
     
+    // Prüfe ob alle benötigten Plattformen in der platforms-Liste existieren
+    const missingPlatforms = platformsToLoad.filter(name => 
+        !platforms.some(p => p.name === name)
+    );
+    
+    if (missingPlatforms.length > 0) {
+        console.warn(`⚠️ Missing platforms detected:`, missingPlatforms);
+        // Automatisch fehlende Plattformen hinzufügen
+        missingPlatforms.forEach(platformName => {
+            const newPlatform = {
+                name: platformName,
+                icon: '🏛️',
+                type: 'Custom',
+                category: 'Custom',
+                tags: ['custom']
+            };
+            platforms.push(newPlatform);
+            console.log(`➕ Added missing platform: ${platformName}`);
+        });
+        
+        // Platform-Buttons neu rendern
+        renderPlatformButtons();
+        // Speichere die erweiterte platforms-Liste
+        saveData();
+        // Kurz warten bis Buttons gerendert sind
+        setTimeout(() => {
+            loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
+        }, 200);
+        return;
+    }
+    
+    loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
+}
+
+function loadLastEntriesAfterRender(platformsToLoad, lastEntryDate) {
     platformsToLoad.forEach(platformName => {
         const button = Array.from(document.querySelectorAll('.platform-btn[data-platform]')).find(btn => btn.dataset.platform === platformName);
+        console.log(`🔍 Looking for platform "${platformName}": ${button ? 'Found' : 'NOT FOUND'}`);
         if (button) {
+            console.log(`✅ Toggling platform: ${platformName}`);
             togglePlatform(button, platformName);
+        } else {
+            console.warn(`❌ Platform button still not found: ${platformName}`);
         }
     });
 
@@ -3374,16 +3554,27 @@ function updateHistory() {
     const searchInput = document.getElementById('historySearch');
 
     const tbody = document.getElementById('historyTableBody');
+    if (!tbody) {
+        console.error('historyTableBody nicht gefunden');
+        return;
+    }
+    
     const historySection = tbody.closest('.section');
-    let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
-    if (clearBtnContainer) clearBtnContainer.remove();
+    if (historySection) {
+        let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
+        if (clearBtnContainer) clearBtnContainer.remove();
+    }
+    
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
     if (singleItemFilter && singleItemFilter.type === 'history') {
         dataToDisplay = entries.filter(singleItemFilter.filterFunction);
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
-        tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
+        const tableWrapper = tbody.closest('.data-table-wrapper');
+        if (tableWrapper) {
+            tableWrapper.insertAdjacentHTML('afterend', clearButtonHtml);
+        }
     } else {
         if (historyViewMode === 'grouped') {
             listView.style.display = 'none';
@@ -5402,7 +5593,9 @@ function openBottomSheet(contentHtml) {
 
 function closeBottomSheet(value = null) {
     const sheet = document.getElementById('bottomSheet');
-    sheet.classList.remove('visible');
+    if (sheet) {
+        sheet.classList.remove('visible');
+    }
     if (promptResolve) {
         promptResolve(value);
         promptResolve = null;
@@ -7294,6 +7487,46 @@ function addAriaLabels() {
             }
         }
     });
+}
+
+function cleanupLocalStorage() {
+    const allKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        allKeys.push(localStorage.key(i));
+    }
+    
+    const keysToRemove = allKeys.filter(key => key && (
+        !key.startsWith(STORAGE_PREFIX) && 
+        !key.includes('theme') &&
+        !key.includes('biometric') &&
+        !key.includes('auth') &&
+        (key.includes('_v10_') || key.includes('portfolio_') || key.startsWith('w3pt_') && !key.startsWith(STORAGE_PREFIX))
+    ));
+    
+    keysToRemove.forEach(key => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn('Could not remove key:', key);
+        }
+    });
+    
+    showNotification(`🧹 ${keysToRemove.length} alte Keys entfernt! Speicher bereinigt.`, 'success');
+    console.log(`Cleaned up ${keysToRemove.length} old keys:`, keysToRemove);
+    return keysToRemove.length;
+}
+
+// Debug function to test loadLastEntries manually
+function debugLoadLastEntries() {
+    console.log('🔍 DEBUG: Starting manual loadLastEntries test...');
+    console.log(`Total entries: ${entries.length}`);
+    if (entries.length > 0) {
+        const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+        console.log(`Available dates:`, sortedDates.slice(0, 5));
+        loadLastEntries();
+    } else {
+        console.log('No entries available');
+    }
 }
 
 // Update Mobile Navigation Badges
