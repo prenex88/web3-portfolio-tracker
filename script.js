@@ -1112,9 +1112,20 @@ function addEventListeners() {
     });
 
     document.querySelectorAll('.data-table th.sortable').forEach(th => th.addEventListener('click', handleSort));
-    document.getElementById('csvFileInput').addEventListener('change', handleCsvImport);
-    document.getElementById('jsonFileInput').addEventListener('change', handleJsonImport);
-    document.getElementById('historySearch').addEventListener('input', (e) => updateHistory());
+    const csvFileInput = document.getElementById('csvFileInput');
+    if (csvFileInput) {
+        csvFileInput.addEventListener('change', handleCsvImport);
+    }
+    
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    if (jsonFileInput) {
+        jsonFileInput.addEventListener('change', handleJsonImport);
+    }
+    
+    const historySearch = document.getElementById('historySearch');
+    if (historySearch) {
+        historySearch.addEventListener('input', (e) => updateHistory());
+    }
     document.querySelectorAll('input[name="cashflowType"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             document.getElementById('cashflowTargetDiv').style.display = e.target.value === 'deposit' ? 'block' : 'none';
@@ -3216,15 +3227,13 @@ function updateStats() {
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats(filteredCashflows, filteredEntries);
+    updateCashflowStats(filteredCashflows || [], filteredEntries || []);
 }
 
 function updateCashflowStats(cashflowsToUse, entriesToUse) {
     // Ensure arrays exist and are valid
     const validCashflows = Array.isArray(cashflowsToUse) ? cashflowsToUse : [];
     const validEntries = Array.isArray(entriesToUse) ? entriesToUse : [];
-    
-    console.log('updateCashflowStats called with:', validCashflows.length, 'cashflows,', validEntries.length, 'entries');
     
     const totalDeposits = validCashflows.filter(c => c && c.type === 'deposit').reduce((sum, c) => sum + (c.amount || 0), 0);
     const totalWithdrawals = validCashflows.filter(c => c && c.type === 'withdraw').reduce((sum, c) => sum + (c.amount || 0), 0);
@@ -3240,8 +3249,6 @@ function updateCashflowStats(cashflowsToUse, entriesToUse) {
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
     
-    console.log('Calculated values:', { totalDeposits, totalWithdrawals, netCashflow, currentValue, totalProfit, roi });
-    
     // Update DOM elements
     const totalDepositsEl = document.getElementById('totalDeposits');
     const totalWithdrawalsEl = document.getElementById('totalWithdrawals');
@@ -3250,32 +3257,20 @@ function updateCashflowStats(cashflowsToUse, entriesToUse) {
     
     if (totalDepositsEl) {
         totalDepositsEl.textContent = formatDollar(totalDeposits);
-        console.log('Updated totalDeposits:', formatDollar(totalDeposits));
-    } else {
-        console.warn('totalDeposits element not found');
     }
     
     if (totalWithdrawalsEl) {
         totalWithdrawalsEl.textContent = formatDollar(totalWithdrawals);
-        console.log('Updated totalWithdrawals:', formatDollar(totalWithdrawals));
-    } else {
-        console.warn('totalWithdrawals element not found');
     }
     
     if (netCashflowEl) {
         netCashflowEl.textContent = formatDollar(netCashflow);
         netCashflowEl.className = `cashflow-stat-value dollar-value ${netCashflow >= 0 ? 'positive' : 'negative'}`;
-        console.log('Updated netCashflow:', formatDollar(netCashflow));
-    } else {
-        console.warn('netCashflow element not found');
     }
     
     if (roiPercentEl) {
         roiPercentEl.textContent = `${roi.toFixed(2)}%`;
         roiPercentEl.className = `cashflow-stat-value ${roi >= 0 ? 'positive' : 'negative'}`;
-        console.log('Updated roiPercent:', `${roi.toFixed(2)}%`);
-    } else {
-        console.warn('roiPercent element not found');
     }
 }
 
@@ -3606,9 +3601,12 @@ function updateHistory() {
     if (historySection) {
         let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
         if (clearBtnContainer) clearBtnContainer.remove();
+    } else {
+        console.warn('History section not found');
     }
     
-    const searchTerm = document.getElementById('historySearch').value.toLowerCase();
+    const historySearchEl = document.getElementById('historySearch');
+    const searchTerm = historySearchEl ? historySearchEl.value.toLowerCase() : '';
     let dataToDisplay;
 
     if (singleItemFilter && singleItemFilter.type === 'history') {
@@ -4165,9 +4163,9 @@ function updateCashflowDisplay() {
     } else {
         document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = false);
         if (cashflowViewMode === 'list') {
-            renderCashflowTable(container, filteredCashflows);
+            renderCashflowTable(container, filteredCashflows || []);
         } else {
-            renderGroupedCashflow(container, cashflowViewMode, filteredCashflows);
+            renderGroupedCashflow(container, cashflowViewMode, filteredCashflows || []);
         }
     }
 }
