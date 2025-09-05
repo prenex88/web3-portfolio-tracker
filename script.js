@@ -481,6 +481,7 @@ let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
+let deviceId = null;
 
 // BENCHMARK VARIABLEN
 let benchmarkData = JSON.parse(JSON.stringify(DEFAULT_BENCHMARK_DATA)); // Lokale Kopie der Fallback-Daten
@@ -1454,7 +1455,9 @@ function saveData(triggerSync = true) {
     localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
     localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
     localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
-    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
+    const timestamp = new Date().toISOString();
+    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
+    localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
     saveBackupToIndexedDB();
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
@@ -1688,10 +1691,22 @@ function updateSettingsConnectionStatus(status, message = '') {
     }
 }
 
+function getDeviceId() {
+    if (!deviceId) {
+        deviceId = localStorage.getItem(`${STORAGE_PREFIX}deviceId`);
+        if (!deviceId) {
+            deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+            localStorage.setItem(`${STORAGE_PREFIX}deviceId`, deviceId);
+        }
+    }
+    return deviceId;
+}
+
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
+    getDeviceId();
 
     document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
     document.getElementById('gistDisplay').closest('.setting-item').style.display = 'none';
@@ -1731,7 +1746,20 @@ async function syncNow() {
 
     try {
         const cloudData = await fetchGistData();
-        const localData = { platforms, entries, cashflows, dayStrategies, favorites, lastSync: new Date().toISOString() };
+        const localData = { 
+            platforms, 
+            entries, 
+            cashflows, 
+            dayStrategies, 
+            favorites, 
+            lastSync: new Date().toISOString(),
+            lastModifiedDevice: getDeviceId(),
+            syncMetadata: {
+                deviceId: getDeviceId(),
+                timestamp: new Date().toISOString(),
+                version: 'v11'
+            }
+        };
         const mergedData = await mergeData(localData, cloudData);
         await saveToGist(mergedData);
 
@@ -1791,15 +1819,28 @@ async function mergeData(localData, cloudData) {
     
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
+    const localDeviceId = getDeviceId();
+    const cloudDeviceId = cloudData.lastModifiedDevice || cloudData.syncMetadata?.deviceId;
     
-    // Wenn Cloud-Daten neuer sind, frage den Benutzer
+    // Wenn es vom gleichen Gerät ist, automatisch mergen
+    if (cloudDeviceId === localDeviceId) {
+        if (cloudTime > localTime) {
+            showNotification("Cloud-Daten vom gleichen Gerät geladen.", "info");
+            return cloudData;
+        }
+        return localData;
+    }
+    
+    // Multi-Device Konflikt: Zeige detailliertere Info
     if (cloudTime > localTime) {
+        const cloudDeviceName = cloudDeviceId ? `Gerät ${cloudDeviceId.slice(-6)}` : 'Unbekanntes Gerät';
         const result = await showCustomPrompt({
-            title: 'Sync-Konflikt erkannt',
-            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}). Sollen die lokalen Daten überschrieben werden?`,
+            title: 'Multi-Device Sync-Konflikt',
+            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}) und stammen von einem anderen Gerät (${cloudDeviceName}). Wie möchten Sie fortfahren?`,
             actions: [
                 { text: 'Lokale behalten', value: 'local' },
-                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' }
+                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' },
+                { text: 'Intelligent mergen', value: 'smart', class: 'btn-secondary' }
             ]
         });
         
@@ -1808,13 +1849,56 @@ async function mergeData(localData, cloudData) {
             return cloudData;
         }
         
-        // Lokale Daten behalten (oder bei Abbruch des Prompts)
+        if (result === 'smart') {
+            showNotification("Führe intelligenten Merge durch...", "info");
+            return await smartMerge(localData, cloudData);
+        }
+        
+        // Lokale Daten behalten
         showNotification("Lokale Daten werden beibehalten und beim nächsten Sync hochgeladen.", "info");
         localData.lastSync = new Date().toISOString();
         return localData;
     }
     
     return localData;
+}
+
+async function smartMerge(localData, cloudData) {
+    const merged = { ...localData };
+    
+    // Merge Plattformen (neue hinzufügen, nicht überschreiben)
+    const localPlatformNames = new Set(localData.platforms.map(p => p.name));
+    cloudData.platforms.forEach(cloudPlatform => {
+        if (!localPlatformNames.has(cloudPlatform.name)) {
+            merged.platforms.push(cloudPlatform);
+        }
+    });
+    
+    // Merge Einträge basierend auf ID
+    const localEntryIds = new Set(localData.entries.map(e => e.id));
+    cloudData.entries.forEach(cloudEntry => {
+        if (!localEntryIds.has(cloudEntry.id)) {
+            merged.entries.push(cloudEntry);
+        }
+    });
+    
+    // Merge Cashflows basierend auf ID
+    const localCashflowIds = new Set(localData.cashflows.map(c => c.id));
+    cloudData.cashflows.forEach(cloudCashflow => {
+        if (!localCashflowIds.has(cloudCashflow.id)) {
+            merged.cashflows.push(cloudCashflow);
+        }
+    });
+    
+    // Merge Favoriten (union)
+    merged.favorites = [...new Set([...localData.favorites, ...cloudData.favorites])];
+    
+    merged.lastSync = new Date().toISOString();
+    merged.lastModifiedDevice = getDeviceId();
+    
+    showNotification(`Smart Merge abgeschlossen: ${cloudData.entries.filter(e => !localEntryIds.has(e.id)).length} neue Einträge hinzugefügt`, "success");
+    
+    return merged;
 }
 
 function openCloudSettings() { switchTab('settings'); }
