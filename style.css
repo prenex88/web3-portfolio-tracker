@@ -3403,3 +3403,66 @@ body.dark-mode {
 .dark-mode .header {
     box-shadow: 0 4px 20px rgba(131, 146, 255, 0.05);
 }
+
+/* =================================================================================
+   PLATFORM STRATEGY INPUT IMPROVEMENTS
+   ================================================================================= */
+
+.input-notes-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.strategy-input {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.04);
+    border: 1px solid rgba(var(--primary-rgb, 99, 102, 241), 0.15);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+    transition: all 0.2s ease;
+    min-width: 0;
+}
+
+.strategy-input:focus {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.08);
+    border-color: var(--primary);
+    color: var(--text-primary);
+    font-style: normal;
+    outline: none;
+}
+
+.strategy-input:not(:placeholder-shown) {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.06);
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.dark-mode .strategy-input {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.08);
+    border-color: rgba(var(--primary-rgb, 99, 102, 241), 0.2);
+}
+
+.dark-mode .strategy-input:focus {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.12);
+}
+
+.dark-mode .strategy-input:not(:placeholder-shown) {
+    background: rgba(var(--primary-rgb, 99, 102, 241), 0.1);
+    color: var(--primary-light);
+}
+
+/* Improve input-card layout for better strategy field integration */
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.input-row .input-group {
+    flex-shrink: 0;
+}
