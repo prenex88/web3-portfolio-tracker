@@ -447,7 +447,7 @@ let multiSelectStartIndex = -1;
 let selectedHistoryEntries = new Set();
 let lastSelectedHistoryRow = null;
 let favorites = [];
-let portfolioChart, allocationChart;
+let portfolioChart, allocationChart, forecastChart;
 let historySort = { key: 'date', order: 'desc' };
 let cashflowSort = { key: 'date', order: 'desc' };
 let platformDetailsSort = { key: 'platform', order: 'asc' };
@@ -472,6 +472,8 @@ let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
 
+let currentForecastPeriod = 5;
+let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
@@ -479,6 +481,7 @@ let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
+let deviceId = null;
 
 // BENCHMARK VARIABLEN
 let benchmarkData = JSON.parse(JSON.stringify(DEFAULT_BENCHMARK_DATA)); // Lokale Kopie der Fallback-Daten
@@ -516,9 +519,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPlatformButtons();
     initializeCharts();
     addEventListeners();
+    
+    // Warte kurz, bis alle DOM-Elemente geladen sind
+    await new Promise(resolve => setTimeout(resolve, 100));
     setupBottomSheet();
+    
     setupKeyboardShortcuts();
-    setupTouchGestures();
+    // setupTouchGestures(); // Deaktiviert, um versehentliches Swipen zu verhindern
     setupMobileTitle();
     setupAutocomplete();
     setupQuickActions();
@@ -533,7 +540,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeDragAndDrop();
 
     // UX Improvements
-    setupSwipeNavigation();
+    // setupSwipeNavigation(); // Deaktiviert, um nur Button-Navigation zu erlauben
     addTooltips();
     addAriaLabels();
     enableBatchSelection();
@@ -1125,6 +1132,17 @@ function addEventListeners() {
             setChartDateFilter(period);
         });
     });
+
+    // Tooltip während des Scrollens deaktivieren
+    let isScrolling;
+    window.addEventListener('scroll', () => {
+        document.body.classList.add('scrolling');
+
+        clearTimeout(isScrolling);
+        isScrolling = setTimeout(() => {
+            document.body.classList.remove('scrolling');
+        }, 200); // Entfernt die Klasse nach 200ms Inaktivität
+    });
 }
 
 function setupMobileTitle() {
@@ -1389,10 +1407,9 @@ function toggleCompactMode() {
 function togglePrivacyMode() {
     document.body.classList.toggle('privacy-mode');
     const isActive = document.body.classList.contains('privacy-mode');
-    document.getElementById('privacyToggle').innerHTML = isActive ? '🙈' : '👁️';
-
-    if (portfolioChart) portfolioChart.update();
-    if (allocationChart) allocationChart.update();
+    
+    // Ruft alle Update-Funktionen auf, um die Beträge aus- oder einzublenden
+    updateDisplay();
     
     showNotification(isActive ? 'Privacy Mode aktiviert' : 'Privacy Mode deaktiviert');
 }
@@ -1433,17 +1450,108 @@ async function loadData() {
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
+    
+    console.log(`📊 Loaded data: ${entries.length} entries, ${platforms.length} platforms, ${favorites.length} favorites`);
+    if (entries.length > 0) {
+        const dates = [...new Set(entries.map(e => e.date))].sort().reverse();
+        console.log(`📅 Entry dates: ${dates.slice(0, 5).join(', ')}${dates.length > 5 ? '...' : ''}`);
+    }
+    
     applyDateFilter();
 }
 
 function saveData(triggerSync = true) {
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
-    localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
-    localStorage.setItem(`${STORAGE_PREFIX}lastModified`, new Date().toISOString());
-    saveBackupToIndexedDB();
+    try {
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
+        const timestamp = new Date().toISOString();
+        localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
+        localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
+        saveBackupToIndexedDB();
+    } catch (error) {
+        if (error.name === 'QuotaExceededError') {
+            showNotification('⚠️ Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
+            // Zeige alle localStorage Keys für Debugging
+            const allKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                allKeys.push(localStorage.key(i));
+            }
+            console.error('LocalStorage quota exceeded:', {
+                platformsCount: platforms.length,
+                entriesCount: entries.length,
+                platformsSize: JSON.stringify(platforms).length,
+                entriesSize: JSON.stringify(entries).length,
+                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites}).length,
+                localStorageKeys: allKeys.length,
+                allKeys: allKeys.slice(0, 20), // Erste 20 Keys zeigen
+                storageUsage: JSON.stringify(localStorage).length
+            });
+            
+            // Bereinige aggressiv alte/unnötige localStorage Einträge
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (
+                    !key.startsWith(STORAGE_PREFIX) && 
+                    !key.includes('theme') &&
+                    !key.includes('biometric') &&
+                    !key.includes('auth')
+                )) {
+                    keysToRemove.push(key);
+                }
+            }
+            
+            // Entferne auch alte v10 Daten falls vorhanden
+            const oldKeys = allKeys.filter(k => k && (
+                k.includes('_v10_') || 
+                k.includes('portfolio_') || 
+                k.startsWith('w3pt_') && !k.startsWith(STORAGE_PREFIX)
+            ));
+            keysToRemove.push(...oldKeys);
+            
+            keysToRemove.forEach(key => {
+                try {
+                    localStorage.removeItem(key);
+                } catch (e) {
+                    console.warn('Could not remove key:', key);
+                }
+            });
+            
+            // Versuche nur die wichtigsten Daten zu speichern
+            try {
+                // WICHTIG: Erst Einträge speichern (höchste Priorität)
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
+                console.log(`✅ Saved ${entries.length} entries successfully`);
+                
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows || []));
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies || []));
+                
+                // Minimale Plattformen (nur die mit Daten)
+                const usedPlatformNames = new Set(entries.map(e => e.protocol));
+                const minimalPlatforms = platforms.filter(p => 
+                    usedPlatformNames.has(p.name) || DEFAULT_PLATFORMS.some(dp => dp.name === p.name)
+                );
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(minimalPlatforms));
+                
+                const timestamp = new Date().toISOString();
+                localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
+                localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
+                
+                showNotification(`⚠️ ${keysToRemove.length} alte Keys entfernt, ${entries.length} Einträge gesichert`, 'warning');
+                console.log(`✅ Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
+                console.log(`Removed ${keysToRemove.length} old keys:`, keysToRemove.slice(0, 10));
+            } catch (e) {
+                console.error('Critical storage error:', e);
+                showNotification('❌ Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
+            }
+            return;
+        }
+        throw error;
+    }
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
@@ -1676,10 +1784,22 @@ function updateSettingsConnectionStatus(status, message = '') {
     }
 }
 
+function getDeviceId() {
+    if (!deviceId) {
+        deviceId = localStorage.getItem(`${STORAGE_PREFIX}deviceId`);
+        if (!deviceId) {
+            deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+            localStorage.setItem(`${STORAGE_PREFIX}deviceId`, deviceId);
+        }
+    }
+    return deviceId;
+}
+
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
+    getDeviceId();
 
     document.getElementById('gistDisplay').textContent = gistId.slice(0, 8) + '...';
     document.getElementById('gistDisplay').closest('.setting-item').style.display = 'none';
@@ -1719,11 +1839,39 @@ async function syncNow() {
 
     try {
         const cloudData = await fetchGistData();
-        const localData = { platforms, entries, cashflows, dayStrategies, favorites, lastSync: new Date().toISOString() };
+        const localData = { 
+            platforms, 
+            entries, 
+            cashflows, 
+            dayStrategies, 
+            favorites, 
+            lastSync: new Date().toISOString(),
+            lastModifiedDevice: getDeviceId(),
+            syncMetadata: {
+                deviceId: getDeviceId(),
+                timestamp: new Date().toISOString(),
+                version: 'v11'
+            }
+        };
         const mergedData = await mergeData(localData, cloudData);
         await saveToGist(mergedData);
 
-        platforms = mergedData.platforms;
+        // Stelle sicher, dass alle DEFAULT_PLATFORMS vorhanden sind (ohne Duplikate)
+        const mergedPlatformNames = new Set(mergedData.platforms.map(p => p.name));
+        const missingDefaults = DEFAULT_PLATFORMS.filter(p => !mergedPlatformNames.has(p.name));
+        
+        platforms = [...mergedData.platforms, ...missingDefaults];
+        
+        // Entferne mögliche Duplikate basierend auf Namen
+        const uniquePlatforms = [];
+        const seenNames = new Set();
+        platforms.forEach(platform => {
+            if (!seenNames.has(platform.name)) {
+                seenNames.add(platform.name);
+                uniquePlatforms.push(platform);
+            }
+        });
+        platforms = uniquePlatforms;
         entries = mergedData.entries;
         cashflows = mergedData.cashflows;
         dayStrategies = mergedData.dayStrategies || [];
@@ -1779,15 +1927,28 @@ async function mergeData(localData, cloudData) {
     
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
+    const localDeviceId = getDeviceId();
+    const cloudDeviceId = cloudData.lastModifiedDevice || cloudData.syncMetadata?.deviceId;
     
-    // Wenn Cloud-Daten neuer sind, frage den Benutzer
+    // Wenn es vom gleichen Gerät ist, automatisch mergen
+    if (cloudDeviceId === localDeviceId) {
+        if (cloudTime > localTime) {
+            showNotification("Cloud-Daten vom gleichen Gerät geladen.", "info");
+            return cloudData;
+        }
+        return localData;
+    }
+    
+    // Multi-Device Konflikt: Zeige detailliertere Info
     if (cloudTime > localTime) {
+        const cloudDeviceName = cloudDeviceId ? `Gerät ${cloudDeviceId.slice(-6)}` : 'Unbekanntes Gerät';
         const result = await showCustomPrompt({
-            title: 'Sync-Konflikt erkannt',
-            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}). Sollen die lokalen Daten überschrieben werden?`,
+            title: 'Multi-Device Sync-Konflikt',
+            text: `Die Daten in der Cloud sind neuer (${cloudTime.toLocaleString('de-DE')}) und stammen von einem anderen Gerät (${cloudDeviceName}). Wie möchten Sie fortfahren?`,
             actions: [
                 { text: 'Lokale behalten', value: 'local' },
-                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' }
+                { text: 'Cloud laden', value: 'cloud', class: 'btn-primary' },
+                { text: 'Intelligent mergen', value: 'smart', class: 'btn-secondary' }
             ]
         });
         
@@ -1796,13 +1957,61 @@ async function mergeData(localData, cloudData) {
             return cloudData;
         }
         
-        // Lokale Daten behalten (oder bei Abbruch des Prompts)
+        if (result === 'smart') {
+            showNotification("Führe intelligenten Merge durch...", "info");
+            return await smartMerge(localData, cloudData);
+        }
+        
+        // Lokale Daten behalten
         showNotification("Lokale Daten werden beibehalten und beim nächsten Sync hochgeladen.", "info");
         localData.lastSync = new Date().toISOString();
         return localData;
     }
     
     return localData;
+}
+
+async function smartMerge(localData, cloudData) {
+    const merged = { ...localData };
+    
+    // Merge Plattformen (neue hinzufügen, nicht überschreiben) + DEFAULT_PLATFORMS sicherstellen
+    const localPlatformNames = new Set(localData.platforms.map(p => p.name));
+    cloudData.platforms.forEach(cloudPlatform => {
+        if (!localPlatformNames.has(cloudPlatform.name)) {
+            merged.platforms.push(cloudPlatform);
+        }
+    });
+    
+    // Stelle sicher, dass alle DEFAULT_PLATFORMS vorhanden sind
+    const allPlatformNames = new Set(merged.platforms.map(p => p.name));
+    const missingDefaults = DEFAULT_PLATFORMS.filter(p => !allPlatformNames.has(p.name));
+    merged.platforms.push(...missingDefaults);
+    
+    // Merge Einträge basierend auf ID
+    const localEntryIds = new Set(localData.entries.map(e => e.id));
+    cloudData.entries.forEach(cloudEntry => {
+        if (!localEntryIds.has(cloudEntry.id)) {
+            merged.entries.push(cloudEntry);
+        }
+    });
+    
+    // Merge Cashflows basierend auf ID
+    const localCashflowIds = new Set(localData.cashflows.map(c => c.id));
+    cloudData.cashflows.forEach(cloudCashflow => {
+        if (!localCashflowIds.has(cloudCashflow.id)) {
+            merged.cashflows.push(cloudCashflow);
+        }
+    });
+    
+    // Merge Favoriten (union)
+    merged.favorites = [...new Set([...localData.favorites, ...cloudData.favorites])];
+    
+    merged.lastSync = new Date().toISOString();
+    merged.lastModifiedDevice = getDeviceId();
+    
+    showNotification(`Smart Merge abgeschlossen: ${cloudData.entries.filter(e => !localEntryIds.has(e.id)).length} neue Einträge hinzugefügt`, "success");
+    
+    return merged;
 }
 
 function openCloudSettings() { switchTab('settings'); }
@@ -1831,18 +2040,35 @@ function setupGitHubToken() {
 
 function saveGitHubToken() {
     const tokenInput = document.getElementById('githubTokenInput');
-    if (!tokenInput) return;
+    if (!tokenInput) {
+        console.error('Token Input nicht gefunden');
+        return;
+    }
+    
     const token = tokenInput.value.trim();
     if (!token) return showNotification('Bitte Token eingeben', 'error');
-    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) return showNotification('Ungültiges Token Format', 'error');
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+        return showNotification('Ungültiges Token Format', 'error');
+    }
+    
     githubToken = token;
     localStorage.setItem(`${STORAGE_PREFIX}githubToken`, token);
-    document.getElementById('tokenDisplay').textContent = 'ghp_****' + token.slice(-4);
+    
+    // Prüfe ob das Element existiert bevor du es updatest
+    const tokenDisplay = document.getElementById('tokenDisplay');
+    if (tokenDisplay) {
+        tokenDisplay.textContent = 'ghp_****' + token.slice(-4);
+    }
+    
     closeBottomSheet();
     showNotification('Token gespeichert!');
     updateSyncStatus();
     updateSyncBarVisibility();
-    testConnection();
+    
+    // Verzögere testConnection() minimal
+    setTimeout(() => {
+        testConnection();
+    }, 100);
 }
 
 function clearGitHubToken() {
@@ -2020,10 +2246,17 @@ function switchTab(tabName, options = {}) {
     if (tabName === 'entry') {
         // Prüfe ob bereits Einträge vorhanden sind
         const hasExistingInputs = document.getElementById('platformInputs').children.length > 0;
+        console.log(`🔄 Switching to entry tab. Has existing inputs: ${hasExistingInputs}, Total entries: ${entries.length}`);
+        
         if (!hasExistingInputs && entries.length > 0) {
+            console.log('🚀 Loading last entries...');
             setTimeout(() => {
                 loadLastEntries();
             }, 100);
+        } else if (hasExistingInputs) {
+            console.log('ℹ️ Skipping loadLastEntries - inputs already exist');
+        } else {
+            console.log('ℹ️ Skipping loadLastEntries - no entries available');
         }
     }
     
@@ -2106,7 +2339,7 @@ function loadTheme() {
 function updateChartTheme() {
     const textColor = currentTheme === 'dark' ? '#f9fafb' : '#1f2937';
     const gridColor = currentTheme === 'dark' ? '#374151' : '#e5e7eb';
-    [portfolioChart, allocationChart].forEach(chart => {
+    [portfolioChart, allocationChart, forecastChart].forEach(chart => {
         if (chart) {
             if (chart.options.scales?.y) {
                 chart.options.scales.y.ticks.color = textColor;
@@ -2409,11 +2642,15 @@ function loadLastEntries() {
         return;
     }
     const lastEntryDate = sortedDates[0];
-    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate && e.balance > 0);
+    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate);
     const platformsToLoad = [...new Set(entriesFromLastDate.map(e => e.protocol))];
 
+    console.log(`📊 Loading entries from ${lastEntryDate}: ${entriesFromLastDate.length} entries, ${platformsToLoad.length} platforms`);
+    console.log(`📋 Platforms to load:`, platformsToLoad);
+    console.log(`💰 Entry balances:`, entriesFromLastDate.map(e => `${e.protocol}: ${e.balance}`));
+
     if (platformsToLoad.length === 0) {
-        showNotification(`Keine Plattformen mit Saldo > 0 am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        showNotification(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
         return;
     }
     
@@ -2421,10 +2658,49 @@ function loadLastEntries() {
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
     
+    // Prüfe ob alle benötigten Plattformen in der platforms-Liste existieren
+    const missingPlatforms = platformsToLoad.filter(name => 
+        !platforms.some(p => p.name === name)
+    );
+    
+    if (missingPlatforms.length > 0) {
+        console.warn(`⚠️ Missing platforms detected:`, missingPlatforms);
+        // Automatisch fehlende Plattformen hinzufügen
+        missingPlatforms.forEach(platformName => {
+            const newPlatform = {
+                name: platformName,
+                icon: '🏛️',
+                type: 'Custom',
+                category: 'Custom',
+                tags: ['custom']
+            };
+            platforms.push(newPlatform);
+            console.log(`➕ Added missing platform: ${platformName}`);
+        });
+        
+        // Platform-Buttons neu rendern
+        renderPlatformButtons();
+        // Speichere die erweiterte platforms-Liste
+        saveData();
+        // Kurz warten bis Buttons gerendert sind
+        setTimeout(() => {
+            loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
+        }, 200);
+        return;
+    }
+    
+    loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
+}
+
+function loadLastEntriesAfterRender(platformsToLoad, lastEntryDate) {
     platformsToLoad.forEach(platformName => {
         const button = Array.from(document.querySelectorAll('.platform-btn[data-platform]')).find(btn => btn.dataset.platform === platformName);
+        console.log(`🔍 Looking for platform "${platformName}": ${button ? 'Found' : 'NOT FOUND'}`);
         if (button) {
+            console.log(`✅ Toggling platform: ${platformName}`);
             togglePlatform(button, platformName);
+        } else {
+            console.warn(`❌ Platform button still not found: ${platformName}`);
         }
     });
 
@@ -2814,6 +3090,7 @@ function setCashflowView(mode) {
 function updateDisplay() {
     updateStats();
     updateHistory();
+    updateForecastChart();
     updateCharts();
     updateCashflowDisplay();
     updatePlatformDetails();
@@ -2934,16 +3211,16 @@ function updateStats() {
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats();
+    updateCashflowStats(filteredCashflows, filteredEntries);
 }
 
-function updateCashflowStats() {
-    const totalDeposits = cashflows.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = cashflows.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+function updateCashflowStats(cashflowsToUse, entriesToUse) {
+    const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+    const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
     const netCashflow = totalDeposits - totalWithdrawals;
     
-    const lastDateOverall = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-    const currentValue = lastDateOverall ? entries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    const lastDateOverall = [...new Set(entriesToUse.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+    const currentValue = lastDateOverall ? entriesToUse.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
     
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
@@ -3021,6 +3298,167 @@ function updateKeyMetrics() {
         if (drawdown < maxDrawdown) maxDrawdown = drawdown;
     });
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
+}
+
+// --- NEUE, VERBESSERTE PROGNOSE-FUNKTIONEN ---
+
+function setForecastPeriod(years) {
+    currentForecastPeriod = years;
+    // Update active button
+    document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+    // Safely find the button that was clicked.
+    const buttons = document.querySelectorAll('.time-selector .time-btn');
+    buttons.forEach(btn => {
+        if (btn.textContent.includes(years)) {
+            btn.classList.add('active');
+        }
+    });
+    updateForecastChart();
+}
+
+function toggleScenarios() {
+    showForecastScenarios = !showForecastScenarios;
+    const btn = document.querySelector('.scenario-toggle');
+    if(btn) btn.textContent = showForecastScenarios ? '📊 Szenarien' : '📈 Einfach';
+    updateForecastChart();
+}
+
+function updateForecastChart() {
+    const forecastWidget = document.getElementById('forecastWidget');
+    if (!forecastWidget) return;
+
+    // Hide widget if not enough data
+    if (entries.length < 2) {
+        forecastWidget.style.display = 'none';
+        return;
+    }
+
+    const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const firstDate = new Date(sortedEntries[0].date);
+    const lastDate = new Date(sortedEntries[sortedEntries.length - 1].date);
+    const durationMs = lastDate - firstDate;
+    const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+
+    if (durationDays < 30) {
+        forecastWidget.style.display = 'none';
+        return;
+    }
+    forecastWidget.style.display = 'block';
+
+    // --- Berechnungen ---
+    const durationYears = durationDays / 365.25;
+    const currentPortfolioValue = sortedEntries.filter(e => e.date === sortedEntries[sortedEntries.length - 1].date).reduce((s, e) => s + e.balance, 0);
+    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
+    const totalReturnSum = currentPortfolioValue - totalNetInvested;
+    const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
+    const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
+
+    // Szenarien definieren
+    const realisticReturn = annualizedReturn;
+    const conservativeReturn = annualizedReturn * 0.5; // Annahme: 50% der hist. Rendite
+    const optimisticReturn = annualizedReturn * 1.5;   // Annahme: 150% der hist. Rendite
+
+    const generateScenario = (startValue, annualReturn, years) => {
+        const data = [startValue];
+        for (let i = 1; i <= years; i++) {
+            data.push(startValue * Math.pow(1 + annualReturn, i));
+        }
+        return data;
+    };
+
+    const realisticData = generateScenario(currentPortfolioValue, realisticReturn, currentForecastPeriod);
+    const conservativeData = generateScenario(currentPortfolioValue, conservativeReturn, currentForecastPeriod);
+    const optimisticData = generateScenario(currentPortfolioValue, optimisticReturn, currentForecastPeriod);
+
+    // --- DOM Updates ---
+    document.getElementById('forecastMetricRealisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
+    document.getElementById('forecastMetricRealisticLabel').textContent = `Erwarteter Wert (${currentForecastPeriod}J)`;
+    document.getElementById('forecastMetricAnnualReturn').textContent = `${(realisticReturn * 100).toFixed(1)}%`;
+    document.getElementById('forecastMetricTotalProfit').textContent = formatDollar(realisticData[realisticData.length - 1] - currentPortfolioValue);
+    document.getElementById('forecastMetricConservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
+    document.getElementById('forecastMetricConservativeLabel').textContent = `"Pessimistisch" (${currentForecastPeriod}J)`;
+    
+    document.getElementById('conservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
+    document.getElementById('realisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
+    document.getElementById('optimisticValue').textContent = formatDollar(optimisticData[optimisticData.length - 1]);
+    document.getElementById('conservativeReturnLabel').textContent = `+${(conservativeReturn * 100).toFixed(1)}% jährlich`;
+    document.getElementById('realisticReturnLabel').textContent = `+${(realisticReturn * 100).toFixed(1)}% jährlich`;
+    document.getElementById('optimisticReturnLabel').textContent = `+${(optimisticReturn * 100).toFixed(1)}% jährlich`;
+
+    // --- Chart Update ---
+    const ctx = document.getElementById('forecastChart').getContext('2d');
+    const labels = Array.from({length: currentForecastPeriod + 1}, (_, i) => i === 0 ? 'Heute' : `Jahr ${i}`);
+
+    const datasets = [{
+        label: 'Realistisch',
+        data: realisticData,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        fill: false,
+        tension: 0.4,
+        borderWidth: 3,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+    }];
+
+    if (showForecastScenarios) {
+        datasets.push({
+            label: 'Konservativ',
+            data: conservativeData,
+            borderColor: '#ef4444',
+            fill: false,
+            tension: 0.4,
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 4,
+        }, {
+            label: 'Optimistisch',
+            data: optimisticData,
+            borderColor: '#10b981',
+            fill: false,
+            tension: 0.4,
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 4,
+        });
+    }
+
+    if (forecastChart) {
+        forecastChart.destroy();
+    }
+
+    forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                datalabels: {
+                    display: false // Verhindert, dass die Zahlen direkt auf dem Chart angezeigt werden
+                },
+                legend: { position: 'bottom', align: 'center', labels: { usePointStyle: true, padding: 20, font: { size: 14, weight: '500' }}},
+                tooltip: {
+                    callbacks: {
+                        label: (c) => `${c.dataset.label}: ${formatDollar(c.parsed.y)}`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { callback: (value) => formatDollar(value), font: { size: 12 }},
+                    grid: { color: 'rgba(0, 0, 0, 0.08)', drawBorder: false }
+                },
+                x: {
+                    ticks: { font: { size: 12 }},
+                    grid: { display: false }
+                }
+            },
+            elements: { point: { backgroundColor: '#ffffff', borderWidth: 2 }}
+        }
+    });
 }
 
 async function editEntry(entryId) {
@@ -3116,16 +3554,27 @@ function updateHistory() {
     const searchInput = document.getElementById('historySearch');
 
     const tbody = document.getElementById('historyTableBody');
+    if (!tbody) {
+        console.error('historyTableBody nicht gefunden');
+        return;
+    }
+    
     const historySection = tbody.closest('.section');
-    let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
-    if (clearBtnContainer) clearBtnContainer.remove();
+    if (historySection) {
+        let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
+        if (clearBtnContainer) clearBtnContainer.remove();
+    }
+    
     const searchTerm = document.getElementById('historySearch').value.toLowerCase();
     let dataToDisplay;
 
     if (singleItemFilter && singleItemFilter.type === 'history') {
         dataToDisplay = entries.filter(singleItemFilter.filterFunction);
         const clearButtonHtml = `<div class="clear-filter-btn-container" style="margin-top: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Einträge anzeigen</button></div>`;
-        tbody.closest('.data-table-wrapper').insertAdjacentHTML('afterend', clearButtonHtml);
+        const tableWrapper = tbody.closest('.data-table-wrapper');
+        if (tableWrapper) {
+            tableWrapper.insertAdjacentHTML('afterend', clearButtonHtml);
+        }
     } else {
         if (historyViewMode === 'grouped') {
             listView.style.display = 'none';
@@ -5144,7 +5593,9 @@ function openBottomSheet(contentHtml) {
 
 function closeBottomSheet(value = null) {
     const sheet = document.getElementById('bottomSheet');
-    sheet.classList.remove('visible');
+    if (sheet) {
+        sheet.classList.remove('visible');
+    }
     if (promptResolve) {
         promptResolve(value);
         promptResolve = null;
@@ -5371,6 +5822,205 @@ function addMissingStyles() {
             background: #1f2937;
             border-color: #374151;
             color: #f9fafb;
+        }
+
+        /* --- NEUE STILE FÜR PROGNOSE-WIDGET --- */
+        .forecast-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .forecast-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 0;
+        }
+        .forecast-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .forecast-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .time-selector {
+            display: flex;
+            background: var(--background-alt);
+            border-radius: 12px;
+            padding: 4px;
+            border: 1px solid var(--border);
+        }
+        .time-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .time-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+        .scenario-toggle {
+            background: var(--primary-dark);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .scenario-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .forecast-chart-container {
+            height: 350px;
+            margin-bottom: 24px;
+            position: relative;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .dark-mode .forecast-chart-container {
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .forecast-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .metric-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .dark-mode .metric-card {
+            background: rgba(31, 41, 55, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .metric-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--primary);
+        }
+        .metric-card.success::before { background: var(--success); }
+        .metric-card.warning::before { background: var(--warning); }
+        .metric-card.danger::before { background: var(--danger); }
+        .metric-icon { font-size: 28px; margin-bottom: 8px; display: block; }
+        .metric-value { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+        .metric-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; }
+        
+        .scenario-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        .scenario-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .dark-mode .scenario-card {
+            background: rgba(31, 41, 55, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .scenario-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; }
+        .scenario-card.conservative::before { background: var(--danger); }
+        .scenario-card.realistic::before { background: var(--primary); }
+        .scenario-card.optimistic::before { background: var(--success); }
+        .scenario-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .scenario-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; }
+        .conservative .scenario-icon { background: var(--danger); }
+        .realistic .scenario-icon { background: var(--primary); }
+        .optimistic .scenario-icon { background: var(--success); }
+        .scenario-title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+        .scenario-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        .scenario-value { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+        .conservative .scenario-value { color: var(--danger); }
+        .realistic .scenario-value { color: var(--primary); }
+        .optimistic .scenario-value { color: var(--success); }
+
+        .scenario-details {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .probability-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--background-alt);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 12px 0;
+        }
+        .probability-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s ease-in-out;
+        }
+        .conservative .probability-fill { background: var(--danger); width: 25%; }
+        .realistic .probability-fill { background: var(--primary); width: 50%; }
+        .optimistic .probability-fill { background: var(--success); width: 25%; }
+        .disclaimer {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-top: 24px;
+        }
+        .disclaimer-icon { color: var(--warning); margin-right: 8px; }
+
+        @media (max-width: 768px) {
+            .forecast-header { flex-direction: column; align-items: stretch; }
+            .forecast-controls { justify-content: center; }
+            .forecast-chart-container { height: 300px; }
+            .forecast-metrics { grid-template-columns: 1fr 1fr; }
+            .scenario-cards { grid-template-columns: 1fr; }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        #forecastWidget { animation: slideUp 0.6s ease-out; }
+        .metric-card, .scenario-card {
+            animation: slideUp 0.6s ease-out;
+            animation-fill-mode: both;
         }
 
         /* Mobile Tooltip Optimierungen */
@@ -5798,9 +6448,7 @@ function addMissingStyles() {
                 padding-top: 6px;
             }
             
-            /* Hide settings and platforms tabs on mobile */
-            .tab-btn[onclick="switchTab('settings')"],
-            .tab-btn[data-tab="settings"],
+            /* Hide platforms tab on mobile */
             .tab-btn[onclick="switchTab('platforms')"],
             .tab-btn[data-tab="platforms"] {
                 display: none !important;
@@ -5812,6 +6460,13 @@ function addMissingStyles() {
         .tab-content#platforms,
         [data-tab="platforms"],
         .tab-btn[onclick*="platforms"] {
+            display: none !important;
+        }
+        
+        /* Hide settings tab from main menu as it's in the dropdown */
+        .tab-btn[onclick="switchTab('settings')"],
+        .tab-btn[data-tab="settings"]
+        {
             display: none !important;
         }
         
@@ -6832,6 +7487,46 @@ function addAriaLabels() {
             }
         }
     });
+}
+
+function cleanupLocalStorage() {
+    const allKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        allKeys.push(localStorage.key(i));
+    }
+    
+    const keysToRemove = allKeys.filter(key => key && (
+        !key.startsWith(STORAGE_PREFIX) && 
+        !key.includes('theme') &&
+        !key.includes('biometric') &&
+        !key.includes('auth') &&
+        (key.includes('_v10_') || key.includes('portfolio_') || key.startsWith('w3pt_') && !key.startsWith(STORAGE_PREFIX))
+    ));
+    
+    keysToRemove.forEach(key => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn('Could not remove key:', key);
+        }
+    });
+    
+    showNotification(`🧹 ${keysToRemove.length} alte Keys entfernt! Speicher bereinigt.`, 'success');
+    console.log(`Cleaned up ${keysToRemove.length} old keys:`, keysToRemove);
+    return keysToRemove.length;
+}
+
+// Debug function to test loadLastEntries manually
+function debugLoadLastEntries() {
+    console.log('🔍 DEBUG: Starting manual loadLastEntries test...');
+    console.log(`Total entries: ${entries.length}`);
+    if (entries.length > 0) {
+        const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+        console.log(`Available dates:`, sortedDates.slice(0, 5));
+        loadLastEntries();
+    } else {
+        console.log('No entries available');
+    }
 }
 
 // Update Mobile Navigation Badges
