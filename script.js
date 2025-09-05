@@ -2318,6 +2318,7 @@ function toggleTheme() {
     document.querySelector('.theme-toggle').innerHTML = currentTheme === 'light' ? '🌙' : '☀️';
     localStorage.setItem(`${STORAGE_PREFIX}theme`, currentTheme);
     updateChartTheme();
+    updateThemeIcon(); // Mobile theme icon aktualisieren
     showNotification(currentTheme === 'light' ? 'Light Mode' : 'Dark Mode');
 }
 
@@ -7166,18 +7167,55 @@ function initializeMobileNavigation() {
     if (window.innerWidth <= 768) {
         document.body.classList.add("has-mobile-nav");
         
-        // Sync mobile nav with current active tab
-        const activeTab = document.querySelector(".tab-btn.active");
-        if (activeTab && activeTab.dataset.tab) {
-            const mobileNavItem = document.querySelector(`.mobile-nav-item[data-tab="${activeTab.dataset.tab}"]`);
-            if (mobileNavItem) {
-                document.querySelectorAll(".mobile-nav-item").forEach(btn => btn.classList.remove("active"));
-                mobileNavItem.classList.add("active");
-            }
+        // Mobile nav anzeigen
+        const mobileNav = document.querySelector('.mobile-bottom-nav');
+        if (mobileNav) {
+            mobileNav.style.display = 'flex';
         }
         
-        // Update badges
-        updateMobileNavBadges();
+        // Sync mit aktivem Tab
+        const activeTab = document.querySelector(".tab-btn.active");
+        if (activeTab) {
+            const tabName = activeTab.getAttribute('onclick').match(/switchTab\('(.+?)'\)/)[1];
+            document.querySelectorAll(".mobile-nav-item").forEach(btn => {
+                btn.classList.toggle("active", btn.dataset.tab === tabName);
+            });
+        }
+        
+        // Theme Icon initialisieren
+        updateThemeIcon();
+    }
+}
+
+function openMobileMenu() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">⚙️ Einstellungen</h2></div>
+        <div class="modal-body">
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="togglePrivacyMode(); closeBottomSheet();">
+                🙈 Privacy Mode
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="toggleCompactMode(); closeBottomSheet();">
+                📱 Kompakt-Modus
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="switchTab('settings'); closeBottomSheet();">
+                ⚙️ Einstellungen
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="syncNow(); closeBottomSheet();">
+                ☁️ Cloud Sync
+            </button>
+            <button class="btn btn-success" style="width: 100%;" onclick="exportJSON(); closeBottomSheet();">
+                💾 Backup erstellen
+            </button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+}
+
+// Theme Icon Update
+function updateThemeIcon() {
+    const themeIcon = document.querySelector('.mobile-nav-item .theme-icon');
+    if (themeIcon) {
+        themeIcon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
     }
 }
 

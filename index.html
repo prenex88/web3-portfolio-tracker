@@ -56,10 +56,12 @@
         <div class="header">
             <div class="header-content">
                 <div class="header-title-group" onclick="switchTab('dashboard')" style="cursor: pointer;" title="Zum Dashboard">
-                    <h1>🚀 Web3 Portfolio Tracker Pro</h1>
-                    <div class="subtitle">Advanced Portfolio Management mit Cloud Sync</div>
+                    <h1>🚀 Web3 Portfolio</h1>
+                    <!-- Subtitle nur auf Desktop -->
+                    <div class="subtitle desktop-only">Track your crypto & DeFi investments</div>
                 </div>
-                <div class="header-controls">
+                <!-- Controls nur auf Desktop -->
+                <div class="header-controls desktop-only">
                 <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)">🔍</button>
                 <button class="theme-toggle btn-icon" onclick="toggleTheme()" title="Theme wechseln (Ctrl+D)">🌙</button>
                 
@@ -811,24 +813,33 @@
     </div>
 
     <!-- Mobile Bottom Navigation -->
-    <nav class="mobile-bottom-nav" id="mobileBottomNav">
-        <button class="mobile-nav-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
+    <!-- Mobile Bottom Navigation mit mehr Funktionen -->
+    <div class="mobile-bottom-nav" style="display: none;">
+        <button class="mobile-nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
             <span class="nav-icon">📊</span>
-            <span class="nav-label">Dashboard</span>
         </button>
-        <button class="mobile-nav-item" onclick="switchTab('entry')" data-tab="entry">
-            <span class="nav-icon">📝</span>
-            <span class="nav-label">Eintrag</span>
+        <button class="mobile-nav-item" data-tab="entry" onclick="switchTab('entry')">
+            <span class="nav-icon">➕</span>
         </button>
-        <button class="mobile-nav-item" onclick="switchTab('cashflow')" data-tab="cashflow">
+        <button class="mobile-nav-item" data-tab="cashflow" onclick="switchTab('cashflow')">
             <span class="nav-icon">💸</span>
-            <span class="nav-label">Cashflow</span>
         </button>
-        <button class="mobile-nav-item" onclick="switchTab('history')" data-tab="history">
+        <button class="mobile-nav-item" data-tab="history" onclick="switchTab('history')">
             <span class="nav-icon">📜</span>
-            <span class="nav-label">Historie</span>
         </button>
-    </nav>
+        <!-- Search -->
+        <button class="mobile-nav-item" onclick="document.getElementById('globalSearchBtn').click()">
+            <span class="nav-icon">🔍</span>
+        </button>
+        <!-- Theme Toggle -->
+        <button class="mobile-nav-item" onclick="toggleTheme()">
+            <span class="nav-icon theme-icon">🌙</span>
+        </button>
+        <!-- Menu für Settings, Privacy etc. -->
+        <button class="mobile-nav-item" onclick="openMobileMenu()">
+            <span class="nav-icon">⋮</span>
+        </button>
+    </div>
 
     <script src="script.js"></script>
     <script>
