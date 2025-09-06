@@ -762,8 +762,84 @@ body.has-sync-bar .tab-navigation {
 }
 
 @media (max-width: 768px) {
+    /* Complete mobile layout overhaul */
     .input-row {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+    
+    .input-card {
+        width: calc(100% - 20px);
+        max-width: calc(100vw - 40px);
+        margin: 0 auto 12px auto;
+        padding: 16px;
+        border-radius: 12px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+        box-sizing: border-box;
+    }
+    
+    .input-field {
+        width: 100%;
+        max-width: 100%;
+        font-size: 16px;
+        box-sizing: border-box;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        background: var(--white);
+    }
+    
+    .platform-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        text-align: center;
+    }
+    
+    .input-notes-section {
+        width: 100%;
+        margin-top: 12px;
+    }
+    
+    .input-notes-section textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 80px;
+        resize: vertical;
+    }
+    
+    .strategy-input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 8px;
+    }
+    
+    /* Container fixes */
+    #platformInputs {
+        width: 100%;
+        padding: 0 10px;
+        box-sizing: border-box;
+    }
+    
+    .container {
+        padding: 10px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    /* Remove any transform effects on mobile that might cause overflow */
+    .input-card:hover {
+        transform: none;
+    }
+    
+    .input-card.card-focused {
+        transform: none;
+        box-shadow: 0 0 0 2px var(--primary);
     }
 }
 

@@ -3709,8 +3709,9 @@ function updateHistory() {
             mobileCards.style.display = 'none';
             groupedView.style.display = 'none';
             byDateView.style.display = 'block';
-            searchInput.style.visibility = 'hidden'; // Suche hier nicht sinnvoll
-            renderGroupedHistoryByDate();
+            searchInput.style.visibility = 'visible';
+            searchInput.placeholder = "Nach Datum suchen (z.B. 05.09, September, 2025)...";
+            renderGroupedHistoryByDate(searchTerm);
             return;
         }
         dataToDisplay = filteredEntries.filter(e => 
@@ -3835,12 +3836,79 @@ function clearHistorySearch() {
     updateHistory();
 }
 
-function renderGroupedHistoryByDate() {
+function renderGroupedHistoryByDate(searchTerm = '') {
     const container = document.getElementById('historyByDateView');
+    
+    // Filter entries based on search term - enhanced date search
+    let entriesToDisplay = filteredEntries;
+    if (searchTerm && searchTerm.trim() !== '') {
+        const lowerSearchTerm = searchTerm.toLowerCase();
+        
+        entriesToDisplay = filteredEntries.filter(e => {
+            // Standard search in protocol, note, strategy
+            const standardMatch = e.protocol.toLowerCase().includes(lowerSearchTerm) || 
+                                 (e.note && e.note.toLowerCase().includes(lowerSearchTerm)) ||
+                                 getDisplayStrategyForEntry(e).toLowerCase().includes(lowerSearchTerm);
+            
+            // Enhanced date search
+            const dateMatch = searchInDate(e.date, searchTerm);
+            
+            return standardMatch || dateMatch;
+        });
+    }
+    
+    function searchInDate(entryDate, searchTerm) {
+        const term = searchTerm.trim();
+        if (!term) return false;
+        
+        // Parse entry date (format: YYYY-MM-DD)
+        const date = new Date(entryDate);
+        const day = date.getDate();
+        const month = date.getMonth() + 1;
+        const year = date.getFullYear();
+        
+        // Generate various date formats to search in
+        const dateFormats = [
+            entryDate,                                          // 2025-09-05
+            `${day.toString().padStart(2, '0')}.${month.toString().padStart(2, '0')}.${year}`,  // 05.09.2025
+            `${day}.${month}.${year}`,                         // 5.9.2025
+            `${month}/${day}/${year}`,                         // 9/5/2025
+            `${day}/${month}/${year}`,                         // 5/9/2025
+            date.toLocaleDateString('de-DE'),                  // 05.09.2025
+            date.toLocaleDateString('en-US'),                  // 9/5/2025
+            day.toString(),                                    // 5 (day only)
+            month.toString(),                                  // 9 (month only)
+            year.toString(),                                   // 2025 (year only)
+            date.toLocaleDateString('de-DE', { month: 'long' }),        // September
+            date.toLocaleDateString('de-DE', { month: 'short' }),       // Sep
+            date.toLocaleDateString('de-DE', { weekday: 'long' }),      // Donnerstag
+            date.toLocaleDateString('de-DE', { weekday: 'short' }),     // Do
+        ];
+        
+        // Check if search term matches any date format
+        return dateFormats.some(format => 
+            format.toLowerCase().includes(term.toLowerCase())
+        );
+    }
+    
+    // Check for empty results due to search
+    if (entriesToDisplay.length === 0 && searchTerm && searchTerm.trim() !== '') {
+        container.innerHTML = `
+            <div class="empty-state-enhanced" style="text-align: center; padding: 60px 20px;">
+                <div class="empty-state-icon" style="font-size: 4rem; margin-bottom: 16px;">🔍</div>
+                <div class="empty-state-title" style="font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Keine Suchergebnisse</div>
+                <div class="empty-state-description" style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Keine Einträge gefunden für "${searchTerm}"
+                </div>
+                <button class="btn btn-secondary" onclick="clearHistorySearch();">Suche zurücksetzen</button>
+            </div>
+        `;
+        return;
+    }
     
     // Gruppiere Einträge nach Datum
     const entriesByDate = {};
-    filteredEntries.forEach(entry => {
+    entriesToDisplay.forEach(entry => {
         if (!entriesByDate[entry.date]) {
             entriesByDate[entry.date] = [];
         }
