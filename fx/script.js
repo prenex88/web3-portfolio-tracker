@@ -548,6 +548,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     convertTablesToMobile();
 
     window.addEventListener('resize', convertTablesToMobile);
+    window.addEventListener('resize', initializeMobileNavigation);
 });
 
 // NEU: Listener für Nachrichten vom Service Worker
@@ -1111,15 +1112,29 @@ function addEventListeners() {
     });
 
     document.querySelectorAll('.data-table th.sortable').forEach(th => th.addEventListener('click', handleSort));
-    document.getElementById('csvFileInput').addEventListener('change', handleCsvImport);
-    document.getElementById('jsonFileInput').addEventListener('change', handleJsonImport);
-    document.getElementById('historySearch').addEventListener('input', (e) => updateHistory());
+    const csvFileInput = document.getElementById('csvFileInput');
+    if (csvFileInput) {
+        csvFileInput.addEventListener('change', handleCsvImport);
+    }
+    
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    if (jsonFileInput) {
+        jsonFileInput.addEventListener('change', handleJsonImport);
+    }
+    
+    const historySearch = document.getElementById('historySearch');
+    if (historySearch) {
+        historySearch.addEventListener('input', (e) => updateHistory());
+    }
     document.querySelectorAll('input[name="cashflowType"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             document.getElementById('cashflowTargetDiv').style.display = e.target.value === 'deposit' ? 'block' : 'none';
         });
     });
-    document.getElementById('selectAllHistory').addEventListener('change', toggleSelectAllHistory);
+    const selectAllHistory = document.getElementById('selectAllHistory');
+    if (selectAllHistory) {
+        selectAllHistory.addEventListener('change', toggleSelectAllHistory);
+    }
 
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
@@ -1706,11 +1721,12 @@ function saveSingleEntry(inputElement) {
     const platformName = inputElement.dataset.platform;
     const balance = parseLocaleNumberString(inputElement.value); // Make sure this function exists and is correct
     const note = document.getElementById(`note_${platformName.replace(/\s+/g, '_')}`)?.value || '';
+    const strategy = document.getElementById(`strategy_${platformName.replace(/\s+/g, '_')}`)?.value || '';
 
     if (!inputElement.value || isNaN(balance)) return;
 
     entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note });
+    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note, strategy });
 
     saveData();
     applyDateFilter();
@@ -2301,7 +2317,7 @@ function switchTab(tabName, options = {}) {
         updateHistory();
     } else if (tabName === 'cashflow') {
         updateCashflowDisplay();
-        updateCashflowStats();
+        updateCashflowStats(cashflows, entries);
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'platforms') {
         updatePlatformDetails();
@@ -2318,6 +2334,7 @@ function toggleTheme() {
     document.querySelector('.theme-toggle').innerHTML = currentTheme === 'light' ? '🌙' : '☀️';
     localStorage.setItem(`${STORAGE_PREFIX}theme`, currentTheme);
     updateChartTheme();
+    updateThemeIcon(); // Mobile theme icon aktualisieren
     showNotification(currentTheme === 'light' ? 'Light Mode' : 'Dark Mode');
 }
 
@@ -2570,7 +2587,10 @@ function addPlatformInput(platformName) {
                     ${isSaved ? '<span class="indicator-saved">✓</span>' : '<span class="indicator-pending">!</span>'}
                 </div>
             </div>
-            <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." value="${todayEntry?.note || lastNote}">
+            <div class="input-notes-section">
+                <input type="text" id="note_${inputId}" class="note-input" placeholder="Notiz..." value="${todayEntry?.note || lastNote}">
+                <input type="text" id="strategy_${inputId}" class="strategy-input" placeholder="🎯 Strategie..." value="${todayEntry?.strategy || ''}" title="Strategie für ${platformName}">
+            </div>
             <button class="remove-btn" onclick="removePlatformInput('${platformName}')">✕</button>
         </div>`;
     container.appendChild(div);
@@ -2615,6 +2635,14 @@ function addPlatformInput(platformName) {
 function getStrategyForDate(date) {
     const strategy = dayStrategies.find(s => s.date === date);
     return strategy ? strategy.strategy : '';
+}
+
+function getDisplayStrategyForEntry(entry) {
+    // Priority: platform-specific strategy first, then general day strategy
+    if (entry.strategy && entry.strategy.trim() !== '') {
+        return entry.strategy;
+    }
+    return getStrategyForDate(entry.date) || '-';
 }
 
 function removePlatformInput(platformName) {
@@ -2797,6 +2825,7 @@ async function saveAllEntries() {
         const inputId = platformName.replace(/\s+/g, '_');
         const balanceInput = document.getElementById(`balance_${inputId}`);
         const noteInput = document.getElementById(`note_${inputId}`);
+        const strategyInput = document.getElementById(`strategy_${inputId}`);
         if (balanceInput) {
             const value = balanceInput.value.trim();
             const balance = value === '' ? 0 : parseLocaleNumberString(value);
@@ -2805,7 +2834,7 @@ async function saveAllEntries() {
                 return; // continue
             }
             entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-            entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '' });
+            entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '', strategy: strategyInput?.value || '' });
             newEntriesCount++;
         }
     });
@@ -3211,29 +3240,51 @@ function updateStats() {
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats(filteredCashflows, filteredEntries);
+    updateCashflowStats(filteredCashflows || [], filteredEntries || []);
 }
 
 function updateCashflowStats(cashflowsToUse, entriesToUse) {
-    const totalDeposits = cashflowsToUse.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-    const totalWithdrawals = cashflowsToUse.filter(c => c.type === 'withdraw').reduce((sum, c) => sum + c.amount, 0);
+    // Ensure arrays exist and are valid
+    const validCashflows = Array.isArray(cashflowsToUse) ? cashflowsToUse : [];
+    const validEntries = Array.isArray(entriesToUse) ? entriesToUse : [];
+    
+    const totalDeposits = validCashflows.filter(c => c && c.type === 'deposit').reduce((sum, c) => sum + (c.amount || 0), 0);
+    const totalWithdrawals = validCashflows.filter(c => c && c.type === 'withdraw').reduce((sum, c) => sum + (c.amount || 0), 0);
     const netCashflow = totalDeposits - totalWithdrawals;
     
-    const lastDateOverall = [...new Set(entriesToUse.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
-    const currentValue = lastDateOverall ? entriesToUse.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + e.balance, 0) : 0;
+    // Get current value from entries
+    let currentValue = 0;
+    if (validEntries.length > 0) {
+        const lastDateOverall = [...new Set(validEntries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a))[0];
+        currentValue = lastDateOverall ? validEntries.filter(e => e.date === lastDateOverall).reduce((sum, e) => sum + (e.balance || 0), 0) : 0;
+    }
     
     const totalProfit = currentValue - netCashflow;
     const roi = netCashflow > 0 ? (totalProfit / netCashflow) * 100 : 0;
     
+    // Update DOM elements
     const totalDepositsEl = document.getElementById('totalDeposits');
     const totalWithdrawalsEl = document.getElementById('totalWithdrawals');
     const netCashflowEl = document.getElementById('netCashflow');
     const roiPercentEl = document.getElementById('roiPercent');
     
-    if (totalDepositsEl) totalDepositsEl.textContent = formatDollar(totalDeposits);
-    if (totalWithdrawalsEl) totalWithdrawalsEl.textContent = formatDollar(totalWithdrawals);
-    if (netCashflowEl) netCashflowEl.textContent = formatDollar(netCashflow);
-    if (roiPercentEl) roiPercentEl.textContent = `${roi.toFixed(2)}%`;
+    if (totalDepositsEl) {
+        totalDepositsEl.textContent = formatDollar(totalDeposits);
+    }
+    
+    if (totalWithdrawalsEl) {
+        totalWithdrawalsEl.textContent = formatDollar(totalWithdrawals);
+    }
+    
+    if (netCashflowEl) {
+        netCashflowEl.textContent = formatDollar(netCashflow);
+        netCashflowEl.className = `cashflow-stat-value dollar-value ${netCashflow >= 0 ? 'positive' : 'negative'}`;
+    }
+    
+    if (roiPercentEl) {
+        roiPercentEl.textContent = `${roi.toFixed(2)}%`;
+        roiPercentEl.className = `cashflow-stat-value ${roi >= 0 ? 'positive' : 'negative'}`;
+    }
 }
 
 // =================================================================================
@@ -3484,6 +3535,10 @@ async function editEntry(entryId) {
                 <label>Notiz</label>
                 <input type="text" id="editEntryNote" class="input-field" value="${entry.note || ''}">
             </div>
+            <div class="github-input-group">
+                <label>🎯 Strategie</label>
+                <input type="text" id="editEntryStrategy" class="input-field" placeholder="Strategie für ${entry.protocol}..." value="${entry.strategy || ''}">
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
@@ -3501,6 +3556,7 @@ function saveEntryEdit(entryId) {
     entry.date = document.getElementById('editEntryDate').value;
     entry.balance = parseLocaleNumberString(document.getElementById('editEntryBalance').value);
     entry.note = document.getElementById('editEntryNote').value;
+    entry.strategy = document.getElementById('editEntryStrategy').value;
 
     if (isNaN(entry.balance)) {
         return showNotification('Ungültiger Betrag.', 'error');
@@ -3510,6 +3566,66 @@ function saveEntryEdit(entryId) {
     applyDateFilter();
     closeBottomSheet();
     showNotification('Eintrag aktualisiert!', 'success');
+}
+
+async function editCashflow(cashflowId) {
+    const cashflow = cashflows.find(c => c.id == cashflowId);
+    if (!cashflow) return;
+
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Cashflow bearbeiten</h2></div>
+        <div class="modal-body">
+            <div class="github-input-group">
+                <label>Datum</label>
+                <input type="date" id="editCashflowDate" class="date-input" value="${cashflow.date}">
+            </div>
+            <div class="github-input-group">
+                <label>Typ</label>
+                <select id="editCashflowType" class="input-field">
+                    <option value="deposit" ${cashflow.type === 'deposit' ? 'selected' : ''}>Einzahlung</option>
+                    <option value="withdraw" ${cashflow.type === 'withdraw' ? 'selected' : ''}>Auszahlung</option>
+                </select>
+            </div>
+            <div class="github-input-group">
+                <label>Betrag</label>
+                <input type="text" inputmode="decimal" id="editCashflowAmount" class="input-field" value="${cashflow.amount.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}">
+            </div>
+            <div class="github-input-group">
+                <label>Plattform</label>
+                <input type="text" id="editCashflowPlatform" class="input-field" value="${cashflow.platform || ''}" placeholder="Optional">
+            </div>
+            <div class="github-input-group">
+                <label>Notiz</label>
+                <input type="text" id="editCashflowNote" class="input-field" value="${cashflow.note || ''}" placeholder="Optional">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" onclick="closeBottomSheet()">Abbrechen</button>
+            <button class="btn btn-success" onclick="saveCashflowEdit(${cashflowId})">Speichern</button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+    setTimeout(() => document.getElementById('editCashflowAmount').focus(), 200);
+}
+
+function saveCashflowEdit(cashflowId) {
+    const cashflow = cashflows.find(c => c.id == cashflowId);
+    if (!cashflow) return;
+
+    cashflow.date = document.getElementById('editCashflowDate').value;
+    cashflow.type = document.getElementById('editCashflowType').value;
+    cashflow.amount = parseLocaleNumberString(document.getElementById('editCashflowAmount').value);
+    cashflow.platform = document.getElementById('editCashflowPlatform').value;
+    cashflow.note = document.getElementById('editCashflowNote').value;
+
+    if (isNaN(cashflow.amount) || cashflow.amount <= 0) {
+        return showNotification('Ungültiger Betrag.', 'error');
+    }
+
+    saveData();
+    updateCashflow();
+    closeBottomSheet();
+    showNotification('Cashflow aktualisiert!', 'success');
 }
 
 async function deleteEntriesForDate(date) {
@@ -3563,9 +3679,12 @@ function updateHistory() {
     if (historySection) {
         let clearBtnContainer = historySection.querySelector('.clear-filter-btn-container');
         if (clearBtnContainer) clearBtnContainer.remove();
+    } else {
+        console.warn('History section not found');
     }
     
-    const searchTerm = document.getElementById('historySearch').value.toLowerCase();
+    const historySearchEl = document.getElementById('historySearch');
+    const searchTerm = historySearchEl ? historySearchEl.value.toLowerCase() : '';
     let dataToDisplay;
 
     if (singleItemFilter && singleItemFilter.type === 'history') {
@@ -3590,15 +3709,16 @@ function updateHistory() {
             mobileCards.style.display = 'none';
             groupedView.style.display = 'none';
             byDateView.style.display = 'block';
-            searchInput.style.visibility = 'hidden'; // Suche hier nicht sinnvoll
-            renderGroupedHistoryByDate();
+            searchInput.style.visibility = 'visible';
+            searchInput.placeholder = "Nach Datum suchen (z.B. 05.09, September, 2025)...";
+            renderGroupedHistoryByDate(searchTerm);
             return;
         }
         dataToDisplay = filteredEntries.filter(e => 
             e.protocol.toLowerCase().includes(searchTerm) || 
             e.date.toLowerCase().includes(searchTerm) ||
             (e.note && e.note.toLowerCase().includes(searchTerm)) ||
-            (getStrategyForDate(e.date) && getStrategyForDate(e.date).toLowerCase().includes(searchTerm))
+            getDisplayStrategyForEntry(e).toLowerCase().includes(searchTerm)
         );
     }
 
@@ -3612,7 +3732,7 @@ function updateHistory() {
     // Augment data with strategy for correct sorting
     const augmentedData = dataToDisplay.map(entry => ({
         ...entry,
-        strategy: getStrategyForDate(entry.date) || ''
+        strategy: getDisplayStrategyForEntry(entry)
     }));
 
     augmentedData.sort((a, b) => {
@@ -3630,33 +3750,76 @@ function updateHistory() {
         }
     });
 
-    tbody.innerHTML = '';
+    // Hide table and show card container instead
+    const table = tbody.closest('.data-table-wrapper') || tbody.closest('table');
+    if (table) table.style.display = 'none';
+    
+    // Always ensure we have a card container, create if needed
+    let cardContainer = listView.querySelector('.history-cards-container');
+    if (!cardContainer) {
+        cardContainer = document.createElement('div');
+        cardContainer.className = 'history-cards-container';
+        cardContainer.style.cssText = 'padding: 16px;';
+        listView.appendChild(cardContainer);
+    }
+    
     if (augmentedData.length === 0) {
-        renderEmptyState(document.getElementById('historyListView'), 'history');
+        // Check if this is due to search or genuinely no entries
+        if (searchTerm && searchTerm.trim() !== '') {
+            // Show search-specific empty state in card container
+            cardContainer.innerHTML = `
+                <div class="empty-state-enhanced" style="text-align: center; padding: 60px 20px;">
+                    <div class="empty-state-icon" style="font-size: 4rem; margin-bottom: 16px;">🔍</div>
+                    <div class="empty-state-title" style="font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Keine Suchergebnisse</div>
+                    <div class="empty-state-description" style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Keine Einträge gefunden für "${searchTerm}"
+                    </div>
+                    <button class="btn btn-secondary" onclick="clearHistorySearch();">Suche zurücksetzen</button>
+                </div>
+            `;
+        } else {
+            renderEmptyState(listView, 'history');
+        }
         return;
     }
 
-    tbody.innerHTML = augmentedData.map((entry, index) => {
-        const row = document.createElement('tr');
-        row.dataset.id = entry.id;
-        row.dataset.index = index;
-        if (selectedHistoryEntries.has(entry.id)) {
-            row.classList.add('multi-selected-row');
-        }
-        
-        row.onclick = (e) => handleHistoryRowClick(e, row, entry.id, index);
+    // Render unified card-based layout for all entries
+    const html = augmentedData.map((entry, index) => {
+        const strategy = getDisplayStrategyForEntry(entry);
         return `
-            <tr data-id="${entry.id}" data-index="${index}" class="${selectedHistoryEntries.has(entry.id) ? 'multi-selected-row' : ''}" onclick="handleHistoryRowClick(event, this, ${entry.id}, ${index})">
-                <td data-label="Select"><input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''}></td>
-                <td data-label="Datum">${formatDate(entry.date)}</td>
-                <td data-label="Plattform" style="font-weight: 600;">${entry.protocol}</td>
-                <td data-label="Balance" class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
-                <td data-label="Strategie">${entry.strategy || '-'}</td>
-                <td data-label="Notiz" class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-                <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">Löschen</button></td>
-            </tr>
+            <div class="history-card" data-id="${entry.id}" data-index="${index}" 
+                 style="margin-bottom: 12px; padding: 16px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border);">
+                <div class="history-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="checkbox" ${selectedHistoryEntries.has(entry.id) ? 'checked' : ''} 
+                               onclick="handleHistoryRowClick(event, this.closest('.history-card'), ${entry.id}, ${index})" 
+                               style="margin: 0;">
+                        <div class="entry-date" style="font-weight: 600; color: var(--text-primary);">${formatDate(entry.date)}</div>
+                        <div class="entry-platform" style="font-weight: 600; color: var(--primary);">${entry.protocol}</div>
+                    </div>
+                    <div class="entry-balance dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')" 
+                         style="font-size: 1.2em; font-weight: 700; cursor: pointer;">${formatDollar(entry.balance)}</div>
+                </div>
+                <div class="history-card-details" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        ${strategy !== '-' ? `<div style="font-size: 13px; color: var(--text-secondary);"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                        <div class="entry-note editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')" 
+                             style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                            ${entry.note || '<span style="color: var(--text-muted);">Notiz hinzufügen...</span>'}
+                        </div>
+                    </div>
+                    <div class="history-card-actions" style="display: flex; gap: 8px;">
+                        <button class="btn btn-primary btn-small" onclick="event.stopPropagation(); editEntry(${entry.id})" 
+                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">✏️</button>
+                        <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})" 
+                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">🗑️</button>
+                    </div>
+                </div>
+            </div>
         `;
     }).join('');
+    
+    cardContainer.innerHTML = html;
     
     // Render mobile cards
     renderHistoryMobileCards(augmentedData);
@@ -3665,12 +3828,87 @@ function updateHistory() {
     updateBulkActionsBar();
 }
 
-function renderGroupedHistoryByDate() {
+function clearHistorySearch() {
+    const searchInput = document.getElementById('historySearch');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    updateHistory();
+}
+
+function renderGroupedHistoryByDate(searchTerm = '') {
     const container = document.getElementById('historyByDateView');
+    
+    // Filter entries based on search term - enhanced date search
+    let entriesToDisplay = filteredEntries;
+    if (searchTerm && searchTerm.trim() !== '') {
+        const lowerSearchTerm = searchTerm.toLowerCase();
+        
+        entriesToDisplay = filteredEntries.filter(e => {
+            // Standard search in protocol, note, strategy
+            const standardMatch = e.protocol.toLowerCase().includes(lowerSearchTerm) || 
+                                 (e.note && e.note.toLowerCase().includes(lowerSearchTerm)) ||
+                                 getDisplayStrategyForEntry(e).toLowerCase().includes(lowerSearchTerm);
+            
+            // Enhanced date search
+            const dateMatch = searchInDate(e.date, searchTerm);
+            
+            return standardMatch || dateMatch;
+        });
+    }
+    
+    function searchInDate(entryDate, searchTerm) {
+        const term = searchTerm.trim();
+        if (!term) return false;
+        
+        // Parse entry date (format: YYYY-MM-DD)
+        const date = new Date(entryDate);
+        const day = date.getDate();
+        const month = date.getMonth() + 1;
+        const year = date.getFullYear();
+        
+        // Generate various date formats to search in
+        const dateFormats = [
+            entryDate,                                          // 2025-09-05
+            `${day.toString().padStart(2, '0')}.${month.toString().padStart(2, '0')}.${year}`,  // 05.09.2025
+            `${day}.${month}.${year}`,                         // 5.9.2025
+            `${month}/${day}/${year}`,                         // 9/5/2025
+            `${day}/${month}/${year}`,                         // 5/9/2025
+            date.toLocaleDateString('de-DE'),                  // 05.09.2025
+            date.toLocaleDateString('en-US'),                  // 9/5/2025
+            day.toString(),                                    // 5 (day only)
+            month.toString(),                                  // 9 (month only)
+            year.toString(),                                   // 2025 (year only)
+            date.toLocaleDateString('de-DE', { month: 'long' }),        // September
+            date.toLocaleDateString('de-DE', { month: 'short' }),       // Sep
+            date.toLocaleDateString('de-DE', { weekday: 'long' }),      // Donnerstag
+            date.toLocaleDateString('de-DE', { weekday: 'short' }),     // Do
+        ];
+        
+        // Check if search term matches any date format
+        return dateFormats.some(format => 
+            format.toLowerCase().includes(term.toLowerCase())
+        );
+    }
+    
+    // Check for empty results due to search
+    if (entriesToDisplay.length === 0 && searchTerm && searchTerm.trim() !== '') {
+        container.innerHTML = `
+            <div class="empty-state-enhanced" style="text-align: center; padding: 60px 20px;">
+                <div class="empty-state-icon" style="font-size: 4rem; margin-bottom: 16px;">🔍</div>
+                <div class="empty-state-title" style="font-size: 1.5rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Keine Suchergebnisse</div>
+                <div class="empty-state-description" style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Keine Einträge gefunden für "${searchTerm}"
+                </div>
+                <button class="btn btn-secondary" onclick="clearHistorySearch();">Suche zurücksetzen</button>
+            </div>
+        `;
+        return;
+    }
     
     // Gruppiere Einträge nach Datum
     const entriesByDate = {};
-    filteredEntries.forEach(entry => {
+    entriesToDisplay.forEach(entry => {
         if (!entriesByDate[entry.date]) {
             entriesByDate[entry.date] = [];
         }
@@ -3726,17 +3964,34 @@ function renderGroupedHistoryByDate() {
                             <strong>Strategie:</strong> ${dayStrategy.strategy}
                         </div>
                     ` : ''}
-                    <div class="day-entries">
-                        ${dayEntries.sort((a,b) => b.balance - a.balance).map(entry => `
-                            <div class="entry-row">
-                                <span class="entry-platform">${entry.protocol}</span>
-                                <span class="entry-balance dollar-value">
-                                    ${formatDollar(entry.balance)}
-                                </span>
-                                <span class="entry-note">${entry.note || ''}</span>
-                                <button class="btn btn-primary btn-small" onclick="editEntry(${entry.id})">✏️</button>
-                            </div>
-                        `).join('')}
+                    <div class="day-entries" style="padding: 8px;">
+                        ${dayEntries.sort((a,b) => b.balance - a.balance).map(entry => {
+                            const strategy = getDisplayStrategyForEntry(entry);
+                            return `
+                                <div class="history-card" style="margin-bottom: 8px; padding: 12px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">
+                                    <div class="history-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <div class="entry-platform" style="font-weight: 600; color: var(--primary);">${entry.protocol}</div>
+                                        <div class="entry-balance dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')" 
+                                             style="font-size: 1.1em; font-weight: 700; cursor: pointer;">${formatDollar(entry.balance)}</div>
+                                    </div>
+                                    <div class="history-card-details" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;">
+                                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                                            ${strategy !== '-' ? `<div style="font-size: 13px; color: var(--text-secondary);"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                                            <div class="entry-note editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')" 
+                                                 style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                                                ${entry.note || '<span style="color: var(--text-muted);">Notiz hinzufügen...</span>'}
+                                            </div>
+                                        </div>
+                                        <div class="history-card-actions" style="display: flex; gap: 8px;">
+                                            <button class="btn btn-primary btn-small" onclick="event.stopPropagation(); editEntry(${entry.id})" 
+                                                    style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">✏️</button>
+                                            <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})" 
+                                                    style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">🗑️</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             </details>
@@ -3790,50 +4045,37 @@ function renderGroupedHistory(searchTerm = '') {
                 </summary>
                 <div class="cashflow-group-details">`;
 
-        if (isMobile) {
-            html += `<div class="mobile-cards" style="padding: 0; max-height: 300px; overflow-y: auto;">
-                ${entries.map(entry => {
-                    const strategy = getStrategyForDate(entry.date) || '';
-                    return `
-                    <div class="history-card" style="margin-bottom: 8px; padding: 12px;">
-                        <div class="history-card-header" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
-                            <div class="history-card-date editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</div>
-                            <div class="history-card-balance dollar-value editable" style="font-size: 1.1em;" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">
-                                ${formatDollar(entry.balance)}
+        // Use unified card layout for all entries in this platform group
+        html += `<div style="padding: 8px; max-height: 400px; overflow-y: auto;">
+            ${entries.map(entry => {
+                const strategy = getDisplayStrategyForEntry(entry);
+                return `
+                    <div class="history-card" style="margin-bottom: 8px; padding: 12px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">
+                        <div class="history-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div class="entry-date editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')" 
+                                 style="font-weight: 600; color: var(--text-primary); cursor: pointer;">${formatDate(entry.date)}</div>
+                            <div class="entry-balance dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')" 
+                                 style="font-size: 1.1em; font-weight: 700; cursor: pointer;">${formatDollar(entry.balance)}</div>
+                        </div>
+                        <div class="history-card-details" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                ${strategy !== '-' ? `<div style="font-size: 13px; color: var(--text-secondary);"><strong>Strategie:</strong> ${strategy}</div>` : ''}
+                                <div class="entry-note editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')" 
+                                     style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                                    ${entry.note || '<span style="color: var(--text-muted);">Notiz hinzufügen...</span>'}
+                                </div>
+                            </div>
+                            <div class="history-card-actions" style="display: flex; gap: 8px;">
+                                <button class="btn btn-primary btn-small" onclick="event.stopPropagation(); editEntry(${entry.id})" 
+                                        style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">✏️</button>
+                                <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})" 
+                                        style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">🗑️</button>
                             </div>
                         </div>
-                        ${strategy ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;"><strong>Strategie:</strong> ${strategy}</div>` : ''}
-                        <div class="history-card-details" style="border-top: none; padding-top: 0; margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
-                            <div class="history-card-note editable" style="flex-grow: 1;" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">
-                                ${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}
-                            </div>
-                            <div class="history-card-actions">
-                                <button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">
-                                    🗑️
-                                </button>
-                            </div>
-                        </div>
-                    </div>`;
-                }).join('')}
-            </div>`;
-        } else {
-            html += `<div class="data-table-wrapper" style="max-height: 400px;">
-                        <table class="data-table" style="table-layout: auto;">
-                            <thead><tr><th>Datum</th><th>Balance</th><th>Strategie</th><th>Notiz</th><th>Aktion</th></tr></thead>
-                            <tbody>
-                                ${entries.map(entry => `
-                                    <tr>
-                                        <td class="editable" onclick="event.stopPropagation(); makeDateEditable(this, ${entry.id}, 'entry')">${formatDate(entry.date)}</td>
-                                        <td class="dollar-value editable" onclick="event.stopPropagation(); makeBalanceEditable(this, ${entry.id}, 'entry')">${formatDollar(entry.balance)}</td>
-                                        <td>${getStrategyForDate(entry.date) || '-'}</td>
-                                        <td class="editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${entry.id}, 'entry')">${entry.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-                                        <td><button class="btn btn-danger btn-small" style="padding: 6px;" onclick="event.stopPropagation(); deleteSingleEntryWithConfirmation(${entry.id})">🗑️</button></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>`;
-        }
+                    </div>
+                `;
+            }).join('')}
+        </div>`;
         html += `</div>
             </details>`;
     });
@@ -4122,9 +4364,9 @@ function updateCashflowDisplay() {
     } else {
         document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = false);
         if (cashflowViewMode === 'list') {
-            renderCashflowTable(container, filteredCashflows);
+            renderCashflowTable(container, filteredCashflows || []);
         } else {
-            renderGroupedCashflow(container, cashflowViewMode, filteredCashflows);
+            renderGroupedCashflow(container, cashflowViewMode, filteredCashflows || []);
         }
     }
 }
@@ -4183,17 +4425,40 @@ function renderGroupedCashflow(container, groupBy, dataToDisplay) {
                         <span class="${net >= 0 ? 'positive' : 'negative'}">Netto: ${formatDollar(net)}</span>
                     </div>
                 </summary>
-                <div class="cashflow-group-details">
-                    ${group.transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(cf => `
-                        <div class="transaction-row" data-id="${cf.id}">
-                            <div class="transaction-date">${formatDate(cf.date)}</div>
-                            <div class="transaction-type type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</div>
-                            <div class="transaction-platform">${cf.platform || '-'}</div>
-                            <div class="transaction-note">${cf.note || '...'}</div>
-                            <div class="transaction-amount ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</div>
-                            <button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">🗑️</button>
-                        </div>
-                    `).join('')}
+                <div class="cashflow-group-details" style="padding: 8px; max-height: 400px; overflow-y: auto;">
+                    ${group.transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(cf => {
+                        const typeLabel = cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung';
+                        const typeClass = cf.type === 'deposit' ? 'positive' : 'negative';
+                        
+                        return `
+                            <div class="history-card" data-id="${cf.id}" 
+                                 style="margin-bottom: 8px; padding: 12px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">
+                                <div class="history-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <div class="entry-date" style="font-weight: 600; color: var(--text-primary);">${formatDate(cf.date)}</div>
+                                        <span class="type-badge type-${cf.type}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">${typeLabel}</span>
+                                    </div>
+                                    <div class="entry-balance dollar-value ${typeClass}" 
+                                         style="font-size: 1.1em; font-weight: 700;">${formatDollar(cf.amount)}</div>
+                                </div>
+                                <div class="history-card-details" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;">
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        ${cf.platform ? `<div style="font-size: 13px; color: var(--text-secondary);"><strong>Plattform:</strong> ${cf.platform}</div>` : ''}
+                                        <div class="entry-note editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${cf.id}, 'cashflow')" 
+                                             style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                                            ${cf.note || '<span style="color: var(--text-muted);">Notiz hinzufügen...</span>'}
+                                        </div>
+                                    </div>
+                                    <div class="history-card-actions" style="display: flex; gap: 8px;">
+                                        <button class="btn btn-primary btn-small" onclick="event.stopPropagation(); editCashflow(${cf.id})" 
+                                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">✏️</button>
+                                        <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteCashflowWithConfirmation(${cf.id})" 
+                                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">🗑️</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             </details>
         `;
@@ -4203,16 +4468,7 @@ function renderGroupedCashflow(container, groupBy, dataToDisplay) {
 }
 
 function renderCashflowTable(container, dataToDisplay) {
-    container.innerHTML = `
-        <div class="data-table-wrapper">
-            <table class="data-table">
-                <thead><tr><th class="sortable" data-sort="date">Datum <span class="sort-arrow"></span></th><th class="sortable" data-sort="type">Typ <span class="sort-arrow"></span></th><th class="sortable" data-sort="amount">Betrag <span class="sort-arrow"></span></th><th>Plattform</th><th>Notiz</th><th>Aktionen</th></tr></thead>
-                <tbody id="cashflowTableBody"></tbody>
-            </table>
-        </div>
-    `;
-
-    const tbody = document.getElementById('cashflowTableBody');
+    // Sort data
     dataToDisplay.sort((a, b) => {
         const aVal = a[cashflowSort.key] || 0;
         const bVal = b[cashflowSort.key] || 0;
@@ -4222,25 +4478,47 @@ function renderCashflowTable(container, dataToDisplay) {
         return (aVal - bVal) * order;
     });
 
-    tbody.innerHTML = '';
     if (dataToDisplay.length === 0) {
         renderEmptyState(container, 'cashflow');
         return;
     }
 
-    dataToDisplay.forEach(cf => {
-        const row = document.createElement('tr');
-        row.dataset.id = cf.id;
-        row.innerHTML = `
-            <td data-label="Datum">${formatDate(cf.date)}</td>
-            <td data-label="Typ"><span class="type-badge type-${cf.type}">${cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung'}</span></td>
-            <td data-label="Betrag" class="dollar-value ${cf.type === 'deposit' ? 'positive' : 'negative'}">${formatDollar(cf.amount)}</td>
-            <td data-label="Plattform">${cf.platform || '-'}</td>
-            <td data-label="Notiz" class="editable" onclick="makeNoteEditable(this, ${cf.id}, 'cashflow')">${cf.note || '<span style="color: var(--text-secondary); cursor: pointer;">Notiz...</span>'}</td>
-            <td data-label="Aktionen"><button class="btn btn-danger btn-small" onclick="deleteCashflowWithConfirmation(${cf.id})">Löschen</button></td>
+    // Render unified card-based layout for cashflow entries
+    const html = dataToDisplay.map(cf => {
+        const typeLabel = cf.type === 'deposit' ? 'Einzahlung' : 'Auszahlung';
+        const typeClass = cf.type === 'deposit' ? 'positive' : 'negative';
+        
+        return `
+            <div class="history-card" data-id="${cf.id}" 
+                 style="margin-bottom: 12px; padding: 16px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border);">
+                <div class="history-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div class="entry-date" style="font-weight: 600; color: var(--text-primary);">${formatDate(cf.date)}</div>
+                        <span class="type-badge type-${cf.type}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">${typeLabel}</span>
+                    </div>
+                    <div class="entry-balance dollar-value ${typeClass}" 
+                         style="font-size: 1.2em; font-weight: 700;">${formatDollar(cf.amount)}</div>
+                </div>
+                <div class="history-card-details" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        ${cf.platform ? `<div style="font-size: 13px; color: var(--text-secondary);"><strong>Plattform:</strong> ${cf.platform}</div>` : ''}
+                        <div class="entry-note editable" onclick="event.stopPropagation(); makeNoteEditable(this, ${cf.id}, 'cashflow')" 
+                             style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                            ${cf.note || '<span style="color: var(--text-muted);">Notiz hinzufügen...</span>'}
+                        </div>
+                    </div>
+                    <div class="history-card-actions" style="display: flex; gap: 8px;">
+                        <button class="btn btn-primary btn-small" onclick="event.stopPropagation(); editCashflow(${cf.id})" 
+                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">✏️</button>
+                        <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteCashflowWithConfirmation(${cf.id})" 
+                                style="padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">🗑️</button>
+                    </div>
+                </div>
+            </div>
         `;
-        tbody.appendChild(row);
-    });
+    }).join('');
+    
+    container.innerHTML = `<div class="cashflow-cards-container" style="padding: 16px;">${html}</div>`;
 }
 
 async function deleteCashflowWithConfirmation(cashflowId) {
@@ -4370,7 +4648,21 @@ const externalTooltipHandler = (context) => {
         const previousTwrPercentage = chart.data.datasets[0].data[dataIndex - 1] || 0;
         dailyPerformance = twrPercentage - previousTwrPercentage;
     }
-    const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || 'Keine Strategie für diesen Tag hinterlegt.';
+    // Strategy Logic: General strategy has priority, otherwise show platform-specific strategies
+    const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || '';
+    const entriesWithStrategies = entries.filter(e => e.date === date && e.strategy && e.strategy.trim() !== '');
+    
+    let strategyToDisplay = '';
+    if (dayStrategy && dayStrategy.trim() !== '') {
+        // Show general strategy if it exists
+        strategyToDisplay = dayStrategy;
+    } else if (entriesWithStrategies.length > 0) {
+        // Show platform-specific strategies as fallback
+        const platformStrategies = entriesWithStrategies.map(e => `• ${e.protocol}: ${e.strategy}`).join('<br>');
+        strategyToDisplay = platformStrategies;
+    } else {
+        strategyToDisplay = 'Keine Strategie für diesen Tag hinterlegt.';
+    }
     const activeProtocols = entries.filter(e => e.date === date && e.balance > 0).map(e => e.protocol).join(', ');
     tooltipContainer.innerHTML = ''; 
     const twrColor = twrPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -4386,15 +4678,28 @@ const externalTooltipHandler = (context) => {
     dateEl.style.fontSize = '0.85em';dateEl.style.color = 'var(--text-secondary)';dateEl.style.marginBottom = '8px';dateEl.style.fontWeight = '500';
     dateEl.innerHTML = `📅 ${new Date(date).toLocaleDateString('de-DE', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     tooltipContainer.appendChild(dateEl);
-    if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.' || activeProtocols) {
+    if (strategyToDisplay !== 'Keine Strategie für diesen Tag hinterlegt.' || activeProtocols) {
         const infoSection = document.createElement('div');
         infoSection.style.marginTop = '8px';infoSection.style.paddingTop = '8px';infoSection.style.borderTop = '1px solid var(--border)';infoSection.style.fontSize = '0.8em';
         let infoHTML = '';
-        if (dayStrategy !== 'Keine Strategie für diesen Tag hinterlegt.') {
-            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">🎯 Strategie</div><div style="color: var(--text-secondary); padding-left: 4px;">${dayStrategy}</div></div>`;
-            if (activeProtocols) infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
+        
+        // Check if we have platform-specific strategies
+        const hasPlatformStrategies = entriesWithStrategies.length > 0 && (!dayStrategy || dayStrategy.trim() === '');
+        
+        if (strategyToDisplay !== 'Keine Strategie für diesen Tag hinterlegt.') {
+            const strategyTitle = hasPlatformStrategies ? '🎯 Plattform-Strategien' : '🎯 Strategie';
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">${strategyTitle}</div><div style="color: var(--text-secondary); padding-left: 4px;">${strategyToDisplay}</div></div>`;
+            
+            // Only show platform list if we have general strategy (not platform-specific)
+            if (activeProtocols && !hasPlatformStrategies) {
+                infoHTML += `<div style="border-bottom: 1px solid var(--border); margin: 8px 0;"></div>`;
+                infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
+            }
+        } else if (activeProtocols) {
+            // No strategies, only show platforms
+            infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
         }
-        if (activeProtocols) infoHTML += `<div style="margin-bottom: 6px;"><div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">💼 Plattformen</div><div style="color: var(--text-secondary); padding-left: 4px;">${activeProtocols}</div></div>`;
+        
         infoSection.innerHTML = infoHTML;
         tooltipContainer.appendChild(infoSection);
     }
@@ -7166,20 +7471,79 @@ function initializeMobileNavigation() {
     if (window.innerWidth <= 768) {
         document.body.classList.add("has-mobile-nav");
         
-        // Sync mobile nav with current active tab
+        // Mobile nav anzeigen
+        const mobileNav = document.querySelector('.mobile-bottom-nav');
+        if (mobileNav) {
+            mobileNav.style.display = 'flex';
+        } else {
+            console.warn('Mobile navigation not found');
+        }
+        
+        // Sync mit aktivem Tab
         const activeTab = document.querySelector(".tab-btn.active");
-        if (activeTab && activeTab.dataset.tab) {
-            const mobileNavItem = document.querySelector(`.mobile-nav-item[data-tab="${activeTab.dataset.tab}"]`);
-            if (mobileNavItem) {
-                document.querySelectorAll(".mobile-nav-item").forEach(btn => btn.classList.remove("active"));
-                mobileNavItem.classList.add("active");
+        if (activeTab) {
+            const onclickAttr = activeTab.getAttribute('onclick');
+            if (onclickAttr) {
+                const match = onclickAttr.match(/switchTab\('(.+?)'\)/);
+                if (match) {
+                    const tabName = match[1];
+                    document.querySelectorAll(".mobile-nav-item").forEach(btn => {
+                        btn.classList.toggle("active", btn.dataset.tab === tabName);
+                    });
+                }
             }
         }
         
-        // Update badges
-        updateMobileNavBadges();
+        // Theme Icon initialisieren
+        updateThemeIcon();
+        
+        // Ensure functions are globally available
+        window.openMobileMenu = openMobileMenu;
+    } else {
+        // Hide mobile nav on desktop
+        const mobileNav = document.querySelector('.mobile-bottom-nav');
+        if (mobileNav) {
+            mobileNav.style.display = 'none';
+        }
+        document.body.classList.remove("has-mobile-nav");
     }
 }
+
+function openMobileMenu() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">⚙️ Einstellungen</h2></div>
+        <div class="modal-body">
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="togglePrivacyMode(); closeBottomSheet();">
+                🙈 Privacy Mode
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="toggleCompactMode(); closeBottomSheet();">
+                📱 Kompakt-Modus
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="switchTab('settings'); closeBottomSheet();">
+                ⚙️ Einstellungen
+            </button>
+            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="syncNow(); closeBottomSheet();">
+                ☁️ Cloud Sync
+            </button>
+            <button class="btn btn-success" style="width: 100%;" onclick="exportJSON(); closeBottomSheet();">
+                💾 Backup erstellen
+            </button>
+        </div>
+    `;
+    openBottomSheet(contentHtml);
+}
+
+// Theme Icon Update
+function updateThemeIcon() {
+    const themeIcon = document.querySelector('.mobile-nav-item .theme-icon');
+    if (themeIcon) {
+        themeIcon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+    }
+}
+
+// Make mobile menu functions globally available
+window.openMobileMenu = openMobileMenu;
+window.updateThemeIcon = updateThemeIcon;
 
 // =================================================================================
 // UI/UX ENHANCEMENT FUNCTIONS (Implementation)
