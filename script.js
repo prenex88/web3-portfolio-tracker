@@ -388,16 +388,6 @@ const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
-// NEU: Konfiguration für Alpha Vantage als robustere Datenquelle
-const ALPHA_VANTAGE_API_KEY = 'YOUR_API_KEY_HERE'; // Kostenlosen Key auf alphavantage.co erstellen und hier eintragen
-const ALPHA_VANTAGE_API_URL = 'https://www.alphavantage.co/query';
-
-// Mapping von internen Tickern zu Alpha Vantage Symbolen
-const ALPHA_VANTAGE_SYMBOL_MAP = {
-    '^GSPC': 'SPY',       // SPY ist ein ETF, der den S&P 500 abbildet und eine gute Annäherung ist.
-    '^GDAXI': '^GDAXI'      // DAX Index Symbol bei Alpha Vantage
-};
-
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
@@ -5277,9 +5267,9 @@ async function updateChartWithBenchmarks() {
         
         // Lade Krypto-Daten sequenziell mit einer kleinen Verzögerung, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
         const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
         const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
         const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
 
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
@@ -5310,57 +5300,12 @@ function useStaticFallback(ticker) {
     return [];
 }
 
-async function fetchAlphaVantageData(symbol) {
-    // Ersetze 'YOUR_API_KEY_HERE' durch deinen tatsächlichen Schlüssel
-    const url = `${ALPHA_VANTAGE_API_URL}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}&outputsize=full`;
-    
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Alpha Vantage API error: ${response.status}`);
-        const data = await response.json();
-
-        if (data['Error Message'] || !data['Time Series (Daily)']) {
-            if (data['Information']) console.warn(`Alpha Vantage info for ${symbol}: ${data['Information']}`);
-            else throw new Error(data['Error Message'] || 'Invalid data from Alpha Vantage');
-            return null; // Fehler signalisieren
-        }
-
-        const timeSeries = data['Time Series (Daily)'];
-        const prices = Object.entries(timeSeries).map(([date, values]) => {
-            const timestamp = new Date(date + 'T00:00:00Z').getTime(); // Datum als UTC behandeln
-            const price = parseFloat(values['5. adjusted close']);
-            return [timestamp, price];
-        });
-        
-        prices.sort((a, b) => a[0] - b[0]); // Nach Datum aufsteigend sortieren
-        console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${symbol} von Alpha Vantage geladen.`, 'color: green; font-weight: bold;');
-        return prices;
-
-    } catch (error) {
-        console.error(`Fehler beim Abrufen von Alpha Vantage für ${symbol}:`, error);
-        return null; 
-    }
-}
-
 async function fetchMarketData(ticker, from, to) {
     const decodedTicker = decodeURIComponent(ticker);
 
     // Direkte Weiterleitung zu CoinGecko für Kryptowährungen, da dies zuverlässiger als Google Docs ist.
     if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
         return fetchCoinGeckoData(decodedTicker, from, to);
-    }
-
-    // NEU: Bevorzugter Abruf über Alpha Vantage, falls konfiguriert
-    if (ALPHA_VANTAGE_API_KEY && ALPHA_VANTAGE_API_KEY !== 'YOUR_API_KEY_HERE') {
-        const avSymbol = ALPHA_VANTAGE_SYMBOL_MAP[decodedTicker];
-        if (avSymbol) {
-            console.log(`Versuche ${decodedTicker} (als ${avSymbol}) von Alpha Vantage abzurufen...`);
-            const avData = await fetchAlphaVantageData(avSymbol);
-            if (avData && avData.length > 0) {
-                return avData; // Erfolg, Alpha Vantage Daten verwenden
-            }
-            console.warn(`Alpha Vantage Abruf für ${decodedTicker} fehlgeschlagen. Fallback auf Google Sheets.`);
-        }
     }
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
@@ -5373,7 +5318,8 @@ async function fetchMarketData(ticker, from, to) {
 
     // NEU: Wiederholungslogik für den Abruf
     const MAX_RETRIES = 3;
-    const RETRY_DELAY = 2000; // 2 Sekunden
+    // NEU: Exponentieller Backoff für robustere Abrufe
+    const INITIAL_RETRY_DELAY = 1500; // Start mit 1.5 Sekunden
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -5433,8 +5379,9 @@ async function fetchMarketData(ticker, from, to) {
                 showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
                 return useStaticFallback(ticker);
             }
-            // Warten vor dem nächsten Versuch.
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            // Warten vor dem nächsten Versuch mit exponentiellem Backoff.
+            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
     // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
