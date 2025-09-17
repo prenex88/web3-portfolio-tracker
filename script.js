@@ -528,6 +528,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker(); 
+    warmUpBenchmarkApis(); // NEU: Proaktives Aufwärmen der Google Sheets
     initializeMobileNavigation();
 
     addMissingStyles();
@@ -5819,16 +5820,22 @@ async function fetchMarketData(ticker, from, to) {
         showNotification(`Sheet für ${decodedTicker} nicht konfiguriert. Fallback wird genutzt.`, 'warning');
         return useStaticFallback(ticker);
     }
-    const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
+    const baseUrl = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
     // NEU: Wiederholungslogik für den Abruf
-    const MAX_RETRIES = 3;
-    // NEU: Exponentieller Backoff für robustere Abrufe
-    const INITIAL_RETRY_DELAY = 1500; // Start mit 1.5 Sekunden
+    const MAX_RETRIES = 4; // Erhöht auf 4 Versuche
+    // NEU: Längere Startverzögerung, da Google Sheets manchmal langsam sind
+    const INITIAL_RETRY_DELAY = 4000; // Start mit 4 Sekunden
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const response = await fetch(url);
+            // NEU: Informiere den Benutzer über den Ladeversuch
+            if (attempt > 1) {
+                showNotification(`Google Sheet für ${decodedTicker} wacht auf... (Versuch ${attempt}/${MAX_RETRIES})`, 'info');
+            }
+            // NEU: Cache-Busting Parameter hinzufügen, um immer eine frische Antwort zu erzwingen
+            const urlWithBust = baseUrl + '&_=' + new Date().getTime();
+            const response = await fetch(urlWithBust);
             if (!response.ok) throw new Error(`HTTP error ${response.status}`);
             const csvText = await response.text();
 
@@ -5884,13 +5891,27 @@ async function fetchMarketData(ticker, from, to) {
                 showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
                 return useStaticFallback(ticker);
             }
-            // Warten vor dem nächsten Versuch mit exponentiellem Backoff.
+            // Warten vor dem nächsten Versuch.
             const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
     // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
     return useStaticFallback(ticker);
+}
+
+/**
+ * NEU: Sendet "Wake-up Calls" an die Google Sheet APIs, um sie aus dem Schlafmodus zu holen.
+ * Dies geschieht "fire-and-forget" im Hintergrund, ohne auf eine Antwort zu warten.
+ */
+function warmUpBenchmarkApis() {
+    console.log('Warming up Google Sheet APIs...');
+    Object.values(GOOGLE_SHEET_URLS).forEach(sheetUrl => {
+        if (sheetUrl && !sheetUrl.includes('YOUR_')) {
+            // 'no-cors' ist hier wichtig, da wir die Antwort nicht benötigen und CORS-Fehler ignorieren wollen.
+            fetch(CORS_PROXY + sheetUrl, { mode: 'no-cors' }).catch(() => {});
+        }
+    });
 }
 
 function toggleBenchmarkView() {

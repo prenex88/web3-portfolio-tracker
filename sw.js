@@ -65,25 +65,18 @@ self.addEventListener('fetch', event => {
 
           // Stale-While-Revalidate Logik (wie bisher)
           const fetchPromise = fetch(request).then(async (networkResponse) => {
-            if (networkResponse.ok) {
-              const responseToCache = networkResponse.clone();
-
-              // Spezifische Prüfung für Google Sheets, um "Loading..."-Seiten nicht zu cachen
-              if (url.href.includes('docs.google.com')) {
-                const bodyText = await responseToCache.text();
+            if (networkResponse.ok) {at clonedRespose.text();
                 if (!bodyText.toLowerCase().includes('wird geladen') && !bodyText.toLowerCase().includes('loading')) {
-                  cache.put(request, responseToCache);
+                  // Daten sind gültig, also cachen. Wir 
                 } else {
                   console.log('SW: "Loading..."-Seite von Google Sheets wird nicht gecached.');
                 }
-              } else {
-                cache.put(request, responseToCache);
+                cache.put(request, networkResponse.clone());
               }
             }
             return networkResponse; // Gib die originale Antwort an die App zurück
           });
-
-          return cachedResponse || fetchPromise; // Gebe alte Daten zurück, während im Hintergrund neue geladen werden
+Gebe alte Daten zurück, während im Hintergrund neue geladen werden
         });
       })
     );
