@@ -2477,10 +2477,44 @@ async function smartMerge(localData, cloudData) {
     // Merge Favoriten (union)
     merged.favorites = [...new Set([...localData.favorites, ...cloudData.favorites])];
     
+    // *** NEU: Intelligenter Merge für Notizen ***
+    const notesMap = new Map();
+    // 1. Alle lokalen Notizen zur Map hinzufügen
+    (localData.notes || []).forEach(note => {
+        notesMap.set(note.id, note);
+    });
+
+    // 2. Cloud-Notizen durchgehen und Map aktualisieren
+    let newNotesFromCloud = 0;
+    (cloudData.notes || []).forEach(cloudNote => {
+        if (notesMap.has(cloudNote.id)) {
+            // Notiz existiert bereits, behalte die neuere Version
+            const localNote = notesMap.get(cloudNote.id);
+            const localDate = new Date(localNote.updatedAt || localNote.createdAt || 0);
+            const cloudDate = new Date(cloudNote.updatedAt || cloudNote.createdAt || 0);
+            if (cloudDate > localDate) {
+                notesMap.set(cloudNote.id, cloudNote);
+            }
+        } else {
+            // Neue Notiz aus der Cloud
+            notesMap.set(cloudNote.id, cloudNote);
+            newNotesFromCloud++;
+        }
+    });
+
+    merged.notes = Array.from(notesMap.values());
+    // *** Ende Notizen-Merge ***
+
     merged.lastSync = new Date().toISOString();
     merged.lastModifiedDevice = getDeviceId();
     
-    showNotification(`Smart Merge abgeschlossen: ${cloudData.entries.filter(e => !localEntryIds.has(e.id)).length} neue Einträge hinzugefügt`, "success");
+    const newEntriesCount = cloudData.entries.filter(e => !localEntryIds.has(e.id)).length;
+    let mergeMessage = `Smart Merge: ${newEntriesCount} neue Einträge`;
+    if (newNotesFromCloud > 0) {
+        mergeMessage += ` & ${newNotesFromCloud} neue Notizen`;
+    }
+    mergeMessage += ' hinzugefügt.';
+    showNotification(mergeMessage, "success");
     
     return merged;
 }
