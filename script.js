@@ -1924,14 +1924,38 @@ async function fetchGistData() {
     const gist = await response.json();
     const content = gist.files['portfolio-data-v11.json']?.content;
     if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], lastSync: null };
-    return JSON.parse(content);
+    try {
+        return JSON.parse(content);
+    } catch (error) {
+        if (error instanceof SyntaxError) {
+            console.error("Fehler beim Parsen der Gist-Daten. Die Datei ist möglicherweise beschädigt oder wurde aufgrund ihrer Größe abgeschnitten.", error);
+            // The original error message is already quite specific, so we can wrap it.
+            throw new Error(`Cloud-Daten sind beschädigt und können nicht gelesen werden. (${error.message}). Dies kann passieren, wenn die Datengröße 1MB überschreitet. Bitte stelle ein lokales Backup wieder her.`);
+        }
+        throw error; // re-throw other errors
+    }
 }
 
 async function saveToGist(data) {
+    // Prioritize minified JSON to save space, but use pretty-printed if it fits for readability.
+    const GIST_SIZE_LIMIT_BYTES = 950000; // 950KB as a safe limit under 1MB.
+    let contentString = JSON.stringify(data, null, 2); // Try pretty-print first
+    let contentSize = new TextEncoder().encode(contentString).length;
+
+    if (contentSize > GIST_SIZE_LIMIT_BYTES) {
+        contentString = JSON.stringify(data); // Fallback to minified
+        contentSize = new TextEncoder().encode(contentString).length;
+        
+        if (contentSize > GIST_SIZE_LIMIT_BYTES) {
+            const sizeInMB = (contentSize / 1000000).toFixed(2);
+            throw new Error(`Daten zu groß für Gist Sync (${sizeInMB}MB > ~0.95MB). Bitte exportiere und bereinige alte Daten.`);
+        }
+    }
+
     const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
         method: 'PATCH',
         headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: JSON.stringify(data, null, 2) } } })
+        body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: contentString } } })
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
 }
