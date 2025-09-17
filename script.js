@@ -1170,12 +1170,15 @@ function addEventListeners() {
     let isScrolling;
     window.addEventListener('scroll', () => {
         document.body.classList.add('scrolling');
+        hideChartTooltip();
 
         clearTimeout(isScrolling);
         isScrolling = setTimeout(() => {
             document.body.classList.remove('scrolling');
         }, 200); // Entfernt die Klasse nach 200ms Inaktivität
     });
+
+    window.addEventListener('touchmove', () => hideChartTooltip(), { passive: true });
 }
 
 function setupMobileTitle() {
@@ -5583,7 +5586,7 @@ function initializeCharts() {
             const tooltipEl = document.querySelector('.chartjs-tooltip');
             // Wenn der Tooltip sichtbar ist, wird er bei einem erneuten Touch auf den Chart geschlossen.
             if (tooltipEl && tooltipEl.style.opacity === '1') {
-                tooltipEl.style.opacity = '0';
+                hideChartTooltip();
                 // Verhindert, dass Chart.js sofort einen neuen Tooltip an der Touch-Position öffnet.
                 e.preventDefault();
             }
@@ -5620,6 +5623,28 @@ function handleChartClick(event, elements) {
             switchTab('history');
             updateHistory();
             showNotification(`Historie gefiltert für: ${platformName}`);
+        }
+    }
+}
+
+function hideChartTooltip() {
+    const tooltipEl = document.querySelector('.chartjs-tooltip');
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0';
+        tooltipEl.style.pointerEvents = 'none';
+    }
+
+    if (portfolioChart) {
+        if (typeof portfolioChart.setActiveElements === 'function') {
+            portfolioChart.setActiveElements([]);
+        }
+        if (portfolioChart.tooltip && typeof portfolioChart.tooltip.update === 'function') {
+            portfolioChart.tooltip.update();
+        }
+        if (typeof portfolioChart.update === 'function') {
+            portfolioChart.update('none');
+        } else if (typeof portfolioChart.draw === 'function') {
+            portfolioChart.draw();
         }
     }
 }
