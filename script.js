@@ -388,6 +388,16 @@ const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
 
+// NEU: Konfiguration für Alpha Vantage als robustere Datenquelle
+const ALPHA_VANTAGE_API_KEY = 'YOUR_API_KEY_HERE'; // Kostenlosen Key auf alphavantage.co erstellen und hier eintragen
+const ALPHA_VANTAGE_API_URL = 'https://www.alphavantage.co/query';
+
+// Mapping von internen Tickern zu Alpha Vantage Symbolen
+const ALPHA_VANTAGE_SYMBOL_MAP = {
+    '^GSPC': 'SPY',       // SPY ist ein ETF, der den S&P 500 abbildet und eine gute Annäherung ist.
+    '^GDAXI': '^GDAXI'      // DAX Index Symbol bei Alpha Vantage
+};
+
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
     '%5EGDAXI': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTB-lwlbxmRqCLWdN3dR_I1WXjL9e_cxGF1c83TPU1FRyOLBCVQx5r5EQs4lXNMVpj0xvoHOFKw1m_p/pub?gid=0&single=true&output=csv', // DAX
@@ -430,7 +440,6 @@ let platforms = [];
 let entries = [];
 let cashflows = [];
 let dayStrategies = [];
-let notes = [];
 let filteredEntries = [];
 let filteredCashflows = [];
 let selectedPlatforms = [];
@@ -462,11 +471,6 @@ let historyViewMode = 'list';
 let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
-
-// Notes workspace state
-let editingNoteId = null;
-let noteEditorAttachments = [];
-let noteSearchTerm = '';
 
 let currentForecastPeriod = 5;
 let showForecastScenarios = true;
@@ -602,7 +606,6 @@ function saveBackupToIndexedDB() {
         cashflows,
         dayStrategies,
         favorites,
-        notes,
         timestamp: new Date().toISOString()
     };
     const transaction = db.transaction(['backups'], 'readwrite');
@@ -1133,26 +1136,6 @@ function addEventListeners() {
         selectAllHistory.addEventListener('change', toggleSelectAllHistory);
     }
 
-    const notesSearchInput = document.getElementById('notesSearchInput');
-    if (notesSearchInput) {
-        notesSearchInput.addEventListener('input', (e) => {
-            noteSearchTerm = e.target.value;
-            renderNotesList();
-        });
-    }
-
-    const noteAttachmentInput = document.getElementById('noteAttachmentInput');
-    if (noteAttachmentInput) {
-        noteAttachmentInput.addEventListener('change', handleNoteAttachmentInput);
-    }
-
-    document.getElementById('noteSaveBtn')?.addEventListener('click', saveNote);
-    document.getElementById('noteCancelBtn')?.addEventListener('click', resetNoteForm);
-    document.getElementById('notesNewBtn')?.addEventListener('click', () => {
-        resetNoteForm();
-        document.getElementById('noteTitleInput')?.focus();
-    });
-
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
         biometricToggle.checked = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
@@ -1200,9 +1183,9 @@ function setupKeyboardShortcuts() {
             else syncNow();
         }
 
-        if (e.altKey && e.key >= '1' && e.key <= '7') {
+        if (e.altKey && e.key >= '1' && e.key <= '6') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'platforms', '5': 'history', '6': 'notes', '7': 'settings' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'history' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -1267,8 +1250,6 @@ function updateBreadcrumbs() {
         case 'entry': path.push('Neuer Eintrag'); break;
         case 'history': path.push('Historie'); break;
         case 'cashflow': path.push('Cashflow'); break;
-        case 'platforms': path.push('Plattformen'); break;
-        case 'notes': path.push('Notizen'); break;
         case 'settings': path.push('Einstellungen'); break;
     }
 
@@ -1457,7 +1438,6 @@ async function loadData() {
     let cashflowsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows`));
     let dayStrategiesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioDayStrategies`));
     let favoritesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites`));
-    let notesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioNotes`));
 
     if (!entriesData || entriesData.length === 0) {
         console.log("LocalStorage ist leer, versuche Wiederherstellung aus IndexedDB-Backup...");
@@ -1469,7 +1449,6 @@ async function loadData() {
                 cashflowsData = backup.cashflows;
                 dayStrategiesData = backup.dayStrategies;
                 favoritesData = backup.favorites;
-                notesData = backup.notes;
                 showNotification("Daten aus dem letzten lokalen Backup wiederhergestellt!", "success");
             }
         } catch (error) {
@@ -1486,7 +1465,6 @@ async function loadData() {
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
-    notes = notesData || [];
     
     console.log(`📊 Loaded data: ${entries.length} entries, ${platforms.length} platforms, ${favorites.length} favorites`);
     if (entries.length > 0) {
@@ -1494,9 +1472,6 @@ async function loadData() {
         console.log(`📅 Entry dates: ${dates.slice(0, 5).join(', ')}${dates.length > 5 ? '...' : ''}`);
     }
     
-    renderNotesList();
-    updateNoteEditorMode();
-    resetNoteForm();
     applyDateFilter();
 }
 
@@ -1507,7 +1482,6 @@ function saveData(triggerSync = true) {
         localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
-        localStorage.setItem(`${STORAGE_PREFIX}portfolioNotes`, JSON.stringify(notes));
         const timestamp = new Date().toISOString();
         localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
         localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
@@ -1525,7 +1499,7 @@ function saveData(triggerSync = true) {
                 entriesCount: entries.length,
                 platformsSize: JSON.stringify(platforms).length,
                 entriesSize: JSON.stringify(entries).length,
-                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites, notes}).length,
+                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites}).length,
                 localStorageKeys: allKeys.length,
                 allKeys: allKeys.slice(0, 20), // Erste 20 Keys zeigen
                 storageUsage: JSON.stringify(localStorage).length
@@ -1570,7 +1544,6 @@ function saveData(triggerSync = true) {
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows || []));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies || []));
-                localStorage.setItem(`${STORAGE_PREFIX}portfolioNotes`, JSON.stringify(notes || []));
                 
                 // Minimale Plattformen (nur die mit Daten)
                 const usedPlatformNames = new Set(entries.map(e => e.protocol));
@@ -1726,365 +1699,6 @@ function updateFilterBadge() {
     const badgeText = presets[activeFilterPeriod] || '';
     if (badge) badge.textContent = badgeText;
     if (badge) badge.style.display = badgeText ? 'inline-block' : 'none';
-}
-
-// =================================================================================
-// NOTES WORKSPACE
-// =================================================================================
-function resetNoteForm() {
-    editingNoteId = null;
-    noteEditorAttachments = [];
-    const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
-    const fileInput = document.getElementById('noteAttachmentInput');
-    if (titleInput) titleInput.value = '';
-    if (contentInput) contentInput.value = '';
-    if (fileInput) fileInput.value = '';
-    updateNoteAttachmentPreview();
-    updateNoteEditorMode();
-}
-
-function updateNoteEditorMode() {
-    const editor = document.getElementById('noteEditor');
-    const saveBtn = document.getElementById('noteSaveBtn');
-    const cancelBtn = document.getElementById('noteCancelBtn');
-    if (!editor || !saveBtn || !cancelBtn) return;
-    if (editingNoteId) {
-        editor.classList.add('editing');
-        saveBtn.textContent = 'Aktualisieren';
-        cancelBtn.textContent = 'Abbrechen';
-    } else {
-        editor.classList.remove('editing');
-        saveBtn.textContent = 'Speichern';
-        cancelBtn.textContent = 'Zurücksetzen';
-    }
-}
-
-function generateNoteId(prefix = 'note') {
-    return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function updateNoteAttachmentPreview() {
-    const container = document.getElementById('noteAttachmentPreview');
-    if (!container) return;
-    container.innerHTML = '';
-
-    if (!noteEditorAttachments.length) {
-        container.style.display = 'none';
-        return;
-    }
-
-    container.style.display = '';
-    noteEditorAttachments.forEach(attachment => {
-        const item = document.createElement('div');
-        item.className = 'note-attachment';
-
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'note-attachment-remove';
-        removeBtn.type = 'button';
-        removeBtn.textContent = '✕';
-        removeBtn.addEventListener('click', () => removeNoteAttachment(attachment.id));
-
-        const preview = document.createElement('img');
-        preview.src = attachment.data;
-        preview.alt = attachment.name || 'Anhang';
-
-        const meta = document.createElement('div');
-        meta.className = 'note-attachment-meta';
-        meta.textContent = `${attachment.name || 'Screenshot'} · ${formatFileSize(attachment.size || 0)}`;
-
-        item.appendChild(removeBtn);
-        item.appendChild(preview);
-        item.appendChild(meta);
-        container.appendChild(item);
-    });
-}
-
-function removeNoteAttachment(attachmentId) {
-    noteEditorAttachments = noteEditorAttachments.filter(att => att.id !== attachmentId);
-    updateNoteAttachmentPreview();
-}
-
-function readFileAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-    });
-}
-
-async function handleNoteAttachmentInput(event) {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
-
-    for (const file of files) {
-        try {
-            const data = await readFileAsDataURL(file);
-            noteEditorAttachments.push({
-                id: generateNoteId('attachment'),
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                data
-            });
-        } catch (error) {
-            console.error('Fehler beim Lesen des Anhangs:', error);
-            showNotification(`Konnte ${file.name} nicht laden`, 'error');
-        }
-    }
-
-    updateNoteAttachmentPreview();
-    event.target.value = '';
-}
-
-function formatFileSize(bytes) {
-    if (!bytes) return '0 B';
-    const thresholds = [
-        { unit: 'GB', value: 1024 * 1024 * 1024 },
-        { unit: 'MB', value: 1024 * 1024 },
-        { unit: 'KB', value: 1024 }
-    ];
-    for (const threshold of thresholds) {
-        if (bytes >= threshold.value) {
-            return `${(bytes / threshold.value).toFixed(1)} ${threshold.unit}`;
-        }
-    }
-    return `${bytes} B`;
-}
-
-function formatNoteTimestamp(note) {
-    const timestamp = note.updatedAt || note.createdAt;
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return '';
-    const formatted = date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
-    if (note.updatedAt && note.updatedAt !== note.createdAt) {
-        return `Aktualisiert ${formatted}`;
-    }
-    return `Erstellt ${formatted}`;
-}
-
-function getFilteredNotes() {
-    const term = noteSearchTerm.trim().toLowerCase();
-    if (!term) return [...notes];
-    return notes.filter(note => {
-        const haystack = `${note.title || ''} ${note.content || ''}`.toLowerCase();
-        const attachmentNames = (note.attachments || []).map(a => a.name?.toLowerCase() || '').join(' ');
-        return haystack.includes(term) || attachmentNames.includes(term);
-    });
-}
-
-function buildNoteCard(note) {
-    const card = document.createElement('div');
-    card.className = 'note-card';
-    card.dataset.id = note.id;
-
-    const header = document.createElement('div');
-    header.className = 'note-card-header';
-
-    const title = document.createElement('div');
-    title.className = 'note-card-title';
-    title.textContent = note.title?.trim() || 'Ohne Titel';
-
-    const date = document.createElement('div');
-    date.className = 'note-card-date';
-    date.textContent = formatNoteTimestamp(note);
-
-    header.appendChild(title);
-    header.appendChild(date);
-    card.appendChild(header);
-
-    if (note.content) {
-        const content = document.createElement('div');
-        content.className = 'note-card-content';
-        const trimmed = note.content.trim();
-        content.textContent = trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
-        card.appendChild(content);
-    }
-
-    if (note.attachments && note.attachments.length) {
-        const attachmentsRow = document.createElement('div');
-        attachmentsRow.className = 'note-card-attachments';
-        note.attachments.forEach(attachment => {
-            const link = document.createElement('a');
-            link.href = attachment.data;
-            link.target = '_blank';
-            link.rel = 'noopener';
-            link.title = `${attachment.name || 'Screenshot'} (${formatFileSize(attachment.size || 0)})`;
-
-            const thumb = document.createElement('img');
-            thumb.src = attachment.data;
-            thumb.alt = attachment.name || 'Screenshot';
-            link.appendChild(thumb);
-
-            attachmentsRow.appendChild(link);
-        });
-        card.appendChild(attachmentsRow);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'note-card-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'btn btn-small';
-    editBtn.type = 'button';
-    editBtn.textContent = '✏️ Bearbeiten';
-    editBtn.addEventListener('click', () => editNote(note.id));
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn btn-danger btn-small';
-    deleteBtn.type = 'button';
-    deleteBtn.textContent = '🗑️ Löschen';
-    deleteBtn.addEventListener('click', () => deleteNote(note.id));
-
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
-    card.appendChild(actions);
-
-    return card;
-}
-
-function renderNotesList() {
-    const list = document.getElementById('notesList');
-    const emptyState = document.getElementById('notesEmptyState');
-    const stats = document.getElementById('notesStats');
-    if (!list) return;
-
-    const filtered = getFilteredNotes().sort((a, b) => {
-        const aDate = new Date(a.updatedAt || a.createdAt || 0);
-        const bDate = new Date(b.updatedAt || b.createdAt || 0);
-        return bDate - aDate;
-    });
-
-    list.innerHTML = '';
-    if (!filtered.length) {
-        if (emptyState) {
-            if (!notes.length) {
-                emptyState.querySelector('h3').textContent = 'Keine Notizen gespeichert';
-                emptyState.querySelector('p').textContent = 'Halte spontane Ideen, wichtige Todos oder Links fest. Über den Button oben kannst du Screenshots hinzufügen.';
-            } else if (noteSearchTerm.trim()) {
-                emptyState.querySelector('h3').textContent = 'Keine Treffer';
-                emptyState.querySelector('p').textContent = 'Passe deine Suche an oder lege eine neue Notiz an.';
-            }
-            emptyState.style.display = 'flex';
-        }
-    } else {
-        if (emptyState) {
-            emptyState.style.display = 'none';
-        }
-        filtered.forEach(note => list.appendChild(buildNoteCard(note)));
-    }
-
-    if (stats) {
-        const total = notes.length;
-        const attachmentsTotal = notes.reduce((sum, note) => sum + ((note.attachments || []).length), 0);
-        if (!total) {
-            stats.textContent = 'Noch keine Notizen';
-        } else if (noteSearchTerm.trim()) {
-            stats.textContent = `${filtered.length} von ${total} Notizen · ${attachmentsTotal} Anhänge`;
-        } else {
-            stats.textContent = `${total} Notizen · ${attachmentsTotal} Anhänge`;
-        }
-    }
-}
-
-function saveNote() {
-    const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
-    const title = titleInput ? titleInput.value.trim() : '';
-    const content = contentInput ? contentInput.value.trim() : '';
-
-    if (!title && !content && noteEditorAttachments.length === 0) {
-        showNotification('Bitte gib einen Text ein oder hänge einen Screenshot an.', 'error');
-        return;
-    }
-
-    const timestamp = new Date().toISOString();
-    if (editingNoteId) {
-        const noteIndex = notes.findIndex(n => n.id === editingNoteId);
-        if (noteIndex === -1) {
-            showNotification('Notiz nicht gefunden.', 'error');
-            return;
-        }
-
-        notes[noteIndex] = {
-            ...notes[noteIndex],
-            title,
-            content,
-            attachments: noteEditorAttachments.map(att => ({ ...att })),
-            updatedAt: timestamp
-        };
-        showNotification('Notiz aktualisiert!', 'success');
-    } else {
-        notes.push({
-            id: generateNoteId(),
-            title,
-            content,
-            attachments: noteEditorAttachments.map(att => ({ ...att })),
-            createdAt: timestamp,
-            updatedAt: timestamp
-        });
-        showNotification('Notiz gespeichert!', 'success');
-    }
-
-    saveData();
-    renderNotesList();
-    resetNoteForm();
-}
-
-function editNote(noteId) {
-    const note = notes.find(n => n.id === noteId);
-    if (!note) return;
-    editingNoteId = noteId;
-    const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
-    if (titleInput) titleInput.value = note.title || '';
-    if (contentInput) contentInput.value = note.content || '';
-    noteEditorAttachments = (note.attachments || []).map(att => ({ ...att }));
-    updateNoteAttachmentPreview();
-    updateNoteEditorMode();
-    const editor = document.getElementById('noteEditor');
-    if (editor) {
-        editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    if (titleInput) {
-        titleInput.focus();
-    }
-}
-
-async function deleteNote(noteId) {
-    const note = notes.find(n => n.id === noteId);
-    if (!note) return;
-
-    const confirmed = await showCustomPrompt({
-        title: '🗑️ Notiz löschen?',
-        text: 'Diese Notiz wird dauerhaft entfernt.',
-        actions: [
-            { text: 'Abbrechen', class: 'btn-secondary', value: 'cancel' },
-            { text: 'Löschen', class: 'btn-danger', value: 'confirm' }
-        ]
-    });
-
-    if (confirmed !== 'confirm') {
-        return;
-    }
-
-    notes = notes.filter(n => n.id !== noteId);
-    saveData();
-    renderNotesList();
-    if (editingNoteId === noteId) {
-        resetNoteForm();
-    }
-    showNotification('Notiz gelöscht.', 'success');
-}
-
-function highlightNoteCard(noteId) {
-    const card = document.querySelector(`.note-card[data-id="${noteId}"]`);
-    if (!card) return;
-    card.classList.add('highlight');
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setTimeout(() => card.classList.remove('highlight'), 1500);
 }
 
 function saveStrategyForDate(date, strategy) {
@@ -2247,7 +1861,6 @@ async function syncNow() {
             cashflows, 
             dayStrategies, 
             favorites, 
-            notes, 
             lastSync: new Date().toISOString(),
             lastModifiedDevice: getDeviceId(),
             syncMetadata: {
@@ -2279,7 +1892,6 @@ async function syncNow() {
         cashflows = mergedData.cashflows;
         dayStrategies = mergedData.dayStrategies || [];
         favorites = mergedData.favorites || [];
-        notes = mergedData.notes || [];
         saveData(false);
 
         lastSyncTime = new Date().toISOString();
@@ -2287,8 +1899,6 @@ async function syncNow() {
         updateLastSyncDisplay();
 
         applyDateFilter();
-        renderNotesList();
-        resetNoteForm();
 
         updateSettingsConnectionStatus('connected', `Zuletzt synchronisiert: ${new Date().toLocaleTimeString('de-DE')}`);
         showNotification('Erfolgreich synchronisiert! ✨');
@@ -2313,7 +1923,7 @@ async function fetchGistData() {
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
     const gist = await response.json();
     const content = gist.files['portfolio-data-v11.json']?.content;
-    if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], notes: [], lastSync: null };
+    if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], lastSync: null };
     return JSON.parse(content);
 }
 
@@ -2328,12 +1938,8 @@ async function saveToGist(data) {
 
 async function mergeData(localData, cloudData) {
     if (!cloudData || !cloudData.lastSync) {
-        localData.notes = localData.notes || [];
         return localData;
     }
-
-    localData.notes = localData.notes || [];
-    cloudData.notes = cloudData.notes || [];
     
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
@@ -2715,9 +2321,6 @@ function switchTab(tabName, options = {}) {
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'platforms') {
         updatePlatformDetails();
-    } else if (tabName === 'notes') {
-        renderNotesList();
-        document.getElementById('notesSearchInput')?.focus();
     }
     updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
 }
@@ -3368,11 +2971,8 @@ async function clearAllData() {
         entries = [];
         cashflows = [];
         dayStrategies = [];
-        notes = [];
         saveData();
         applyDateFilter();
-        renderNotesList();
-        resetNoteForm();
         showNotification('Alle Daten gelöscht!');
     }
 }
@@ -5677,9 +5277,9 @@ async function updateChartWithBenchmarks() {
         
         // Lade Krypto-Daten sequenziell mit einer kleinen Verzögerung, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
         const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
         const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
+        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
         const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
 
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
@@ -5710,12 +5310,57 @@ function useStaticFallback(ticker) {
     return [];
 }
 
+async function fetchAlphaVantageData(symbol) {
+    // Ersetze 'YOUR_API_KEY_HERE' durch deinen tatsächlichen Schlüssel
+    const url = `${ALPHA_VANTAGE_API_URL}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}&outputsize=full`;
+    
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Alpha Vantage API error: ${response.status}`);
+        const data = await response.json();
+
+        if (data['Error Message'] || !data['Time Series (Daily)']) {
+            if (data['Information']) console.warn(`Alpha Vantage info for ${symbol}: ${data['Information']}`);
+            else throw new Error(data['Error Message'] || 'Invalid data from Alpha Vantage');
+            return null; // Fehler signalisieren
+        }
+
+        const timeSeries = data['Time Series (Daily)'];
+        const prices = Object.entries(timeSeries).map(([date, values]) => {
+            const timestamp = new Date(date + 'T00:00:00Z').getTime(); // Datum als UTC behandeln
+            const price = parseFloat(values['5. adjusted close']);
+            return [timestamp, price];
+        });
+        
+        prices.sort((a, b) => a[0] - b[0]); // Nach Datum aufsteigend sortieren
+        console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${symbol} von Alpha Vantage geladen.`, 'color: green; font-weight: bold;');
+        return prices;
+
+    } catch (error) {
+        console.error(`Fehler beim Abrufen von Alpha Vantage für ${symbol}:`, error);
+        return null; 
+    }
+}
+
 async function fetchMarketData(ticker, from, to) {
     const decodedTicker = decodeURIComponent(ticker);
 
     // Direkte Weiterleitung zu CoinGecko für Kryptowährungen, da dies zuverlässiger als Google Docs ist.
     if (['bitcoin', 'ethereum'].includes(decodedTicker)) {
         return fetchCoinGeckoData(decodedTicker, from, to);
+    }
+
+    // NEU: Bevorzugter Abruf über Alpha Vantage, falls konfiguriert
+    if (ALPHA_VANTAGE_API_KEY && ALPHA_VANTAGE_API_KEY !== 'YOUR_API_KEY_HERE') {
+        const avSymbol = ALPHA_VANTAGE_SYMBOL_MAP[decodedTicker];
+        if (avSymbol) {
+            console.log(`Versuche ${decodedTicker} (als ${avSymbol}) von Alpha Vantage abzurufen...`);
+            const avData = await fetchAlphaVantageData(avSymbol);
+            if (avData && avData.length > 0) {
+                return avData; // Erfolg, Alpha Vantage Daten verwenden
+            }
+            console.warn(`Alpha Vantage Abruf für ${decodedTicker} fehlgeschlagen. Fallback auf Google Sheets.`);
+        }
     }
 
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
@@ -5728,8 +5373,7 @@ async function fetchMarketData(ticker, from, to) {
 
     // NEU: Wiederholungslogik für den Abruf
     const MAX_RETRIES = 3;
-    // NEU: Exponentieller Backoff für robustere Abrufe
-    const INITIAL_RETRY_DELAY = 1500; // Start mit 1.5 Sekunden
+    const RETRY_DELAY = 2000; // 2 Sekunden
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -5789,9 +5433,8 @@ async function fetchMarketData(ticker, from, to) {
                 showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
                 return useStaticFallback(ticker);
             }
-            // Warten vor dem nächsten Versuch mit exponentiellem Backoff.
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            // Warten vor dem nächsten Versuch.
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
     }
     // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
@@ -5908,7 +5551,7 @@ async function exportPDF() {
 }
 
 function exportJSON() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites, notes }));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites }));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
     downloadAnchorNode.setAttribute("download", `portfolio_backup_${new Date().toISOString().split('T')[0]}.json`);
@@ -6085,11 +5728,8 @@ function handleJsonImport(event) {
                     cashflows = data.cashflows;
                     favorites = data.favorites || [];
                     dayStrategies = data.dayStrategies || [];
-                    notes = data.notes || [];
                     saveData();
                     applyDateFilter();
-                    renderNotesList();
-                    resetNoteForm();
                     showNotification('Daten erfolgreich aus JSON importiert!', 'success');
                 } else {
                     showNotification('Import abgebrochen.', 'warning');
@@ -6395,12 +6035,9 @@ async function restoreFromLocalBackup() {
                 cashflows = backup.cashflows;
                 dayStrategies = backup.dayStrategies;
                 favorites = backup.favorites;
-                notes = backup.notes || [];
                 
                 saveData(); // Speichert die wiederhergestellten Daten in localStorage und aktualisiert das Backup
                 applyDateFilter();
-                renderNotesList();
-                resetNoteForm();
                 showNotification('Daten erfolgreich aus lokalem Backup wiederhergestellt!', 'success');
             } else {
                 showNotification('Kein lokales Backup gefunden.', 'error');
@@ -7367,9 +7004,7 @@ function performGlobalSearch(term) {
         { title: 'Dashboard', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard'), tags: ['overview', 'start', 'home'] },
         { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry'), tags: ['new', 'add', 'create'] },
         { title: 'Cashflow', icon: '💸', category: 'Navigation', type: 'action', action: () => switchTab('cashflow'), tags: ['money', 'transactions', 'flow'] },
-        { title: 'Plattformen', icon: '💼', category: 'Navigation', type: 'action', action: () => switchTab('platforms'), tags: ['platform', 'übersicht', 'details'] },
         { title: 'Historie', icon: '📜', category: 'Navigation', type: 'action', action: () => switchTab('history'), tags: ['history', 'past', 'records'] },
-        { title: 'Notizbuch', icon: '🗒️', category: 'Navigation', type: 'action', action: () => switchTab('notes'), tags: ['notes', 'journal', 'ideen'] },
         { title: 'Einstellungen', icon: '⚙️', category: 'Navigation', type: 'action', action: () => switchTab('settings'), tags: ['settings', 'config', 'options'] },
     ];
 
@@ -7487,46 +7122,7 @@ function performGlobalSearch(term) {
         }
     });
 
-    // 5. Notizen durchsuchen (Titel, Inhalt, Dateinamen)
-    notes.forEach(note => {
-        const noteText = `${note.title || ''} ${note.content || ''}`.toLowerCase();
-        const attachmentMatch = (note.attachments || []).some(att => (att.name || '').toLowerCase().includes(lowerTerm));
-        if (noteText.includes(lowerTerm) || attachmentMatch) {
-            const id = `note-${note.id}`;
-            if (!addedIds.has(id)) {
-                const relevance = globalSearchEngine.calculateRelevance({
-                    title: note.title || 'Notiz',
-                    subtitle: note.content || '',
-                    category: 'Notizen',
-                    tags: (note.attachments || []).map(att => att.name || '')
-                }, term);
-
-                results.push({
-                    title: note.title?.trim() || 'Notiz',
-                    subtitle: formatNoteTimestamp(note) || 'Notiz',
-                    icon: '🗒️',
-                    category: 'Notizen',
-                    type: 'note',
-                    relevance: relevance || 4,
-                    action: () => {
-                        switchTab('notes');
-                        setTimeout(() => {
-                            noteSearchTerm = term;
-                            const searchInput = document.getElementById('notesSearchInput');
-                            if (searchInput) {
-                                searchInput.value = term;
-                            }
-                            renderNotesList();
-                            highlightNoteCard(note.id);
-                        }, 150);
-                    }
-                });
-                addedIds.add(id);
-            }
-        }
-    });
-
-    // 6. Cashflows nach Typ durchsuchen
+    // 5. Cashflows nach Typ durchsuchen
     if ('einzahlung'.includes(lowerTerm)) {
         const count = cashflows.filter(c => c.type === 'deposit').length;
         if (count > 0) {
@@ -7560,7 +7156,7 @@ function performGlobalSearch(term) {
         }
     }
 
-    // 7. Nach Datum suchen (Format DD.MM.YYYY oder YYYY-MM-DD)
+    // 6. Nach Datum suchen (Format DD.MM.YYYY oder YYYY-MM-DD)
     let searchDate = null;
     const dateMatch = lowerTerm.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
     if (dateMatch) {
@@ -7597,7 +7193,7 @@ function performGlobalSearch(term) {
         }
     }
 
-    // 8. Tages-Strategien durchsuchen (gruppiert)
+    // 7. Tages-Strategien durchsuchen (gruppiert)
     const matchingStrategyTexts = [...new Set(
         dayStrategies
             .filter(ds => ds.strategy && ds.strategy.toLowerCase().includes(lowerTerm))
