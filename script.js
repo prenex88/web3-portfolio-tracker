@@ -2043,16 +2043,58 @@ function buildNoteCard(note) {
     header.appendChild(date);
     card.appendChild(header);
 
+    let toggleButton = null;
+    let attachmentsRow = null;
+
     if (note.content) {
         const content = document.createElement('div');
         content.className = 'note-card-content';
         const trimmed = note.content.trim();
-        content.textContent = trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
+        const MAX_PREVIEW_CHARS = 600;
+        const MAX_PREVIEW_LINES = 12;
+        const lines = trimmed.split(/\r?\n/);
+        const shouldClamp = trimmed.length > MAX_PREVIEW_CHARS || lines.length > MAX_PREVIEW_LINES;
+
+        if (shouldClamp) {
+            let previewLines = lines.slice(0, MAX_PREVIEW_LINES);
+            let previewText = previewLines.join('\n').trimEnd();
+            if (previewText.length > MAX_PREVIEW_CHARS) {
+                previewText = previewText.slice(0, MAX_PREVIEW_CHARS).trimEnd();
+            }
+            previewText = `${previewText}...`;
+
+            content.textContent = previewText;
+            content.dataset.preview = previewText;
+            content.dataset.full = trimmed;
+            content.classList.add('note-card-content-clamped');
+
+            toggleButton = document.createElement('button');
+            toggleButton.type = 'button';
+            toggleButton.className = 'note-card-toggle';
+            toggleButton.textContent = 'Mehr anzeigen';
+            toggleButton.setAttribute('aria-expanded', 'false');
+            toggleButton.addEventListener('click', () => {
+                const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
+                if (expanded) {
+                    content.textContent = content.dataset.preview || '';
+                    content.classList.add('note-card-content-clamped');
+                    toggleButton.textContent = 'Mehr anzeigen';
+                    toggleButton.setAttribute('aria-expanded', 'false');
+                } else {
+                    content.textContent = content.dataset.full || '';
+                    content.classList.remove('note-card-content-clamped');
+                    toggleButton.textContent = 'Weniger anzeigen';
+                    toggleButton.setAttribute('aria-expanded', 'true');
+                }
+            });
+        } else {
+            content.textContent = trimmed;
+        }
+
         card.appendChild(content);
     }
-
     if (note.attachments && note.attachments.length) {
-        const attachmentsRow = document.createElement('div');
+        attachmentsRow = document.createElement('div');
         attachmentsRow.className = 'note-card-attachments';
         note.attachments.forEach(attachment => {
             const link = document.createElement('a');
@@ -2074,6 +2116,14 @@ function buildNoteCard(note) {
             attachmentsRow.appendChild(link);
         });
         card.appendChild(attachmentsRow);
+    }
+
+    if (toggleButton) {
+        if (attachmentsRow) {
+            card.insertBefore(toggleButton, attachmentsRow);
+        } else {
+            card.appendChild(toggleButton);
+        }
     }
 
     const actions = document.createElement('div');
