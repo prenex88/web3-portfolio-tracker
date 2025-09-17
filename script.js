@@ -1501,7 +1501,7 @@ async function loadData() {
     applyDateFilter();
 }
 
-function saveData(triggerSync = true) {
+﻿function saveData(triggerSync = true) {
     try {
         localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
@@ -1514,9 +1514,8 @@ function saveData(triggerSync = true) {
         localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
         saveBackupToIndexedDB();
     } catch (error) {
-        if (error.name === 'QuotaExceededError') {
-            showNotification('⚠️ Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
-            // Zeige alle localStorage Keys für Debugging
+        if (error && error.name === 'QuotaExceededError') {
+            showNotification('Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
             const allKeys = [];
             for (let i = 0; i < localStorage.length; i++) {
                 allKeys.push(localStorage.key(i));
@@ -1526,80 +1525,82 @@ function saveData(triggerSync = true) {
                 entriesCount: entries.length,
                 platformsSize: JSON.stringify(platforms).length,
                 entriesSize: JSON.stringify(entries).length,
-                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites, notes}).length,
+                totalSize: JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites, notes }).length,
                 localStorageKeys: allKeys.length,
-                allKeys: allKeys.slice(0, 20), // Erste 20 Keys zeigen
+                allKeys: allKeys.slice(0, 20),
                 storageUsage: JSON.stringify(localStorage).length
             });
-            
-            // Bereinige aggressiv alte/unnötige localStorage Einträge
+
             const keysToRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && (
-                    !key.startsWith(STORAGE_PREFIX) && 
+                if (
+                    key &&
+                    !key.startsWith(STORAGE_PREFIX) &&
                     !key.includes('theme') &&
                     !key.includes('biometric') &&
                     !key.includes('auth')
-                )) {
+                ) {
                     keysToRemove.push(key);
                 }
             }
-            
-            // Entferne auch alte v10 Daten falls vorhanden
-            const oldKeys = allKeys.filter(k => k && (
-                k.includes('_v10_') || 
-                k.includes('portfolio_') || 
-                k.startsWith('w3pt_') && !k.startsWith(STORAGE_PREFIX)
+
+            const oldKeys = allKeys.filter(key => key && (
+                key.includes('_v10_') ||
+                key.includes('portfolio_') ||
+                (key.startsWith('w3pt_') && !key.startsWith(STORAGE_PREFIX))
             ));
             keysToRemove.push(...oldKeys);
-            
+
             keysToRemove.forEach(key => {
                 try {
                     localStorage.removeItem(key);
-                } catch (e) {
-                    console.warn('Could not remove key:', key);
+                } catch (removeError) {
+                    console.warn('Could not remove key:', key, removeError);
                 }
             });
-            
-            // Versuche nur die wichtigsten Daten zu speichern
+
             try {
-                // WICHTIG: Erst Einträge speichern (höchste Priorität)
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
-                console.log(`✅ Saved ${entries.length} entries successfully`);
-                
+                console.log(`Saved ${entries.length} entries successfully`);
+
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows || []));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies || []));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioNotes`, JSON.stringify(notes || []));
-                
-                // Minimale Plattformen (nur die mit Daten)
-                const usedPlatformNames = new Set(entries.map(e => e.protocol));
-                const minimalPlatforms = platforms.filter(p => 
-                    usedPlatformNames.has(p.name) || DEFAULT_PLATFORMS.some(dp => dp.name === p.name)
+
+                const usedPlatformNames = new Set(entries.map(entry => entry.protocol));
+                const minimalPlatforms = platforms.filter(platform =>
+                    usedPlatformNames.has(platform.name) ||
+                    DEFAULT_PLATFORMS.some(defaultPlatform => defaultPlatform.name === platform.name)
                 );
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(minimalPlatforms));
-                
+
                 const timestamp = new Date().toISOString();
                 localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
                 localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
-                
-                showNotification(`⚠️ ${keysToRemove.length} alte Keys entfernt, ${entries.length} Einträge gesichert`, 'warning');
-                console.log(`✅ Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
+
+                showNotification(`${keysToRemove.length} alte Keys entfernt, ${entries.length} Eintraege gesichert`, 'warning');
+                console.log(`Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
                 console.log(`Removed ${keysToRemove.length} old keys:`, keysToRemove.slice(0, 10));
-            } catch (e) {
-                console.error('Critical storage error:', e);
-                showNotification('❌ Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
+            } catch (cleanupError) {
+                console.error('Critical storage error:', cleanupError);
+                showNotification('Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
             }
-            return;
+            return false;
         }
-        throw error;
+
+        console.error('Unexpected storage error:', error);
+        showNotification('Speichern fehlgeschlagen. Details in der Konsole.', 'error');
+        return false;
     }
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
         autoSyncTimeout = setTimeout(() => syncNow(), 2000);
     }
+
+    return true;
 }
 
 function applyDateFilter() {
@@ -1765,7 +1766,7 @@ function generateNoteId(prefix = 'note') {
     return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function updateNoteAttachmentPreview() {
+﻿﻿function updateNoteAttachmentPreview() {
     const container = document.getElementById('noteAttachmentPreview');
     if (!container) return;
     container.innerHTML = '';
@@ -1783,7 +1784,7 @@ function updateNoteAttachmentPreview() {
         const removeBtn = document.createElement('button');
         removeBtn.className = 'note-attachment-remove';
         removeBtn.type = 'button';
-        removeBtn.textContent = '✕';
+        removeBtn.textContent = 'x';
         removeBtn.addEventListener('click', () => removeNoteAttachment(attachment.id));
 
         const preview = document.createElement('img');
@@ -1792,7 +1793,11 @@ function updateNoteAttachmentPreview() {
 
         const meta = document.createElement('div');
         meta.className = 'note-attachment-meta';
-        meta.textContent = `${attachment.name || 'Screenshot'} · ${formatFileSize(attachment.size || 0)}`;
+        const sizeText = formatFileSize(attachment.size || 0);
+        const originalSizeText = attachment.originalSize && attachment.originalSize > (attachment.size || 0) + 1024
+            ? ` (von ${formatFileSize(attachment.originalSize)})`
+            : '';
+        meta.textContent = `${attachment.name || 'Screenshot'} - ${sizeText}${originalSizeText}`;
 
         item.appendChild(removeBtn);
         item.appendChild(preview);
@@ -1815,28 +1820,139 @@ function readFileAsDataURL(file) {
     });
 }
 
+function calculateDataUrlSize(dataUrl) {
+    if (!dataUrl) return 0;
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return 0;
+    const base64 = parts[1];
+    const padding = (base64.match(/=+$/) || [''])[0].length;
+    return Math.floor(base64.length * 3 / 4) - padding;
+}
+
+function loadImageFromDataUrl(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.decoding = 'async';
+        img.src = dataUrl;
+    });
+}
+
+async function optimizeImageDataUrl(dataUrl, mimeType) {
+    const MAX_DIMENSION = 1600;
+    const TARGET_SIZE_BYTES = 900 * 1024;
+
+    const image = await loadImageFromDataUrl(dataUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+        return { dataUrl, mimeType, size: calculateDataUrlSize(dataUrl) };
+    }
+
+    const maxSide = Math.max(width, height);
+    const scale = maxSide > MAX_DIMENSION ? MAX_DIMENSION / maxSide : 1;
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) {
+        return { dataUrl, mimeType, size: calculateDataUrlSize(dataUrl) };
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    let outputType = mimeType === 'image/png' ? 'image/png' : 'image/webp';
+    let quality = 0.82;
+    let optimized = canvas.toDataURL(outputType, quality);
+    let optimizedSize = calculateDataUrlSize(optimized);
+
+    if (optimizedSize > TARGET_SIZE_BYTES && outputType === 'image/png') {
+        outputType = 'image/webp';
+        optimized = canvas.toDataURL(outputType, quality);
+        optimizedSize = calculateDataUrlSize(optimized);
+    }
+
+    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.5) {
+        quality = Math.max(0.5, quality - 0.08);
+        optimized = canvas.toDataURL(outputType, quality);
+        optimizedSize = calculateDataUrlSize(optimized);
+        if (quality <= 0.5) break;
+    }
+
+    return { dataUrl: optimized, mimeType: outputType, size: optimizedSize };
+}
+
+async function prepareNoteAttachment(file) {
+    const baseDataUrl = await readFileAsDataURL(file);
+    const baseSize = calculateDataUrlSize(baseDataUrl);
+    const attachment = {
+        id: generateNoteId('attachment'),
+        name: file.name,
+        type: file.type,
+        originalSize: file.size,
+        size: baseSize,
+        data: baseDataUrl
+    };
+
+    if (!file.type.startsWith('image/')) {
+        return attachment;
+    }
+
+    try {
+        const optimized = await optimizeImageDataUrl(baseDataUrl, file.type);
+        if (optimized && optimized.dataUrl) {
+            const optimizedSize = optimized.size || calculateDataUrlSize(optimized.dataUrl);
+            if (optimizedSize > 0 && optimizedSize < baseSize) {
+                attachment.data = optimized.dataUrl;
+                attachment.size = optimizedSize;
+                if (optimized.mimeType) {
+                    attachment.type = optimized.mimeType;
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('Konnte Bildanhang nicht optimieren:', error);
+    }
+
+    return attachment;
+}
+
 async function handleNoteAttachmentInput(event) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
 
+    let added = 0;
+
     for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+            showNotification(`${file.name} ist kein unterstuetztes Bildformat.`, 'error');
+            continue;
+        }
+
         try {
-            const data = await readFileAsDataURL(file);
-            noteEditorAttachments.push({
-                id: generateNoteId('attachment'),
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                data
-            });
+            const attachment = await prepareNoteAttachment(file);
+            noteEditorAttachments.push(attachment);
+            added += 1;
         } catch (error) {
-            console.error('Fehler beim Lesen des Anhangs:', error);
+            console.error('Fehler beim Verarbeiten des Anhangs:', error);
             showNotification(`Konnte ${file.name} nicht laden`, 'error');
         }
     }
 
-    updateNoteAttachmentPreview();
-    event.target.value = '';
+    if (added) {
+        updateNoteAttachmentPreview();
+    }
+
+    if (event.target) {
+        event.target.value = '';
+    }
 }
 
 function formatFileSize(bytes) {
@@ -1876,6 +1992,34 @@ function getFilteredNotes() {
     });
 }
 
+function openNoteAttachment(attachment) {
+    if (!attachment || !attachment.data) {
+        return;
+    }
+
+    const viewer = window.open('', '_blank');
+    if (!viewer) {
+        showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
+        return;
+    }
+
+    viewer.opener = null;
+
+    const rawName = attachment.name || 'Screenshot';
+    const escapeHtml = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const title = escapeHtml(rawName);
+
+    viewer.document.open();
+    viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${attachment.data}" alt="${title}"></body></html>`);
+    viewer.document.close();
+    viewer.focus();
+}
+
 function buildNoteCard(note) {
     const card = document.createElement('div');
     card.className = 'note-card';
@@ -1909,10 +2053,15 @@ function buildNoteCard(note) {
         attachmentsRow.className = 'note-card-attachments';
         note.attachments.forEach(attachment => {
             const link = document.createElement('a');
-            link.href = attachment.data;
-            link.target = '_blank';
-            link.rel = 'noopener';
+            link.href = '#';
+            link.rel = 'noopener noreferrer';
             link.title = `${attachment.name || 'Screenshot'} (${formatFileSize(attachment.size || 0)})`;
+            link.setAttribute('role', 'button');
+            link.setAttribute('aria-label', `${attachment.name || 'Screenshot'} anzeigen`);
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                openNoteAttachment(attachment);
+            });
 
             const thumb = document.createElement('img');
             thumb.src = attachment.data;
@@ -1997,11 +2146,25 @@ function saveNote() {
     const content = contentInput ? contentInput.value.trim() : '';
 
     if (!title && !content && noteEditorAttachments.length === 0) {
-        showNotification('Bitte gib einen Text ein oder hänge einen Screenshot an.', 'error');
+        showNotification('Bitte gib einen Text ein oder haenge einen Screenshot an.', 'error');
         return;
     }
 
     const timestamp = new Date().toISOString();
+    const attachmentsForNote = noteEditorAttachments.map(att => {
+        const attachment = {
+            id: att.id || generateNoteId('attachment'),
+            name: att.name,
+            type: att.type,
+            size: att.size || calculateDataUrlSize(att.data),
+            data: att.data
+        };
+        if (att.originalSize) {
+            attachment.originalSize = att.originalSize;
+        }
+        return attachment;
+    });
+
     if (editingNoteId) {
         const noteIndex = notes.findIndex(n => n.id === editingNoteId);
         if (noteIndex === -1) {
@@ -2009,27 +2172,46 @@ function saveNote() {
             return;
         }
 
+        const previousNote = JSON.parse(JSON.stringify(notes[noteIndex]));
+
         notes[noteIndex] = {
             ...notes[noteIndex],
             title,
             content,
-            attachments: noteEditorAttachments.map(att => ({ ...att })),
+            attachments: attachmentsForNote,
             updatedAt: timestamp
         };
+
+        const saved = saveData();
+        if (!saved) {
+            notes[noteIndex] = previousNote;
+            showNotification('Speichern fehlgeschlagen. Aenderungen wurden nicht uebernommen.', 'error');
+            return;
+        }
+
         showNotification('Notiz aktualisiert!', 'success');
     } else {
-        notes.push({
+        const newNote = {
             id: generateNoteId(),
             title,
             content,
-            attachments: noteEditorAttachments.map(att => ({ ...att })),
+            attachments: attachmentsForNote,
             createdAt: timestamp,
             updatedAt: timestamp
-        });
+        };
+
+        notes.push(newNote);
+
+        const saved = saveData();
+        if (!saved) {
+            notes.pop();
+            showNotification('Speichern fehlgeschlagen. Notiz wurde nicht gespeichert.', 'error');
+            return;
+        }
+
         showNotification('Notiz gespeichert!', 'success');
     }
 
-    saveData();
     renderNotesList();
     resetNoteForm();
 }
@@ -2042,7 +2224,10 @@ function editNote(noteId) {
     const contentInput = document.getElementById('noteContentInput');
     if (titleInput) titleInput.value = note.title || '';
     if (contentInput) contentInput.value = note.content || '';
-    noteEditorAttachments = (note.attachments || []).map(att => ({ ...att }));
+    noteEditorAttachments = (note.attachments || []).map(att => ({
+        ...att,
+        originalSize: att.originalSize || att.size || calculateDataUrlSize(att.data)
+    }));
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
     const editor = document.getElementById('noteEditor');
@@ -2813,7 +2998,10 @@ function switchTab(tabName, options = {}) {
         updatePlatformDetails();
     } else if (tabName === 'notes') {
         renderNotesList();
-        document.getElementById('notesSearchInput')?.focus();
+        const searchInput = document.getElementById('notesSearchInput');
+        if (searchInput && !isMobileDevice()) {
+            searchInput.focus();
+        }
     }
     updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
 }
