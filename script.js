@@ -6092,10 +6092,7 @@ async function fetchMarketData(ticker, from, to) {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            // NEU: Informiere den Benutzer über den Ladeversuch
-            if (attempt > 1) {
-                showNotification(`Google Sheet für ${decodedTicker} wacht auf... (Versuch ${attempt}/${MAX_RETRIES})`, 'info');
-            }
+            // Logik für den Ladeversuch bleibt, aber ohne Benachrichtigung an den User.
             // NEU: Cache-Busting Parameter hinzufügen, um immer eine frische Antwort zu erzwingen
             const urlWithBust = baseUrl + '&_=' + new Date().getTime();
             const response = await fetch(urlWithBust);
@@ -6147,11 +6144,11 @@ async function fetchMarketData(ticker, from, to) {
             return prices; // Erfolg, die Schleife wird verlassen.
 
         } catch (error) {
-            console.warn(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen: ${error.message}`);
+            console.log(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen, versuche erneut...`);
             if (attempt === MAX_RETRIES) {
                 // Nach dem letzten Versuch aufgeben und Fallback nutzen.
-                console.error(`Fehler beim Laden des Google Sheets für ${decodeURIComponent(ticker)} nach ${MAX_RETRIES} Versuchen:`, error);
-                showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
+                console.log(`Laden für ${decodedTicker} nach ${MAX_RETRIES} Versuchen fehlgeschlagen. Nutze statische Fallback-Daten.`);
+                // Die Benachrichtigung wird entfernt, da der Fallback nahtlos funktioniert.
                 return useStaticFallback(ticker);
             }
             // Warten vor dem nächsten Versuch.
