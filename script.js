@@ -3257,8 +3257,8 @@ async function addCustomPlatform() {
 
     platforms.push({ 
         name: name.trim(), 
-        type: type ? type.trim() : 'Custom',
-        category: category ? category.trim() : 'Custom',
+        type: type && type.trim() ? type.trim() : '',
+        category: category && category.trim() ? category.trim() : '',
         icon: '💎',
         tags: tags
     });
@@ -3667,30 +3667,23 @@ async function deleteCashflow(cashflowId) {
     applyDateFilter();
 }
 
-async function deletePlatform(platformName) {
-    const confirmed = await showCustomPrompt({
-        title: 'Plattform löschen',
-        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
-        actions: [{ text: 'Abbrechen' }, { text: 'Löschen', class: 'btn-danger', value: true }]
-    });
-    if (confirmed === 'true') {
-        const platformToDelete = platforms.find(p => p.name === platformName);
-        if (!platformToDelete) return;
+function deletePlatform(platformName) {
+    const platformToDelete = platforms.find(p => p.name === platformName);
+    if (!platformToDelete) return;
 
-        const entriesToDelete = entries.filter(e => e.protocol === platformName);
-        const wasFavorite = favorites.includes(platformName);
+    const entriesToDelete = entries.filter(e => e.protocol === platformName);
+    const wasFavorite = favorites.includes(platformName);
 
-        const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
-        saveToUndoStack('delete_platform', undoData);
+    const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
+    saveToUndoStack('delete_platform', undoData);
 
-        platforms = platforms.filter(p => p.name !== platformName);
-        favorites = favorites.filter(f => f !== platformName);
-        entries = entries.filter(e => e.protocol !== platformName);
-        saveData();
-        applyDateFilter();
-        renderPlatformButtons();
-        updateCashflowTargets();
-    }
+    platforms = platforms.filter(p => p.name !== platformName);
+    favorites = favorites.filter(f => f !== platformName);
+    entries = entries.filter(e => e.protocol !== platformName);
+    saveData();
+    applyDateFilter();
+    renderPlatformButtons();
+    updateCashflowTargets();
 }
 
 async function clearAllData() {
@@ -4887,7 +4880,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === 'true') {
+    if (confirmed === true) {
         deleteEntry(entryId);
     }
 }
@@ -5264,7 +5257,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === 'true') {
+    if (confirmed === true) {
         deleteCashflow(cashflowId);
     }
 }
@@ -5275,7 +5268,7 @@ async function deletePlatformWithConfirmation(platformName) {
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === true) {
         deletePlatform(platformName);
     }
 }
@@ -6647,9 +6640,25 @@ function showCustomPrompt({ title, text, showInput = false, showDateInput = fals
     return new Promise(resolve => {
         promptResolve = resolve;
 
-        let actionsHtml = actions.map(action => 
-            `<button class="btn ${action.class || 'btn-primary'}" onclick="closeBottomSheet('${action.value || action.text}')">${action.text}</button>`
-        ).join('');
+        // Definiert, welche Aktionswerte eine Eingabe vom Benutzer erwarten.
+        const positiveActionValues = ['next', 'save', 'confirm', 'change', 'reset', 'DELETE ALL', 'RESTORE'];
+
+        let actionsHtml = actions.map(action => {
+            let onclickCall;
+            // Wenn ein Input angezeigt wird UND die Aktion eine Bestätigungsaktion ist,
+            // wird der Wert des Inputs an closeBottomSheet übergeben.
+            if ((showInput || showDateInput) && positiveActionValues.includes(action.value)) {
+                const inputId = showInput ? 'bottomSheet_input' : 'bottomSheet_date_input';
+                onclickCall = `closeBottomSheet(document.getElementById('${inputId}').value)`;
+            } else {
+                // Andernfalls wird der Wert der Aktion selbst oder null (für Abbrechen) übergeben.
+                // Der Wert wird in Anführungszeichen gesetzt, um ihn als String zu übergeben, es sei denn, er ist 'true' oder 'null'.
+                const param = action.value !== undefined && action.value !== null ? (typeof action.value === 'boolean' ? action.value : `'${action.value}'`) : 'null';
+                onclickCall = `closeBottomSheet(${param})`;
+            }
+            return `<button class="btn ${action.class || 'btn-primary'}" onclick="${onclickCall}">${action.text}</button>`;
+        }).join('');
+
         if (actions.length === 0) {
             actionsHtml = `
                 <button class="btn btn-danger" onclick="closeBottomSheet(null)">Abbrechen</button>
