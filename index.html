@@ -83,6 +83,10 @@
                             <span class="item-text">Zeitraum filtern</span>
                             <span id="activeFilterBadge" class="status-indicator-badge"></span>
                         </button>
+                        <button class="dropdown-item-flex" onclick="switchTab('cashflow'); toggleHeaderMenu();">
+                            <span class="item-icon">💸</span>
+                            <span class="item-text">Cashflow verwalten</span>
+                        </button>
                         <div class="dropdown-divider"></div>
                         <button onclick="togglePrivacyMode(); toggleHeaderMenu();">👁️ Privatsphäre-Modus</button>
                         <button onclick="toggleCompactMode(); toggleHeaderMenu();">📱 Kompakte Ansicht</button>
@@ -101,11 +105,10 @@
         <div class="tab-navigation">
             <button class="tab-btn active" onclick="switchTab('dashboard')" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
             <button class="tab-btn" onclick="switchTab('entry')" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
-            <button class="tab-btn" onclick="switchTab('cashflow')" title="Alt+3" data-tab="cashflow">💸 Cashflow</button>
-            <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+4" data-tab="platforms">💼 Plattformen</button>
-            <button class="tab-btn" onclick="switchTab('history')" title="Alt+5" data-tab="history">📜 Historie</button>
-            <button class="tab-btn" onclick="switchTab('notes')" title="Alt+6" data-tab="notes">🗒️ Notizen</button>
-            <button class="tab-btn" onclick="switchTab('settings')" title="Alt+7" data-tab="settings">⚙️ Einstellungen</button>
+            <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+3" data-tab="platforms">💼 Plattformen</button>
+            <button class="tab-btn" onclick="switchTab('history')" title="Alt+4" data-tab="history">📜 Historie</button>
+            <button class="tab-btn" onclick="switchTab('notes')" title="Alt+5" data-tab="notes">🗒️ Notizen</button>
+            <button class="tab-btn" onclick="switchTab('settings')" title="Alt+6" data-tab="settings">⚙️ Einstellungen</button>
         </div>
 
         <!-- Versteckte Inputs für den Filter-Status -->
@@ -376,64 +379,114 @@
                         </button>
                     </div>
                 </div>
-                
-                <div class="date-range-selector">
-                    <label style="font-weight: 600;">📅 Datum:</label>
-                    <input type="date" id="entryDate" class="date-input">
-                    <button class="btn btn-primary btn-small" onclick="setToToday()">Heute</button>
-                    <button class="btn btn-primary btn-small" onclick="setToYesterday()">Gestern</button>
-                    <button class="btn btn-primary btn-small" onclick="loadLastEntries()">Letzte Einträge laden</button>
+
+                <div class="entry-date-bar">
+                    <div class="date-bar-group">
+                        <span class="date-bar-label">📅 Datum</span>
+                        <input type="date" id="entryDate" class="date-input compact">
+                    </div>
+                    <div class="date-bar-actions">
+                        <button class="btn btn-secondary btn-small" onclick="setToToday()">Heute</button>
+                        <button class="btn btn-secondary btn-small" onclick="setToYesterday()">Gestern</button>
+                        <button class="btn btn-secondary btn-small" onclick="loadLastEntries()">🔁 Letzte Einträge laden</button>
+                    </div>
                 </div>
 
-                <div style="margin-bottom: 24px;">
-                    <h3 style="margin-bottom: 16px; color: var(--text-primary);">⭐ Favoriten-Zone</h3>
-                    <p style="color: var(--text-secondary); font-size: 14px; margin-top: -12px; margin-bottom: 16px;">Plattformen hierher ziehen, um sie als Favorit zu markieren.</p>
-                    <div id="favoritesGrid" class="platform-grid favorites-zone"></div>
-                    
-                    <div class="platform-search-container" style="margin-top: 24px;">
-                        <input type="text" id="platformSearch" class="platform-search" placeholder="Plattform suchen... (Ctrl+F)" oninput="filterPlatforms()" onkeydown="handleSearchKeydown(event)">
-                        <span class="search-icon">🔍</span>
-                        <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
-                    </div>
-                    
-                    <details style="margin-top: 16px;">
-                        <summary class="section-header-summary">
-                            <div class="section-title"><span>🦄</span><span>Alle Plattformen</span></div>
-                            <span class="summary-arrow">▼</span>
-                        </summary>
-                        <div class="details-content" style="padding-top: 16px;">
-                            <div class="category-filter">
-                                <button class="category-btn active" onclick="filterCategory(this, 'all')">Alle</button>
-                                <button class="category-btn" onclick="filterCategory(this, 'Exchange')">Exchanges</button>
-                                <button class="category-btn" onclick="filterCategory(this, 'DeFi')">DeFi</button>
-                                <button class="category-btn" onclick="filterCategory(this, 'Lending')">Lending</button>
-                                <button class="category-btn" onclick="filterCategory(this, 'Wallet')">Wallets</button>
+                <div class="entry-layout">
+                    <aside class="entry-context">
+                        <div class="context-card" id="dayStrategyContainer">
+                            <label class="context-label">🎯 Tages-Strategie</label>
+                            <textarea id="dailyStrategy" class="strategy-area" rows="4" placeholder="z.B. Absicherung, Rebalancing..." onkeydown="if(event.key === 'Enter' && event.metaKey) { event.preventDefault(); saveStrategyOnly(); }"></textarea>
+                            <div class="context-actions">
+                                <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">💾 Strategie speichern</button>
                             </div>
-                            
-                            <div class="platform-grid" id="platformGrid"></div>
                         </div>
-                    </details>
-                </div>
-                
-                <div id="autoZeroHint" class="auto-zero-hint">
-                    💡 <b>Tipp:</b> Wenn du jetzt speicherst, kannst du nicht ausgewählte Plattformen, die vorher Kapital hatten, automatisch auf 0 setzen.
-                </div>
-                
-                <div id="dayStrategyContainer" class="day-strategy-container" style="display: none; margin-bottom: 24px;">
-                    <div class="strategy-input-row">
-                        <label class="strategy-label">📋 Tages-Strategie:</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="dailyStrategy" class="strategy-input"
-                                   placeholder="z.B. Abgesichertes Liquidity Providing, Funding Rate Farming..."
-                                   onkeydown="if(event.key === 'Enter') { event.preventDefault(); saveStrategyOnly(); }">
-                            <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">
-                                💾 Speichern
-                            </button>
+
+                        <div class="context-card">
+                            <div class="context-header">
+                                <span class="context-title">⚡ Schnellaktionen</span>
+                            </div>
+                            <div class="entry-toolbar-status" id="entryLoadStatus">Noch keine Auswahl aktiv.</div>
+                            <div class="context-actions-stacked">
+                                <button class="btn btn-secondary" onclick="selectFavoritePlatformsForEntry()">⭐ Favoriten übernehmen</button>
+                                <button class="btn btn-secondary" onclick="selectPlatformsWithBalance()">💰 Mit Bestand</button>
+                                <button class="btn btn-secondary" onclick="openCashflowFromEntry()">💸 Cashflow verbuchen</button>
+                                <button class="btn btn-secondary" onclick="clearEntryInputs()">♻️ Zurücksetzen</button>
+                            </div>
                         </div>
-                    </div>
+
+                        <div id="entrySummary" class="context-card" style="display: none;">
+                            <div class="context-header">
+                                <span class="context-title">📊 Zusammenfassung</span>
+                            </div>
+                            <div class="summary-list">
+                                <div class="summary-item">
+                                    <span class="summary-label">Aktive Plattformen</span>
+                                    <span class="summary-value" id="summaryActiveCount">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Neuer Gesamtwert</span>
+                                    <span class="summary-value" id="summaryTotalValue">$0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Veränderung</span>
+                                    <span class="summary-value" id="summaryDeltaValue">$0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Ungespeichert</span>
+                                    <span class="summary-value" id="summaryPendingCount">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="context-card">
+                            <div class="context-header">
+                                <span class="context-title">⭐ Favoriten-Zone</span>
+                            </div>
+                            <p class="context-subtext">Ziehe Plattformen hierher, um sie schnell zur täglichen Erfassung hinzuzufügen.<br> Tipp: Stern erneut anklicken oder ❌ nutzen, um Favoriten zu entfernen.</p>
+                            <div id="favoritesGrid" class="favorites-zone"></div>
+                        </div>
+
+                        <div class="context-card context-hint-card">
+                            <div class="context-hint">💡 Beim Speichern kannst du nicht ausgewählte Plattformen automatisch auf 0 setzen.</div>
+                        </div>
+                    </aside>
+
+                    <section class="entry-main">
+                        <details class="platform-selector">
+                            <summary class="platform-selector-summary">
+                                <div class="summary-main">🦄 Plattformen auswählen</div>
+                                <div class="summary-hint">Klicken zum Ein- oder Ausblenden</div>
+                            </summary>
+                            <div class="platform-selector-body">
+                                <div class="main-toolbar">
+                                    <div class="main-search">
+                                        <div class="platform-search-container">
+                                            <input type="text" id="platformSearch" class="platform-search" placeholder="Plattform suchen... (Ctrl+F)" oninput="filterPlatforms()" onkeydown="handleSearchKeydown(event)">
+                                            <span class="search-icon">🔍</span>
+                                            <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
+                                        </div>
+                                    </div>
+                                    <div class="main-filters">
+                                        <button class="category-btn active" onclick="filterCategory(this, 'all')">Alle</button>
+                                        <button class="category-btn" onclick="filterCategory(this, 'Exchange')">Exchanges</button>
+                                        <button class="category-btn" onclick="filterCategory(this, 'DeFi')">DeFi</button>
+                                        <button class="category-btn" onclick="filterCategory(this, 'Lending')">Lending</button>
+                                        <button class="category-btn" onclick="filterCategory(this, 'Wallet')">Wallets</button>
+                                    </div>
+                                </div>
+                                <div class="platform-grid" id="platformGrid"></div>
+                            </div>
+                        </details>
+
+                        <div id="autoZeroHint" class="auto-zero-hint">
+                            💡 <b>Tipp:</b> Wenn du jetzt speicherst, kannst du nicht ausgewählte Plattformen, die vorher Kapital hatten, automatisch auf 0 setzen.
+                        </div>
+
+                        <div id="platformInputs" class="input-grid entry-input-grid"></div>
+                    </section>
                 </div>
 
-                <div id="platformInputs" class="input-grid"></div>
             </div>
         </div>
 
@@ -463,8 +516,8 @@
                 </div>
 
                 <div class="cashflow-form">
-                    <div>
-                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Typ:</label>
+                    <div class="cashflow-field">
+                        <label class="cashflow-label">Typ:</label>
                         <div class="cashflow-type">
                             <label class="radio-option">
                                 <input type="radio" name="cashflowType" value="deposit" checked>
@@ -476,24 +529,24 @@
                             </label>
                         </div>
                     </div>
-                    <div>
-                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Betrag (USD):</label>
+                    <div class="cashflow-field">
+                        <label class="cashflow-label">Betrag (USD):</label>
                         <input type="text" id="cashflowAmount" class="input-field" placeholder="1000" inputmode="decimal">
                     </div>
-                    <div>
-                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Datum:</label>
+                    <div class="cashflow-field">
+                        <label class="cashflow-label">Datum:</label>
                         <input type="date" id="cashflowDate" class="date-input">
                     </div>
-                    <div id="cashflowTargetDiv">
-                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Ziel-Plattform:</label>
+                    <div class="cashflow-field" id="cashflowTargetDiv">
+                        <label class="cashflow-label">Ziel-Plattform:</label>
                         <select id="cashflowTarget" class="input-field"></select>
                     </div>
-                    <div>
-                        <label style="font-weight: 600; margin-bottom: 8px; display: block;">Notiz:</label>
+                    <div class="cashflow-field">
+                        <label class="cashflow-label">Notiz:</label>
                         <input type="text" id="cashflowNote" class="input-field" placeholder="Optional...">
                     </div>
-                    <div style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-success" onclick="saveCashflow()" title="Ctrl+S">
+                    <div class="cashflow-actions">
+                        <button class="btn btn-success cashflow-save-btn" onclick="saveCashflow()" title="Ctrl+S">
                             <span>💾</span><span>Speichern</span>
                         </button>
                     </div>
@@ -863,9 +916,6 @@
         </button>
         <button class="mobile-nav-item" data-tab="entry" onclick="switchTab('entry')">
             <span class="nav-icon">➕</span>
-        </button>
-        <button class="mobile-nav-item" data-tab="cashflow" onclick="switchTab('cashflow')">
-            <span class="nav-icon">💸</span>
         </button>
         <button class="mobile-nav-item" data-tab="history" onclick="switchTab('history')">
             <span class="nav-icon">📜</span>

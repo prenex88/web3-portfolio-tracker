@@ -495,6 +495,25 @@ function isMobileDevice() {
 let undoStack = [];
 const MAX_UNDO_STACK = 20;
 
+function getVisibleHistoryIds() {
+    const selectors = [
+        '#historyTableBody tr[data-id]',
+        '#historyListView .history-card[data-id]',
+        '#historyMobileCards .history-card[data-id]',
+        '#historyGroupedView .history-card[data-id]',
+        '#historyByDateView .history-card[data-id]'
+    ];
+
+    const ids = new Set();
+    document.querySelectorAll(selectors.join(', ')).forEach(el => {
+        const entryId = Number(el.dataset.id);
+        if (!Number.isNaN(entryId)) {
+            ids.add(entryId);
+        }
+    });
+    return ids;
+}
+
 // =================================================================================
 // INITIALISIERUNG
 // =================================================================================
@@ -513,6 +532,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setToToday(); // Setzt das Datum im Eingabe-Tab
     setDateFilter('all'); // Setzt den initialen Filter für die gesamte App
     renderPlatformButtons();
+    setEntryStatus('Noch keine Auswahl aktiv.', 'info');
+    updateEntrySummary();
     initializeCharts();
     addEventListeners();
     
@@ -1124,11 +1145,20 @@ function addEventListeners() {
     if (historySearch) {
         historySearch.addEventListener('input', (e) => updateHistory());
     }
-    document.querySelectorAll('input[name="cashflowType"]').forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            document.getElementById('cashflowTargetDiv').style.display = e.target.value === 'deposit' ? 'block' : 'none';
-        });
+    const cashflowTypeRadios = document.querySelectorAll('input[name="cashflowType"]');
+    const cashflowTargetField = document.getElementById('cashflowTargetDiv');
+    const setCashflowTargetVisibility = (value) => {
+        if (!cashflowTargetField) return;
+        cashflowTargetField.style.display = value === 'deposit' ? '' : 'none';
+    };
+
+    cashflowTypeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => setCashflowTargetVisibility(e.target.value));
     });
+    const initialCashflowType = document.querySelector('input[name="cashflowType"]:checked');
+    if (initialCashflowType) {
+        setCashflowTargetVisibility(initialCashflowType.value);
+    }
     const selectAllHistory = document.getElementById('selectAllHistory');
     if (selectAllHistory) {
         selectAllHistory.addEventListener('change', toggleSelectAllHistory);
@@ -1206,7 +1236,7 @@ function setupKeyboardShortcuts() {
 
         if (e.altKey && e.key >= '1' && e.key <= '7') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'platforms', '5': 'history', '6': 'notes', '7': 'settings' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'platforms', '4': 'history', '5': 'notes', '6': 'settings' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -2372,6 +2402,7 @@ function saveSingleEntry(inputElement) {
     }
 
     showNotification(`${platformName} gespeichert!`);
+    updateEntrySummary();
 }
 
 function saveStrategyOnly() {
@@ -3140,7 +3171,7 @@ function renderPlatformButtons() {
         );
     }
 
-    const createTile = (p) => {
+    const createTile = (p, { inFavorites = false } = {}) => {
         const tile = document.createElement('div');
         tile.className = 'platform-btn';
         tile.dataset.platform = p.name;
@@ -3153,7 +3184,8 @@ function renderPlatformButtons() {
             if (navigator.vibrate) navigator.vibrate(50);
             togglePlatform(tile, p.name);
         };
-        
+
+        const isFavorite = favorites.includes(p.name);
         let tagsHtml = '';
         if (p.tags && p.tags.length > 0) {
             tagsHtml = '<div class="platform-tags">';
@@ -3174,10 +3206,34 @@ function renderPlatformButtons() {
             <div class="name">${p.name}</div>
             <div class="type">${p.type}</div>
             ${tagsHtml}`;
+
+        const favoriteButton = document.createElement('button');
+        favoriteButton.className = 'favorite-star';
+        favoriteButton.type = 'button';
+        favoriteButton.title = isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen';
+        favoriteButton.textContent = isFavorite ? '⭐' : '☆';
+        favoriteButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleFavorite(p.name);
+        });
+        tile.prepend(favoriteButton);
+
+        if (inFavorites) {
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'favorite-remove-btn';
+            removeBtn.type = 'button';
+            removeBtn.title = 'Aus Favoriten entfernen';
+            removeBtn.innerHTML = '✕';
+            removeBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                removeFavoritePlatform(p.name);
+            });
+            tile.appendChild(removeBtn);
+        }
         return tile;
     };
 
-    sortedFavorites.forEach(p => favoritesGrid.appendChild(createTile(p)));
+    sortedFavorites.forEach(p => favoritesGrid.appendChild(createTile(p, { inFavorites: true })));
     nonFavoritePlatforms.forEach(p => platformGrid.appendChild(createTile(p)));
 
     const addTile = document.createElement('div');
@@ -3208,6 +3264,137 @@ function filterCategory(element, category) {
     document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
     element.classList.add('active');
     renderPlatformButtons();
+}
+
+function guessPlatformMetadata(name) {
+    const trimmed = name.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (!lower) {
+        return {
+            type: '',
+            category: '',
+            tags: [],
+            icon: '💎'
+        };
+    }
+
+    const predefinedMatches = [
+        { names: ['ondo', 'ondo finance'], type: 'Yield', category: 'DeFi', tags: ['yield', 'rwa'], icon: '🏦' },
+        { names: ['pendle', 'pendle finance'], type: 'Yield', category: 'DeFi', tags: ['yield'], icon: '🌾' },
+        { names: ['curve', 'curve finance'], type: 'DEX', category: 'DeFi', tags: ['dex'], icon: '🔄' },
+        { names: ['binance', 'binance earn'], type: 'Exchange', category: 'Exchange', tags: ['exchange'], icon: '🏦' }
+    ];
+
+    let predefined = predefinedMatches.find(entry => entry.names.some(n => lower === n || lower.startsWith(n))); 
+    if (predefined) {
+        return {
+            type: predefined.type || '',
+            category: predefined.category || '',
+            tags: predefined.tags ? [...predefined.tags] : [],
+            icon: predefined.icon || '💎'
+        };
+    }
+
+    let match = DEFAULT_PLATFORMS.find(p => p.name.toLowerCase() === lower);
+    if (!match && lower.length >= 2) {
+        const partialMatches = DEFAULT_PLATFORMS.filter(p => p.name.toLowerCase().startsWith(lower));
+        if (partialMatches.length === 1) {
+            match = partialMatches[0];
+        }
+    }
+    if (match) {
+        return {
+            type: match.type || '',
+            category: match.category || '',
+            tags: match.tags ? [...match.tags] : [],
+            icon: match.icon || '💎'
+        };
+    }
+
+    const heuristics = [
+        { keywords: ['binance', 'coinbase', 'kraken', 'exchange', 'trade'], type: 'Exchange', category: 'Exchange', icon: '🏦', tags: ['exchange'] },
+        { keywords: ['swap', 'dex', 'uni', 'sushi', 'curve', 'balancer'], type: 'DEX', category: 'DeFi', icon: '🔄', tags: ['dex'] },
+        { keywords: ['lend', 'loan', 'borrow', 'aave', 'compound'], type: 'Lending', category: 'Lending', icon: '🤝', tags: ['lending'] },
+        { keywords: ['wallet', 'safe', 'vault', 'ledger', 'trezor', 'metamask'], type: 'Wallet', category: 'Wallet', icon: '👛', tags: ['wallet'] },
+        { keywords: ['nft', 'opensea', 'blur', 'rarible'], type: 'NFT', category: 'DeFi', icon: '🖼️', tags: ['nft'] },
+        { keywords: ['stake', 'yield', 'farm', 'liquidity', 'earning'], type: 'Yield', category: 'DeFi', icon: '🌾', tags: ['yield'] },
+        { keywords: ['bridge', 'layer', 'chain', 'rollup'], type: 'Infrastructure', category: 'DeFi', icon: '🛠️', tags: ['infrastructure'] }
+    ];
+
+    for (const rule of heuristics) {
+        if (rule.keywords.some(keyword => lower.includes(keyword) || keyword.includes(lower))) {
+            return {
+                type: rule.type || '',
+                category: rule.category || '',
+                tags: rule.tags ? [...rule.tags] : [],
+                icon: rule.icon || '💎'
+            };
+        }
+    }
+
+    return {
+        type: '',
+        category: '',
+        tags: [],
+        icon: '💎'
+    };
+}
+
+function toggleFavorite(platformName, options = {}) {
+    const { silent = false } = options;
+    if (!platformName) return;
+
+    const wasFavorite = favorites.includes(platformName);
+
+    if (wasFavorite) {
+        favorites = favorites.filter(name => name !== platformName);
+        if (!silent) {
+            showNotification(`${platformName} aus Favoriten entfernt.`, 'info');
+            setEntryStatus(`${platformName} aus den Favoriten entfernt.`, 'info');
+        }
+    } else {
+        favorites.push(platformName);
+        if (!silent) {
+            showNotification(`${platformName} zu Favoriten hinzugefügt!`, 'success');
+            setEntryStatus(`${platformName} als Favorit markiert.`, 'success');
+        }
+    }
+
+    saveData();
+    renderPlatformButtons();
+}
+
+function removeFavoritePlatform(platformName) {
+    if (!platformName || !favorites.includes(platformName)) return;
+    toggleFavorite(platformName, { silent: true });
+    setEntryStatus(`${platformName} aus der Favoriten-Zone entfernt.`, 'info');
+}
+
+function setEntryStatus(message, variant = 'info') {
+    const statusEl = document.getElementById('entryLoadStatus');
+    if (!statusEl) return;
+
+    statusEl.textContent = message;
+    statusEl.classList.remove('status-success', 'status-warning', 'status-info');
+
+    const classMap = {
+        success: 'status-success',
+        warning: 'status-warning',
+        info: 'status-info'
+    };
+    const className = classMap[variant];
+    if (className) statusEl.classList.add(className);
+}
+
+function updateEntrySelectionStatus() {
+    if (!Array.isArray(selectedPlatforms)) return;
+    if (selectedPlatforms.length === 0) {
+        setEntryStatus('Noch keine Auswahl aktiv.', 'info');
+    } else {
+        const label = selectedPlatforms.length === 1 ? 'Plattform' : 'Plattformen';
+        setEntryStatus(`${selectedPlatforms.length} ${label} aktiv.`, 'info');
+    }
 }
 
 async function resetPlatforms() {
@@ -3242,30 +3429,176 @@ function togglePlatform(element, platformName) {
         removePlatformInput(platformName);
     }
     updateAutoZeroHint();
+    updateEntrySelectionStatus();
 }
 
-async function addCustomPlatform() {
-    const name = await showCustomPrompt({ title: 'Neue Plattform', text: 'Name der Plattform:', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    if (!name || !name.trim()) return;
-    if (platforms.some(p => p.name.toLowerCase() === name.trim().toLowerCase())) return showNotification('Plattform existiert bereits!', 'error');
+function addCustomPlatform() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Neue Plattform hinzufügen</h2></div>
+        <div class="modal-body">
+            <form id="newPlatformForm" class="new-platform-form">
+                <div class="github-input-group">
+                    <label>Name</label>
+                    <input type="text" id="newPlatformName" class="input-field" placeholder="z.B. Binance" autocomplete="off">
+                    <div class="new-platform-hint" id="newPlatformSuggestionHint">Gib einen Namen ein – Typ, Kategorie und Tags schlagen wir automatisch vor.</div>
+                </div>
+                <div class="grid-two-cols">
+                    <div class="github-input-group">
+                        <label>Typ</label>
+                        <input type="text" id="newPlatformType" class="input-field" placeholder="Exchange, DEX ..." list="newPlatformTypeOptions">
+                    </div>
+                    <div class="github-input-group">
+                        <label>Kategorie</label>
+                        <input type="text" id="newPlatformCategory" class="input-field" placeholder="Exchange, DeFi ..." list="newPlatformCategoryOptions">
+                    </div>
+                </div>
+                <div class="github-input-group">
+                    <label>Tags (kommagetrennt)</label>
+                    <input type="text" id="newPlatformTags" class="input-field" placeholder="z.B. staking, layer2">
+                </div>
+                <div class="github-input-group">
+                    <label>Icon (Emoji)</label>
+                    <input type="text" id="newPlatformIcon" class="input-field" maxlength="2" placeholder="💎">
+                </div>
+                <datalist id="newPlatformTypeOptions">
+                    <option value="Exchange">
+                    <option value="DEX">
+                    <option value="Lending">
+                    <option value="Yield">
+                    <option value="NFT">
+                    <option value="Wallet">
+                    <option value="Infrastructure">
+                    <option value="Custom">
+                </datalist>
+                <datalist id="newPlatformCategoryOptions">
+                    <option value="Exchange">
+                    <option value="DeFi">
+                    <option value="Lending">
+                    <option value="Yield">
+                    <option value="NFT">
+                    <option value="Wallet">
+                    <option value="Infrastructure">
+                    <option value="Custom">
+                </datalist>
+                <div class="modal-footer" style="justify-content: flex-end; gap: 12px;">
+                    <button type="button" class="btn btn-danger" id="newPlatformCancelBtn">Abbrechen</button>
+                    <button type="submit" class="btn btn-success" id="newPlatformSaveBtn">Speichern</button>
+                </div>
+            </form>
+        </div>
+    `;
 
-    const type = await showCustomPrompt({ title: 'Plattform Typ', text: `Typ für "${name.trim()}"? (z.B. DEX, Lending)`, showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    const category = await showCustomPrompt({ title: 'Kategorie', text: 'Exchange, DeFi, Lending, Wallet oder Custom?', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    const tagsInput = await showCustomPrompt({ title: 'Tags', text: 'Tags (kommagetrennt, z.B. high-risk, staking, defi):', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Speichern', value: 'save', class: 'btn-success'}] });
-    
-    const tags = tagsInput ? tagsInput.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
+    openBottomSheet(contentHtml);
 
-    platforms.push({ 
-        name: name.trim(), 
-        type: type && type.trim() ? type.trim() : '',
-        category: category && category.trim() ? category.trim() : '',
-        icon: '💎',
-        tags: tags
+    const form = document.getElementById('newPlatformForm');
+    const nameInput = document.getElementById('newPlatformName');
+    const typeInput = document.getElementById('newPlatformType');
+    const categoryInput = document.getElementById('newPlatformCategory');
+    const tagsInput = document.getElementById('newPlatformTags');
+    const iconInput = document.getElementById('newPlatformIcon');
+    const hintEl = document.getElementById('newPlatformSuggestionHint');
+    const cancelBtn = document.getElementById('newPlatformCancelBtn');
+
+    if (!form || !nameInput || !typeInput || !categoryInput || !tagsInput || !iconInput) {
+        console.error('Neue Plattform UI konnte nicht initialisiert werden');
+        return;
+    }
+
+    let internalUpdate = false;
+    const editState = { type: false, category: false, tags: false, icon: false };
+
+    const updateSuggestion = () => {
+        const nameValue = nameInput.value.trim();
+        if (!nameValue) {
+            if (hintEl) hintEl.textContent = 'Gib einen Namen ein – Typ, Kategorie und Tags schlagen wir automatisch vor.';
+            internalUpdate = true;
+            if (!editState.type) typeInput.value = '';
+            if (!editState.category) categoryInput.value = '';
+            if (!editState.tags) tagsInput.value = '';
+            if (!editState.icon) iconInput.value = '💎';
+            internalUpdate = false;
+            return;
+        }
+
+        const suggestion = guessPlatformMetadata(nameValue);
+        if (hintEl) {
+            const tagText = suggestion.tags && suggestion.tags.length ? ` • Tags: ${suggestion.tags.join(', ')}` : '';
+            const typeLabel = suggestion.type || '–';
+            const categoryLabel = suggestion.category || '–';
+            hintEl.innerHTML = `Vorschlag: <strong>${typeLabel}</strong> / <strong>${categoryLabel}</strong>${tagText}`;
+        }
+
+        internalUpdate = true;
+        if (!editState.type) typeInput.value = suggestion.type || '';
+        if (!editState.category) categoryInput.value = suggestion.category || '';
+        if (!editState.tags) tagsInput.value = suggestion.tags ? suggestion.tags.join(', ') : '';
+        if (!editState.icon) iconInput.value = suggestion.icon || '💎';
+        internalUpdate = false;
+    };
+
+    const handleManualEdit = (field) => {
+        return () => {
+            if (internalUpdate) return;
+            const value = field.value.trim();
+            if (field === typeInput) editState.type = value.length > 0;
+            if (field === categoryInput) editState.category = value.length > 0;
+            if (field === tagsInput) editState.tags = value.length > 0;
+            if (field === iconInput) editState.icon = value.length > 0;
+        };
+    };
+
+    typeInput.addEventListener('input', handleManualEdit(typeInput));
+    categoryInput.addEventListener('input', handleManualEdit(categoryInput));
+    tagsInput.addEventListener('input', handleManualEdit(tagsInput));
+    iconInput.addEventListener('input', handleManualEdit(iconInput));
+
+    nameInput.addEventListener('input', updateSuggestion);
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => closeBottomSheet());
+    }
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const newName = nameInput.value.trim();
+        if (!newName) {
+            showNotification('Bitte einen Namen angeben.', 'error');
+            nameInput.focus();
+            return;
+        }
+
+        if (platforms.some(p => p.name.toLowerCase() === newName.toLowerCase())) {
+            showNotification('Plattform existiert bereits!', 'error');
+            return;
+        }
+
+        const fallbackSuggestion = guessPlatformMetadata(newName);
+        const newType = typeInput.value.trim() || fallbackSuggestion.type || '';
+        const newCategory = categoryInput.value.trim() || fallbackSuggestion.category || '';
+        const newTags = tagsInput.value
+            ? tagsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0)
+            : [];
+        const newIcon = iconInput.value.trim() || fallbackSuggestion.icon || '💎';
+
+        platforms.push({
+            name: newName,
+            type: newType,
+            category: newCategory,
+            icon: newIcon,
+            tags: newTags
+        });
+
+        saveData();
+        renderPlatformButtons();
+        updateCashflowTargets();
+        showNotification(`${newName} hinzugefügt!`, 'success');
+        setEntryStatus(`${newName} hinzugefügt.`, 'success');
+        closeBottomSheet();
     });
-    saveData();
-    renderPlatformButtons();
-    updateCashflowTargets();
-    showNotification(`${name.trim()} hinzugefügt!`);
+
+    updateSuggestion();
+    nameInput.focus();
 }
 function addPlatformInput(platformName) {
     const container = document.getElementById('platformInputs');
@@ -3275,7 +3608,7 @@ function addPlatformInput(platformName) {
     if (container.children.length === 0) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) {
-            strategyContainer.style.display = 'block';
+            strategyContainer.style.display = 'flex';
             const date = document.getElementById('entryDate').value;
             const strategyInput = document.getElementById('dailyStrategy');
             if (strategyInput) strategyInput.value = getStrategyForDate(date);
@@ -3343,6 +3676,7 @@ function addPlatformInput(platformName) {
         
         const statusEl = div.querySelector('.value-status');
         statusEl.innerHTML = '<span class="status-unsaved">Nicht gespeichert</span>';
+        updateEntrySummary();
     });
 
     // Mit "Enter" speichern und zum nächsten Feld springen
@@ -3394,6 +3728,108 @@ function removePlatformInput(platformName) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) strategyContainer.style.display = 'none';
     }
+
+    updateEntrySummary();
+}
+
+function clearEntryInputs() {
+    const container = document.getElementById('platformInputs');
+    if (container) container.innerHTML = '';
+
+    document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
+    selectedPlatforms = [];
+
+    const strategyContainer = document.getElementById('dayStrategyContainer');
+    if (strategyContainer) strategyContainer.style.display = 'none';
+
+    const autoZeroHint = document.getElementById('autoZeroHint');
+    if (autoZeroHint) autoZeroHint.classList.remove('visible');
+
+    setEntryStatus('Auswahl zurückgesetzt.', 'info');
+    updateEntrySummary();
+}
+
+function selectFavoritePlatformsForEntry() {
+    if (!favorites || favorites.length === 0) {
+        setEntryStatus('Keine Favoriten gespeichert.', 'warning');
+        showNotification('Keine Favoriten gespeichert.', 'warning');
+        return;
+    }
+
+    let newlySelected = 0;
+    favorites.forEach(platformName => {
+        const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => {
+            return btn.dataset.platform === platformName || btn.querySelector('.name')?.textContent === platformName;
+        });
+
+        if (button && !button.classList.contains('selected')) {
+            togglePlatform(button, platformName);
+            newlySelected++;
+        }
+    });
+
+    if (newlySelected === 0) {
+        setEntryStatus('Alle Favoriten sind bereits aktiv.', 'info');
+    } else {
+        const label = newlySelected === 1 ? 'Favorit' : 'Favoriten';
+        setEntryStatus(`${newlySelected} ${label} übernommen.`, 'success');
+        showNotification(`${newlySelected} Favoriten übernommen.`, 'success');
+    }
+}
+
+function selectPlatformsWithBalance() {
+    if (!entries || entries.length === 0) {
+        setEntryStatus('Keine vorhandenen Einträge.', 'warning');
+        showNotification('Keine früheren Einträge gefunden.', 'warning');
+        return;
+    }
+
+    const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+    if (sortedDates.length === 0) {
+        setEntryStatus('Keine vorhandenen Einträge.', 'warning');
+        return;
+    }
+
+    const lastDate = sortedDates[0];
+    const platformsToSelect = entries
+        .filter(e => e.date === lastDate && e.balance > 0)
+        .map(e => e.protocol);
+
+    if (platformsToSelect.length === 0) {
+        setEntryStatus('Keine Plattformen mit Bestand gefunden.', 'warning');
+        showNotification('Am letzten Stichtag gab es keine Bestände.', 'warning');
+        return;
+    }
+
+    let newlySelected = 0;
+    platformsToSelect.forEach(platformName => {
+        const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => {
+            return btn.dataset.platform === platformName || btn.querySelector('.name')?.textContent === platformName;
+        });
+
+        if (button && !button.classList.contains('selected')) {
+            togglePlatform(button, platformName);
+            newlySelected++;
+        }
+    });
+
+    if (newlySelected === 0) {
+        setEntryStatus('Alle Plattformen mit Bestand sind bereits aktiv.', 'info');
+    } else {
+        const dateLabel = formatDate(lastDate);
+        setEntryStatus(`${newlySelected} Plattformen mit Bestand vom ${dateLabel} geladen.`, 'success');
+        showNotification(`${newlySelected} Plattformen mit Bestand vom ${dateLabel} geladen.`, 'success');
+    }
+}
+
+function openCashflowFromEntry() {
+    const currentDate = document.getElementById('entryDate')?.value;
+    switchTab('cashflow');
+    if (currentDate) {
+        const cashflowDateInput = document.getElementById('cashflowDate');
+        if (cashflowDateInput) cashflowDateInput.value = currentDate;
+    }
+    setEntryStatus('Cashflow-Erfassung geöffnet.', 'info');
 }
 
 
@@ -3401,6 +3837,7 @@ function loadLastEntries() {
     const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (sortedDates.length === 0) {
         showNotification('Keine früheren Einträge gefunden.', 'error');
+        setEntryStatus('Keine früheren Einträge gefunden.', 'warning');
         return;
     }
     const lastEntryDate = sortedDates[0];
@@ -3413,6 +3850,7 @@ function loadLastEntries() {
 
     if (platformsToLoad.length === 0) {
         showNotification(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        setEntryStatus(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
         return;
     }
     
@@ -3448,6 +3886,7 @@ function loadLastEntries() {
         setTimeout(() => {
             loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
         }, 200);
+        setEntryStatus('Fehlende Plattformen ergänzt. Bitte prüfen.', 'info');
         return;
     }
     
@@ -3481,6 +3920,8 @@ function loadLastEntriesAfterRender(platformsToLoad, lastEntryDate) {
     }, 200);
 
     showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+    setEntryStatus(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`, 'success');
+    updateEntrySummary();
 }
 
 // =================================================================================
@@ -3594,6 +4035,8 @@ async function saveAllEntries() {
     document.getElementById('autoZeroHint').classList.remove('visible');
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
+
+    updateEntrySummary();
 
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
@@ -4998,7 +5441,8 @@ function isSelected(entryId) {
     return selectedHistoryEntries.has(entryId);
 }
 
-function toggleHistorySelection(entryId, shouldBeSelected) {
+function toggleHistorySelection(entryId, shouldBeSelected, options = {}) {
+    const { skipStatusUpdate = false } = options;
     // Update table row
     const row = document.querySelector(`#historyTableBody tr[data-id='${entryId}']`);
     if (row) {
@@ -5029,19 +5473,31 @@ function toggleHistorySelection(entryId, shouldBeSelected) {
         }
     }
     
-    updateSelectAllCheckbox();
-    updateBulkActionsBar();
+    if (!skipStatusUpdate) {
+        updateSelectAllCheckbox();
+        updateBulkActionsBar();
+    }
 }
 
 function toggleSelectAllHistory(e) {
     const isChecked = e.target.checked;
-    const rows = document.querySelectorAll('#historyTableBody tr[data-id]');
-    rows.forEach(row => {
-        const entryId = parseFloat(row.dataset.id);
-        if (entryId) {
-            toggleHistorySelection(entryId, isChecked);
-        }
-    });
+    const visibleIds = getVisibleHistoryIds();
+
+    if (isChecked) {
+        visibleIds.forEach(id => selectedHistoryEntries.add(id));
+    } else {
+        visibleIds.forEach(id => selectedHistoryEntries.delete(id));
+    }
+
+    updateHistory();
+
+    const selectAllCheckbox = document.getElementById('selectAllHistory');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = isChecked && visibleIds.size > 0;
+        selectAllCheckbox.indeterminate = false;
+    }
+
+    updateBulkActionsBar();
 }
 
 function updateSelectAllCheckbox() {
@@ -5068,6 +5524,9 @@ function updateSelectAllCheckbox() {
             selectAllCheckbox.checked = false;
             selectAllCheckbox.indeterminate = false;
         }
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
     }
 }
 // =================================================================================
@@ -6489,6 +6948,80 @@ const formatDollar = (value) => {
     if (document.body.classList.contains('privacy-mode')) return '$******';
     return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 };
+
+const formatDollarSigned = (value) => {
+    const numericValue = typeof value === 'number' && !Number.isNaN(value) ? value : 0;
+    if (document.body.classList.contains('privacy-mode')) return '$******';
+    if (numericValue === 0) return formatDollar(0);
+    const formatted = formatDollar(Math.abs(numericValue));
+    const sign = numericValue > 0 ? '+' : '-';
+    return `${sign}${formatted}`;
+};
+
+function updateEntrySummary() {
+    const summaryCard = document.getElementById('entrySummary');
+    if (!summaryCard) return;
+
+    const inputCards = Array.from(document.querySelectorAll('#platformInputs .input-card'));
+    const activeCount = inputCards.length;
+
+    const activeCountEl = document.getElementById('summaryActiveCount');
+    const totalValueEl = document.getElementById('summaryTotalValue');
+    const deltaValueEl = document.getElementById('summaryDeltaValue');
+    const pendingCountEl = document.getElementById('summaryPendingCount');
+
+    if (activeCount === 0) {
+        summaryCard.style.display = 'none';
+        if (activeCountEl) activeCountEl.textContent = '0';
+        if (totalValueEl) totalValueEl.textContent = formatDollar(0);
+        if (deltaValueEl) {
+            deltaValueEl.textContent = formatDollar(0);
+            deltaValueEl.classList.remove('positive', 'negative');
+        }
+        if (pendingCountEl) pendingCountEl.textContent = '0';
+        return;
+    }
+
+    summaryCard.style.display = 'block';
+
+    let totalCurrent = 0;
+    let totalOriginal = 0;
+    let pendingCount = 0;
+
+    inputCards.forEach(card => {
+        const input = card.querySelector('.input-field');
+        if (!input) return;
+
+        const currentValue = parseLocaleNumberString(input.value);
+        if (!Number.isNaN(currentValue)) {
+            totalCurrent += currentValue;
+        }
+
+        const originalValue = parseFloat(input.dataset.originalValue || '0');
+        if (!Number.isNaN(originalValue)) {
+            totalOriginal += originalValue;
+        }
+
+        if (input.dataset.saved !== 'true') {
+            pendingCount += 1;
+        }
+    });
+
+    const delta = totalCurrent - totalOriginal;
+
+    if (activeCountEl) activeCountEl.textContent = String(activeCount);
+    if (totalValueEl) totalValueEl.textContent = formatDollar(totalCurrent);
+    if (deltaValueEl) {
+        deltaValueEl.textContent = formatDollarSigned(delta);
+        deltaValueEl.classList.remove('positive', 'negative');
+        if (delta > 0) {
+            deltaValueEl.classList.add('positive');
+        } else if (delta < 0) {
+            deltaValueEl.classList.add('negative');
+        }
+    }
+    if (pendingCountEl) pendingCountEl.textContent = String(pendingCount);
+}
 
 
 function setToToday() { 
@@ -8385,6 +8918,8 @@ function addAriaLabels() {
             }
         }
     });
+
+    updateEntrySummary();
 }
 
 function convertTablesToMobile() {
