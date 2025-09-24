@@ -4072,19 +4072,19 @@ body.dark-mode {
 
 .notes-list {
     display: grid;
-    gap: 16px;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
 .note-card {
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: 14px;
     background: var(--card-bg);
     box-shadow: var(--shadow-sm);
-    padding: 18px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
 .note-card:hover {
@@ -4100,21 +4100,24 @@ body.dark-mode {
 }
 
 .note-card-title {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
 }
 
 .note-card-date {
-    font-size: 12px;
+    font-size: 10px;
     color: var(--gray);
 }
 
 .note-card-content {
     color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.4;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .note-card-content-clamped {
@@ -4139,7 +4142,7 @@ body.dark-mode {
     border: none;
     color: var(--primary);
     font-weight: 600;
-    font-size: 13px;
+    font-size: 11px;
     cursor: pointer;
     padding: 2px 0;
     align-self: flex-start;
@@ -4163,8 +4166,8 @@ body.dark-mode {
 }
 
 .note-card-attachments img {
-    width: 64px;
-    height: 64px;
+    width: 56px;
+    height: 56px;
     object-fit: cover;
     border-radius: 8px;
     border: 1px solid var(--border);
@@ -4173,7 +4176,18 @@ body.dark-mode {
 .note-card-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
+}
+
+.note-card-actions .btn {
+    padding: 5px 10px;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0.2px;
+}
+
+.note-card-actions .btn::before {
+    display: none;
 }
 
 .note-card.highlight {

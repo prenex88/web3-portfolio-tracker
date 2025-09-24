@@ -353,6 +353,7 @@ const isFxVersion = window.location.pathname.includes('/fx');
 const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
 const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
+const LAST_ACTIVE_TAB_KEY = `${STORAGE_PREFIX}lastActiveTab`;
 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
@@ -564,6 +565,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableBatchSelection();
     updateBreadcrumbs();
     convertTablesToMobile();
+
+    setTimeout(restoreLastActiveTab, 150);
 
     window.addEventListener('resize', convertTablesToMobile);
     window.addEventListener('resize', initializeMobileNavigation);
@@ -3016,6 +3019,7 @@ function switchTab(tabName, options = {}) {
     const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`);
     if (tabBtn) tabBtn.classList.add('active');
     currentTab = tabName;
+    localStorage.setItem(LAST_ACTIVE_TAB_KEY, tabName);
     
     // NEU: Automatisch letzte Einträge laden beim Wechsel zu "entry"
     if (tabName === 'entry') {
@@ -3035,7 +3039,9 @@ function switchTab(tabName, options = {}) {
         }
     }
     
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!options.skipScroll) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     
     // Mobile Bottom Nav aktiven Tab aktualisieren
     if (window.innerWidth <= 768) {
@@ -3088,6 +3094,13 @@ function switchTab(tabName, options = {}) {
         }
     }
     updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
+}
+
+function restoreLastActiveTab() {
+    const savedTab = localStorage.getItem(LAST_ACTIVE_TAB_KEY);
+    const fallbackTab = 'dashboard';
+    const targetTab = (savedTab && document.getElementById(savedTab)) ? savedTab : fallbackTab;
+    switchTab(targetTab, { preserveFilter: true, skipScroll: true });
 }
 
 // =================================================================================

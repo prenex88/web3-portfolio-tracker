@@ -87,6 +87,10 @@
                             <span class="item-icon">💸</span>
                             <span class="item-text">Cashflow verwalten</span>
                         </button>
+                        <button class="dropdown-item-flex" onclick="switchTab('history'); toggleHeaderMenu();">
+                            <span class="item-icon">📜</span>
+                            <span class="item-text">Historie öffnen</span>
+                        </button>
                         <div class="dropdown-divider"></div>
                         <button onclick="togglePrivacyMode(); toggleHeaderMenu();">👁️ Privatsphäre-Modus</button>
                         <button onclick="toggleCompactMode(); toggleHeaderMenu();">📱 Kompakte Ansicht</button>
@@ -106,7 +110,6 @@
             <button class="tab-btn active" onclick="switchTab('dashboard')" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
             <button class="tab-btn" onclick="switchTab('entry')" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
             <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+3" data-tab="platforms">💼 Plattformen</button>
-            <button class="tab-btn" onclick="switchTab('history')" title="Alt+4" data-tab="history">📜 Historie</button>
             <button class="tab-btn" onclick="switchTab('notes')" title="Alt+5" data-tab="notes">🗒️ Notizen</button>
             <button class="tab-btn" onclick="switchTab('settings')" title="Alt+6" data-tab="settings">⚙️ Einstellungen</button>
         </div>
