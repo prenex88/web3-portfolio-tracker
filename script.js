@@ -474,6 +474,7 @@ let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
+let imagesGistId = null; // Separater Gist für Bilder
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
@@ -2472,6 +2473,7 @@ function getDeviceId() {
 
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
+    imagesGistId = localStorage.getItem(`${STORAGE_PREFIX}imagesGistId`);
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
     getDeviceId();
@@ -2621,43 +2623,117 @@ async function fetchGistData() {
     const gist = await response.json();
     const content = gist.files['portfolio-data-v11.json']?.content;
     if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], notes: [], lastSync: null };
-    return JSON.parse(content);
+
+    const data = JSON.parse(content);
+
+    // Lade Bilder-Anhänge separat, falls Bilder-Gist existiert
+    if (imagesGistId) {
+        try {
+            const attachmentsData = await fetchAttachmentsFromGist();
+            // Füge Anhänge wieder zu den Notizen hinzu
+            if (data.notes && attachmentsData) {
+                data.notes = data.notes.map(note => {
+                    if (attachmentsData[note.id]) {
+                        return { ...note, attachments: attachmentsData[note.id] };
+                    }
+                    return note;
+                });
+            }
+        } catch (error) {
+            console.error('Fehler beim Laden der Bilder:', error);
+            showNotification('Bilder konnten nicht geladen werden', 'warning');
+        }
+    }
+
+    return data;
+}
+
+async function fetchAttachmentsFromGist() {
+    if (!imagesGistId) return null;
+
+    const response = await fetch(`${GITHUB_API}/gists/${imagesGistId}`, {
+        headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+
+    if (!response.ok) {
+        console.warn(`Bilder-Gist nicht gefunden: ${response.status}`);
+        return null;
+    }
+
+    const gist = await response.json();
+    const content = gist.files['portfolio-attachments.json']?.content;
+    return content ? JSON.parse(content) : null;
 }
 
 async function saveToGist(data) {
     const GIST_FILE_SIZE_LIMIT = 950 * 1024; // 950 KB, with a safety margin from 1MB
-    let contentToSave = JSON.stringify(data, null, 2);
+
+    // Extrahiere alle Bild-Anhänge aus den Notizen
+    const attachmentsData = {};
+    const dataWithoutAttachments = JSON.parse(JSON.stringify(data));
+
+    dataWithoutAttachments.notes = dataWithoutAttachments.notes.map(note => {
+        if (note.attachments && note.attachments.length > 0) {
+            // Speichere Anhänge separat
+            attachmentsData[note.id] = note.attachments;
+            // Entferne Anhänge aus den Haupt-Daten
+            const { attachments, ...rest } = note;
+            return rest;
+        }
+        return note;
+    });
+
+    const contentToSave = JSON.stringify(dataWithoutAttachments, null, 2);
 
     if (contentToSave.length > GIST_FILE_SIZE_LIMIT) {
-        showNotification('Daten > 950KB, versuche ohne Anhänge zu speichern...', 'warning');
-        const dataWithoutAttachments = JSON.parse(JSON.stringify(data)); // deep clone
-        let attachmentsRemovedCount = 0;
-        dataWithoutAttachments.notes = dataWithoutAttachments.notes.map(note => {
-            if (note.attachments && note.attachments.length > 0) {
-                attachmentsRemovedCount += note.attachments.length;
-                const { attachments, ...rest } = note;
-                rest.content = (rest.content || '') + `\n\n[${attachments.length} Anhänge wurden beim Cloud-Sync entfernt, um die Dateigröße zu reduzieren.]`;
-                return rest;
-            }
-            return note;
-        });
-
-        contentToSave = JSON.stringify(dataWithoutAttachments, null, 2);
-
-        if (contentToSave.length > GIST_FILE_SIZE_LIMIT) {
-            throw new Error(`Daten auch ohne Anhänge zu groß (${(contentToSave.length / 1024).toFixed(0)} KB). Bitte alte Einträge oder Notizen löschen.`);
-        }
-        if (attachmentsRemovedCount > 0) {
-            showNotification(`${attachmentsRemovedCount} Anhänge für Sync entfernt.`, 'info');
-        }
+        throw new Error(`Daten ohne Anhänge zu groß (${(contentToSave.length / 1024).toFixed(0)} KB). Bitte alte Einträge oder Notizen löschen.`);
     }
 
+    // Speichere Haupt-Daten
     const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
         method: 'PATCH',
         headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: contentToSave } } })
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
+
+    // Speichere Bilder separat, falls vorhanden
+    if (Object.keys(attachmentsData).length > 0) {
+        await saveAttachmentsToGist(attachmentsData);
+    }
+}
+
+async function saveAttachmentsToGist(attachmentsData) {
+    const attachmentsContent = JSON.stringify(attachmentsData, null, 2);
+
+    // Erstelle Bilder-Gist, falls noch nicht vorhanden
+    if (!imagesGistId) {
+        const createResponse = await fetch(`${GITHUB_API}/gists`, {
+            method: 'POST',
+            headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                description: 'Portfolio Tracker - Bilder & Anhänge',
+                public: false,
+                files: { 'portfolio-attachments.json': { content: attachmentsContent } }
+            })
+        });
+
+        if (!createResponse.ok) throw new Error(`Fehler beim Erstellen des Bilder-Gists: ${createResponse.status}`);
+
+        const newGist = await createResponse.json();
+        imagesGistId = newGist.id;
+        localStorage.setItem(`${STORAGE_PREFIX}imagesGistId`, imagesGistId);
+        showNotification('Bilder-Gist automatisch erstellt!', 'success');
+    } else {
+        // Update existierenden Bilder-Gist
+        const updateResponse = await fetch(`${GITHUB_API}/gists/${imagesGistId}`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: { 'portfolio-attachments.json': { content: attachmentsContent } } })
+        });
+
+        if (!updateResponse.ok) throw new Error(`Fehler beim Update des Bilder-Gists: ${updateResponse.status}`);
+    }
 }
 
 async function mergeData(localData, cloudData) {
