@@ -1877,8 +1877,8 @@ function loadImageFromDataUrl(dataUrl) {
 }
 
 async function optimizeImageDataUrl(dataUrl, mimeType) {
-    const MAX_DIMENSION = 1600;
-    const TARGET_SIZE_BYTES = 900 * 1024;
+    const MAX_DIMENSION = 1200;
+    const TARGET_SIZE_BYTES = 400 * 1024;
 
     const image = await loadImageFromDataUrl(dataUrl);
     const width = image.naturalWidth || image.width;
@@ -1906,7 +1906,7 @@ async function optimizeImageDataUrl(dataUrl, mimeType) {
     ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
 
     let outputType = mimeType === 'image/png' ? 'image/png' : 'image/webp';
-    let quality = 0.82;
+    let quality = 0.75;
     let optimized = canvas.toDataURL(outputType, quality);
     let optimizedSize = calculateDataUrlSize(optimized);
 
@@ -1916,17 +1916,49 @@ async function optimizeImageDataUrl(dataUrl, mimeType) {
         optimizedSize = calculateDataUrlSize(optimized);
     }
 
-    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.5) {
-        quality = Math.max(0.5, quality - 0.08);
+    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.4) {
+        quality = Math.max(0.4, quality - 0.1);
         optimized = canvas.toDataURL(outputType, quality);
         optimizedSize = calculateDataUrlSize(optimized);
-        if (quality <= 0.5) break;
+        if (quality <= 0.4) break;
     }
 
     return { dataUrl: optimized, mimeType: outputType, size: optimizedSize };
 }
 
+async function uploadToImgur(base64Data) {
+    // Entferne "data:image/...;base64," Prefix
+    const base64 = base64Data.split(',')[1];
+
+    try {
+        const response = await fetch('https://api.imgur.com/3/image', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Client-ID b3625162d3701e5',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ image: base64, type: 'base64' })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Imgur API Fehler: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.success && data.data && data.data.link) {
+            return data.data.link;
+        }
+
+        throw new Error('Imgur Upload fehlgeschlagen');
+    } catch (error) {
+        console.error('Imgur Upload Fehler:', error);
+        throw error;
+    }
+}
+
 async function prepareNoteAttachment(file) {
+    const IMGUR_THRESHOLD = 400 * 1024; // 400KB
+
     const baseDataUrl = await readFileAsDataURL(file);
     const baseSize = calculateDataUrlSize(baseDataUrl);
     const attachment = {
@@ -1935,7 +1967,8 @@ async function prepareNoteAttachment(file) {
         type: file.type,
         originalSize: file.size,
         size: baseSize,
-        data: baseDataUrl
+        data: baseDataUrl,
+        storage: 'gist'
     };
 
     if (!file.type.startsWith('image/')) {
@@ -1952,6 +1985,38 @@ async function prepareNoteAttachment(file) {
                 if (optimized.mimeType) {
                     attachment.type = optimized.mimeType;
                 }
+            }
+        }
+
+        // Wenn Bild immer noch > 400KB: Upload zu Imgur
+        if (attachment.size >= IMGUR_THRESHOLD) {
+            showNotification('Großes Bild wird zu Imgur hochgeladen...', 'info');
+            try {
+                const imgurUrl = await uploadToImgur(attachment.data);
+                attachment.storage = 'imgur';
+                attachment.url = imgurUrl;
+                // Behalte kleine Thumbnail für Vorschau
+                const thumbnailSize = 50 * 1024; // 50KB Thumbnail
+                if (attachment.size > thumbnailSize) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 150;
+                    canvas.height = 150;
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = attachment.data;
+                    });
+                    ctx.drawImage(img, 0, 0, 150, 150);
+                    attachment.thumbnail = canvas.toDataURL('image/webp', 0.6);
+                }
+                // Entferne große Base64-Daten
+                delete attachment.data;
+                showNotification('Bild erfolgreich zu Imgur hochgeladen!', 'success');
+            } catch (error) {
+                console.error('Imgur Upload fehlgeschlagen, behalte lokale Kopie:', error);
+                showNotification('Imgur nicht erreichbar - Bild wird lokal gespeichert', 'warning');
             }
         }
     } catch (error) {
@@ -2030,7 +2095,18 @@ function getFilteredNotes() {
 }
 
 function openNoteAttachment(attachment) {
-    if (!attachment || !attachment.data) {
+    if (!attachment) {
+        return;
+    }
+
+    // Bestimme Bild-URL basierend auf Storage-Typ
+    let imageUrl;
+    if (attachment.storage === 'imgur' && attachment.url) {
+        imageUrl = attachment.url;
+    } else if (attachment.data) {
+        imageUrl = attachment.data;
+    } else {
+        showNotification('Bild nicht verfügbar', 'error');
         return;
     }
 
@@ -2052,7 +2128,7 @@ function openNoteAttachment(attachment) {
     const title = escapeHtml(rawName);
 
     viewer.document.open();
-    viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${attachment.data}" alt="${title}"></body></html>`);
+    viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${imageUrl}" alt="${title}"></body></html>`);
     viewer.document.close();
     viewer.focus();
 }
@@ -2143,7 +2219,12 @@ function buildNoteCard(note) {
             });
 
             const thumb = document.createElement('img');
-            thumb.src = attachment.data;
+            // Verwende Thumbnail für Imgur-Bilder, sonst data
+            if (attachment.storage === 'imgur') {
+                thumb.src = attachment.thumbnail || attachment.url || '';
+            } else {
+                thumb.src = attachment.data || '';
+            }
             thumb.alt = attachment.name || 'Screenshot';
             link.appendChild(thumb);
 
