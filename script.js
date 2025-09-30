@@ -2864,9 +2864,14 @@ async function smartMerge(localData, cloudData) {
     merged.notes = Array.from(notesMap.values());
     // *** Ende Notizen-Merge ***
 
+    // Übernehme imagesGistId aus Cloud, falls vorhanden
+    if (cloudData.imagesGistId) {
+        merged.imagesGistId = cloudData.imagesGistId;
+    }
+
     merged.lastSync = new Date().toISOString();
     merged.lastModifiedDevice = getDeviceId();
-    
+
     const newEntriesCount = cloudData.entries.filter(e => !localEntryIds.has(e.id)).length;
     let mergeMessage = `Smart Merge: ${newEntriesCount} neue Einträge`;
     if (newNotesFromCloud > 0) {
@@ -2874,7 +2879,7 @@ async function smartMerge(localData, cloudData) {
     }
     mergeMessage += ' hinzugefügt.';
     showNotification(mergeMessage, "success");
-    
+
     return merged;
 }
 
