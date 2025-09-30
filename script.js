@@ -2626,6 +2626,13 @@ async function fetchGistData() {
 
     const data = JSON.parse(content);
 
+    // Stelle imagesGistId aus Cloud wieder her
+    if (data.imagesGistId && data.imagesGistId !== imagesGistId) {
+        imagesGistId = data.imagesGistId;
+        localStorage.setItem(`${STORAGE_PREFIX}imagesGistId`, imagesGistId);
+        console.log('Bilder-Gist ID aus Cloud wiederhergestellt:', imagesGistId);
+    }
+
     // Lade Bilder-Anhänge separat, falls Bilder-Gist existiert
     if (imagesGistId) {
         try {
@@ -2683,6 +2690,14 @@ async function saveToGist(data) {
         return note;
     });
 
+    // Speichere Bilder separat, falls vorhanden (VOR dem Haupt-Gist!)
+    if (Object.keys(attachmentsData).length > 0) {
+        await saveAttachmentsToGist(attachmentsData);
+    }
+
+    // Füge imagesGistId zu den Metadaten hinzu
+    dataWithoutAttachments.imagesGistId = imagesGistId;
+
     const contentToSave = JSON.stringify(dataWithoutAttachments, null, 2);
 
     if (contentToSave.length > GIST_FILE_SIZE_LIMIT) {
@@ -2696,11 +2711,6 @@ async function saveToGist(data) {
         body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: contentToSave } } })
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
-
-    // Speichere Bilder separat, falls vorhanden
-    if (Object.keys(attachmentsData).length > 0) {
-        await saveAttachmentsToGist(attachmentsData);
-    }
 }
 
 async function saveAttachmentsToGist(attachmentsData) {
