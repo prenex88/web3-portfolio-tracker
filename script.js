@@ -475,6 +475,7 @@ let showForecastScenarios = true;
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
 let syncInProgress = false;
+const GITHUB_IMAGES_REPO = 'prenex88/portfolio-images'; // Repo für Bilder
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
@@ -1824,7 +1825,7 @@ function generateNoteId(prefix = 'note') {
         removeBtn.addEventListener('click', () => removeNoteAttachment(attachment.id));
 
         const preview = document.createElement('img');
-        preview.src = attachment.data || '';
+        preview.src = attachment.thumbnail || attachment.url || attachment.data || '';
         preview.alt = attachment.name || 'Anhang';
 
         const meta = document.createElement('div');
@@ -1876,8 +1877,8 @@ function loadImageFromDataUrl(dataUrl) {
 }
 
 async function optimizeImageDataUrl(dataUrl, mimeType) {
-    const MAX_DIMENSION = 800;
-    const TARGET_SIZE_BYTES = 50 * 1024; // Extrem klein: 50KB
+    const MAX_DIMENSION = 1200;
+    const TARGET_SIZE_BYTES = 100 * 1024; // Max 100KB
 
     const image = await loadImageFromDataUrl(dataUrl);
     const width = image.naturalWidth || image.width;
@@ -1921,7 +1922,64 @@ async function optimizeImageDataUrl(dataUrl, mimeType) {
     return { dataUrl: optimized, mimeType: outputType, size: optimizedSize };
 }
 
+async function uploadToGitHub(file, optimizedDataUrl) {
+    // Konvertiere DataURL zu Base64
+    const base64 = optimizedDataUrl.split(',')[1];
+
+    try {
+        // Upload direkt ins Repo
+        const uploadUrl = await uploadImageToGitHub(base64, file.name);
+        return uploadUrl;
+    } catch (error) {
+        console.error('GitHub Upload Fehler:', error);
+        throw error;
+    }
+}
+
+async function uploadImageToGitHub(base64Content, filename) {
+    // Erstelle Pfad: images/YYYY-MM/timestamp-filename
+    const monthPath = new Date().toISOString().slice(0, 7); // z.B. "2025-01"
+    const timestamp = Date.now();
+    const path = `images/${monthPath}/${timestamp}-${filename}`;
+
+    console.log('📤 Upload zu GitHub:', path);
+
+    // Upload via Git Contents API
+    const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_IMAGES_REPO}/contents/${path}`,
+        {
+            method: 'PUT',
+            headers: {
+                'Authorization': `token ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: `Upload ${filename}`,
+                content: base64Content,
+                branch: 'main'
+            })
+        }
+    );
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        console.error('GitHub API Error:', errorData);
+        throw new Error(`GitHub Upload fehlgeschlagen: ${response.status} - ${errorData.message || 'Unknown error'}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Upload erfolgreich:', data.content.html_url);
+
+    // Nutze html_url + ?raw=true für direkten Bildabruf
+    const rawUrl = `${data.content.html_url}?raw=true`;
+    console.log('📸 Raw URL:', rawUrl);
+    return rawUrl;
+}
+
 async function prepareNoteAttachment(file) {
+    const OPTIMIZATION_THRESHOLD = 100 * 1024; // Nur komprimieren wenn >100KB
+
     const baseDataUrl = await readFileAsDataURL(file);
     const baseSize = calculateDataUrlSize(baseDataUrl);
     const attachment = {
@@ -1937,22 +1995,60 @@ async function prepareNoteAttachment(file) {
         return attachment;
     }
 
-    // Extreme Komprimierung für Gist-Speicherung
-    showNotification('Bild wird optimiert...', 'info');
-    try {
-        const optimized = await optimizeImageDataUrl(baseDataUrl, file.type);
-        if (optimized && optimized.dataUrl) {
-            const optimizedSize = optimized.size || calculateDataUrlSize(optimized.dataUrl);
-            attachment.data = optimized.dataUrl;
-            attachment.size = optimizedSize;
-            attachment.type = optimized.mimeType || file.type;
+    // Optimiere Bild falls nötig
+    let dataToUpload = baseDataUrl;
+    if (baseSize > OPTIMIZATION_THRESHOLD) {
+        showNotification('Großes Bild wird optimiert...', 'info');
+        try {
+            const optimized = await optimizeImageDataUrl(baseDataUrl, file.type);
+            if (optimized && optimized.dataUrl) {
+                const optimizedSize = optimized.size || calculateDataUrlSize(optimized.dataUrl);
+                dataToUpload = optimized.dataUrl;
+                attachment.size = optimizedSize;
+                attachment.type = optimized.mimeType || file.type;
 
-            const savedKB = ((baseSize - optimizedSize) / 1024).toFixed(0);
-            showNotification(`Bild optimiert! ${savedKB}KB gespart`, 'success');
+                const savedKB = ((baseSize - optimizedSize) / 1024).toFixed(0);
+                console.log(`Bild optimiert: ${savedKB}KB gespart`);
+            }
+        } catch (error) {
+            console.warn('Konnte Bildanhang nicht optimieren:', error);
+        }
+    }
+
+    // Upload zu GitHub
+    showNotification('Bild wird hochgeladen...', 'info');
+    try {
+        const githubUrl = await uploadToGitHub(file, dataToUpload);
+
+        if (githubUrl) {
+            // Speichere nur URL + kleines Thumbnail
+            const canvas = document.createElement('canvas');
+            canvas.width = 150;
+            canvas.height = 150;
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = dataToUpload;
+            });
+            ctx.drawImage(img, 0, 0, 150, 150);
+
+            attachment.url = githubUrl;
+            attachment.thumbnail = canvas.toDataURL('image/webp', 0.6);
+            attachment.storage = 'github';
+            delete attachment.data; // Entferne Base64, spare Platz!
+
+            showNotification('Bild auf GitHub hochgeladen!', 'success');
+        } else {
+            throw new Error('Upload fehlgeschlagen');
         }
     } catch (error) {
-        console.warn('Konnte Bildanhang nicht optimieren:', error);
-        showNotification('Warnung: Bild konnte nicht optimiert werden', 'warning');
+        console.error('GitHub Upload Fehler:', error);
+        showNotification('Upload fehlgeschlagen - Bild wird lokal gespeichert', 'warning');
+        // Behalte Base64 als Fallback
+        attachment.data = dataToUpload;
+        attachment.storage = 'local';
     }
 
     return attachment;
@@ -2026,21 +2122,13 @@ function getFilteredNotes() {
     });
 }
 
-function openNoteAttachment(attachment) {
-    if (!attachment || !attachment.data) {
+async function openNoteAttachment(attachment) {
+    if (!attachment) {
         showNotification('Bild nicht verfügbar', 'error');
         return;
     }
 
-    const imageUrl = attachment.data;
-
-    const viewer = window.open('', '_blank');
-    if (!viewer) {
-        showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
-        return;
-    }
-
-    viewer.opener = null;
+    console.log('🖼️ Öffne Attachment:', attachment);
 
     const rawName = attachment.name || 'Screenshot';
     const escapeHtml = (value) => String(value)
@@ -2051,6 +2139,76 @@ function openNoteAttachment(attachment) {
         .replace(/'/g, '&#39;');
     const title = escapeHtml(rawName);
 
+    // Wenn GitHub-URL: Lade über API mit Token
+    if (attachment.storage === 'github' && attachment.url) {
+        console.log('📸 Lade von GitHub:', attachment.url);
+
+        try {
+            // Konvertiere github.com URL zu API URL
+            // Von: https://github.com/prenex88/portfolio-images/blob/main/images/2025-10/file.png?raw=true
+            // Zu:  https://api.github.com/repos/prenex88/portfolio-images/contents/images/2025-10/file.png
+            const urlMatch = attachment.url.match(/github\.com\/([^/]+\/[^/]+)\/blob\/main\/(.+?)\?raw=true/);
+            if (!urlMatch) {
+                throw new Error('Ungültiges GitHub URL Format');
+            }
+
+            const repo = urlMatch[1]; // z.B. "prenex88/portfolio-images"
+            const path = decodeURIComponent(urlMatch[2]); // z.B. "images/2025-10/file.png"
+            const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+
+            console.log('📡 API Request:', apiUrl);
+
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `token ${githubToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const base64Content = data.content.replace(/\n/g, ''); // GitHub API gibt Base64 mit Zeilenumbrüchen
+            const mimeType = attachment.type || 'image/webp';
+            const dataUrl = `data:${mimeType};base64,${base64Content}`;
+
+            const viewer = window.open('', '_blank');
+            if (!viewer) {
+                showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
+                return;
+            }
+            viewer.opener = null;
+            viewer.document.open();
+            viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${dataUrl}" alt="${title}"></body></html>`);
+            viewer.document.close();
+            viewer.focus();
+
+        } catch (error) {
+            console.error('❌ Fehler beim Laden von GitHub:', error);
+            showNotification('Bild konnte nicht geladen werden', 'error');
+        }
+        return;
+    }
+
+    // Fallback: Base64 direkt nutzen
+    const imageUrl = attachment.data;
+    console.log('📸 Nutze lokale Daten');
+
+    if (!imageUrl) {
+        console.error('❌ Keine Daten vorhanden!');
+        showNotification('Bild nicht verfügbar', 'error');
+        return;
+    }
+
+    const viewer = window.open('', '_blank');
+    if (!viewer) {
+        showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
+        return;
+    }
+
+    viewer.opener = null;
     viewer.document.open();
     viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${imageUrl}" alt="${title}"></body></html>`);
     viewer.document.close();
@@ -2143,7 +2301,7 @@ function buildNoteCard(note) {
             });
 
             const thumb = document.createElement('img');
-            thumb.src = attachment.data || '';
+            thumb.src = attachment.thumbnail || attachment.url || attachment.data || '';
             thumb.alt = attachment.name || 'Screenshot';
             link.appendChild(thumb);
 
@@ -2243,9 +2401,17 @@ function saveNote() {
             id: att.id || generateNoteId('attachment'),
             name: att.name,
             type: att.type,
-            size: att.size || calculateDataUrlSize(att.data),
-            data: att.data
+            size: att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
         };
+
+        // Speichere je nach Storage-Typ
+        if (att.storage === 'github' && att.url) {
+            attachment.storage = 'github';
+            attachment.url = att.url;
+            attachment.thumbnail = att.thumbnail;
+        } else if (att.data) {
+            attachment.data = att.data;
+        }
 
         if (att.originalSize) {
             attachment.originalSize = att.originalSize;
@@ -2314,7 +2480,7 @@ function editNote(noteId) {
     if (contentInput) contentInput.value = note.content || '';
     noteEditorAttachments = (note.attachments || []).map(att => ({
         ...att,
-        originalSize: att.originalSize || att.size || calculateDataUrlSize(att.data)
+        originalSize: att.originalSize || att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
     }));
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
@@ -2633,11 +2799,27 @@ async function fetchGistData() {
 async function saveToGist(data) {
     const GIST_FILE_SIZE_LIMIT = 950 * 1024; // 950 KB
 
-    // Notizen mit Imgur-URLs bleiben im Haupt-Gist (winzig klein!)
     const contentToSave = JSON.stringify(data, null, 2);
+    const currentSize = contentToSave.length;
 
-    if (contentToSave.length > GIST_FILE_SIZE_LIMIT) {
-        throw new Error(`Daten zu groß (${(contentToSave.length / 1024).toFixed(0)} KB). Bitte alte Einträge oder Notizen löschen.`);
+    if (currentSize > GIST_FILE_SIZE_LIMIT) {
+        // Zähle Bilder in Notizen
+        const imageCount = data.notes.reduce((sum, note) => sum + (note.attachments?.length || 0), 0);
+
+        throw new Error(
+            `Daten zu groß (${(currentSize / 1024).toFixed(0)} KB / 950 KB).\n\n` +
+            `Du hast ${imageCount} Bilder in Notizen.\n\n` +
+            `Lösungen:\n` +
+            `• Lösche alte Notizen mit Bildern\n` +
+            `• Exportiere alte Notizen (JSON Backup)\n` +
+            `• Lösche alte Portfolio-Einträge`
+        );
+    }
+
+    // Warnung bei 80% voll
+    if (currentSize > GIST_FILE_SIZE_LIMIT * 0.8) {
+        const percentUsed = ((currentSize / GIST_FILE_SIZE_LIMIT) * 100).toFixed(0);
+        showNotification(`Gist zu ${percentUsed}% voll - bald Platz schaffen!`, 'warning');
     }
 
     // Speichere Haupt-Daten
