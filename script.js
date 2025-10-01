@@ -474,7 +474,6 @@ let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
-let imagesGistId = null; // Separater Gist für Bilder
 let syncInProgress = false;
 let autoSyncTimeout = null;
 let lastSyncTime = null;
@@ -1825,7 +1824,7 @@ function generateNoteId(prefix = 'note') {
         removeBtn.addEventListener('click', () => removeNoteAttachment(attachment.id));
 
         const preview = document.createElement('img');
-        preview.src = attachment.data;
+        preview.src = attachment.data || '';
         preview.alt = attachment.name || 'Anhang';
 
         const meta = document.createElement('div');
@@ -1877,8 +1876,8 @@ function loadImageFromDataUrl(dataUrl) {
 }
 
 async function optimizeImageDataUrl(dataUrl, mimeType) {
-    const MAX_DIMENSION = 1200;
-    const TARGET_SIZE_BYTES = 400 * 1024;
+    const MAX_DIMENSION = 800;
+    const TARGET_SIZE_BYTES = 50 * 1024; // Extrem klein: 50KB
 
     const image = await loadImageFromDataUrl(dataUrl);
     const width = image.naturalWidth || image.width;
@@ -1905,60 +1904,24 @@ async function optimizeImageDataUrl(dataUrl, mimeType) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
 
-    let outputType = mimeType === 'image/png' ? 'image/png' : 'image/webp';
-    let quality = 0.75;
+    // Immer WebP für maximale Komprimierung
+    let outputType = 'image/webp';
+    let quality = 0.6;
     let optimized = canvas.toDataURL(outputType, quality);
     let optimizedSize = calculateDataUrlSize(optimized);
 
-    if (optimizedSize > TARGET_SIZE_BYTES && outputType === 'image/png') {
-        outputType = 'image/webp';
+    // Aggressive Qualitätsreduktion bis 50KB erreicht
+    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.2) {
+        quality = Math.max(0.2, quality - 0.05);
         optimized = canvas.toDataURL(outputType, quality);
         optimizedSize = calculateDataUrlSize(optimized);
-    }
-
-    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.4) {
-        quality = Math.max(0.4, quality - 0.1);
-        optimized = canvas.toDataURL(outputType, quality);
-        optimizedSize = calculateDataUrlSize(optimized);
-        if (quality <= 0.4) break;
+        if (quality <= 0.2) break;
     }
 
     return { dataUrl: optimized, mimeType: outputType, size: optimizedSize };
 }
 
-async function uploadToImgur(base64Data) {
-    // Entferne "data:image/...;base64," Prefix
-    const base64 = base64Data.split(',')[1];
-
-    try {
-        const response = await fetch('https://api.imgur.com/3/image', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Client-ID b3625162d3701e5',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ image: base64, type: 'base64' })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Imgur API Fehler: ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (data.success && data.data && data.data.link) {
-            return data.data.link;
-        }
-
-        throw new Error('Imgur Upload fehlgeschlagen');
-    } catch (error) {
-        console.error('Imgur Upload Fehler:', error);
-        throw error;
-    }
-}
-
 async function prepareNoteAttachment(file) {
-    const IMGUR_THRESHOLD = 400 * 1024; // 400KB
-
     const baseDataUrl = await readFileAsDataURL(file);
     const baseSize = calculateDataUrlSize(baseDataUrl);
     const attachment = {
@@ -1967,60 +1930,29 @@ async function prepareNoteAttachment(file) {
         type: file.type,
         originalSize: file.size,
         size: baseSize,
-        data: baseDataUrl,
-        storage: 'gist'
+        data: baseDataUrl
     };
 
     if (!file.type.startsWith('image/')) {
         return attachment;
     }
 
+    // Extreme Komprimierung für Gist-Speicherung
+    showNotification('Bild wird optimiert...', 'info');
     try {
         const optimized = await optimizeImageDataUrl(baseDataUrl, file.type);
         if (optimized && optimized.dataUrl) {
             const optimizedSize = optimized.size || calculateDataUrlSize(optimized.dataUrl);
-            if (optimizedSize > 0 && optimizedSize < baseSize) {
-                attachment.data = optimized.dataUrl;
-                attachment.size = optimizedSize;
-                if (optimized.mimeType) {
-                    attachment.type = optimized.mimeType;
-                }
-            }
-        }
+            attachment.data = optimized.dataUrl;
+            attachment.size = optimizedSize;
+            attachment.type = optimized.mimeType || file.type;
 
-        // Wenn Bild immer noch > 400KB: Upload zu Imgur
-        if (attachment.size >= IMGUR_THRESHOLD) {
-            showNotification('Großes Bild wird zu Imgur hochgeladen...', 'info');
-            try {
-                const imgurUrl = await uploadToImgur(attachment.data);
-                attachment.storage = 'imgur';
-                attachment.url = imgurUrl;
-                // Behalte kleine Thumbnail für Vorschau
-                const thumbnailSize = 50 * 1024; // 50KB Thumbnail
-                if (attachment.size > thumbnailSize) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 150;
-                    canvas.height = 150;
-                    const ctx = canvas.getContext('2d');
-                    const img = new Image();
-                    await new Promise((resolve, reject) => {
-                        img.onload = resolve;
-                        img.onerror = reject;
-                        img.src = attachment.data;
-                    });
-                    ctx.drawImage(img, 0, 0, 150, 150);
-                    attachment.thumbnail = canvas.toDataURL('image/webp', 0.6);
-                }
-                // Entferne große Base64-Daten
-                delete attachment.data;
-                showNotification('Bild erfolgreich zu Imgur hochgeladen!', 'success');
-            } catch (error) {
-                console.error('Imgur Upload fehlgeschlagen, behalte lokale Kopie:', error);
-                showNotification('Imgur nicht erreichbar - Bild wird lokal gespeichert', 'warning');
-            }
+            const savedKB = ((baseSize - optimizedSize) / 1024).toFixed(0);
+            showNotification(`Bild optimiert! ${savedKB}KB gespart`, 'success');
         }
     } catch (error) {
         console.warn('Konnte Bildanhang nicht optimieren:', error);
+        showNotification('Warnung: Bild konnte nicht optimiert werden', 'warning');
     }
 
     return attachment;
@@ -2095,20 +2027,12 @@ function getFilteredNotes() {
 }
 
 function openNoteAttachment(attachment) {
-    if (!attachment) {
-        return;
-    }
-
-    // Bestimme Bild-URL basierend auf Storage-Typ
-    let imageUrl;
-    if (attachment.storage === 'imgur' && attachment.url) {
-        imageUrl = attachment.url;
-    } else if (attachment.data) {
-        imageUrl = attachment.data;
-    } else {
+    if (!attachment || !attachment.data) {
         showNotification('Bild nicht verfügbar', 'error');
         return;
     }
+
+    const imageUrl = attachment.data;
 
     const viewer = window.open('', '_blank');
     if (!viewer) {
@@ -2219,12 +2143,7 @@ function buildNoteCard(note) {
             });
 
             const thumb = document.createElement('img');
-            // Verwende Thumbnail für Imgur-Bilder, sonst data
-            if (attachment.storage === 'imgur') {
-                thumb.src = attachment.thumbnail || attachment.url || '';
-            } else {
-                thumb.src = attachment.data || '';
-            }
+            thumb.src = attachment.data || '';
             thumb.alt = attachment.name || 'Screenshot';
             link.appendChild(thumb);
 
@@ -2327,6 +2246,7 @@ function saveNote() {
             size: att.size || calculateDataUrlSize(att.data),
             data: att.data
         };
+
         if (att.originalSize) {
             attachment.originalSize = att.originalSize;
         }
@@ -2554,7 +2474,6 @@ function getDeviceId() {
 
 function loadGitHubConfig() {
     githubToken = localStorage.getItem(`${STORAGE_PREFIX}githubToken`);
-    imagesGistId = localStorage.getItem(`${STORAGE_PREFIX}imagesGistId`);
     lastSyncTime = localStorage.getItem(`${STORAGE_PREFIX}lastSyncTime`);
     const autoSync = localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true';
     getDeviceId();
@@ -2706,83 +2625,19 @@ async function fetchGistData() {
     if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], notes: [], lastSync: null };
 
     const data = JSON.parse(content);
-
-    // Stelle imagesGistId aus Cloud wieder her
-    if (data.imagesGistId && data.imagesGistId !== imagesGistId) {
-        imagesGistId = data.imagesGistId;
-        localStorage.setItem(`${STORAGE_PREFIX}imagesGistId`, imagesGistId);
-        console.log('Bilder-Gist ID aus Cloud wiederhergestellt:', imagesGistId);
-    }
-
-    // Lade Bilder-Anhänge separat, falls Bilder-Gist existiert
-    if (imagesGistId) {
-        try {
-            const attachmentsData = await fetchAttachmentsFromGist();
-            // Füge Anhänge wieder zu den Notizen hinzu
-            if (data.notes && attachmentsData) {
-                data.notes = data.notes.map(note => {
-                    if (attachmentsData[note.id]) {
-                        return { ...note, attachments: attachmentsData[note.id] };
-                    }
-                    return note;
-                });
-            }
-        } catch (error) {
-            console.error('Fehler beim Laden der Bilder:', error);
-            showNotification('Bilder konnten nicht geladen werden', 'warning');
-        }
-    }
+    console.log('✅ Daten aus Gist geladen (Bilder sind Imgur-URLs)');
 
     return data;
 }
 
-async function fetchAttachmentsFromGist() {
-    if (!imagesGistId) return null;
-
-    const response = await fetch(`${GITHUB_API}/gists/${imagesGistId}`, {
-        headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json' }
-    });
-
-    if (!response.ok) {
-        console.warn(`Bilder-Gist nicht gefunden: ${response.status}`);
-        return null;
-    }
-
-    const gist = await response.json();
-    const content = gist.files['portfolio-attachments.json']?.content;
-    return content ? JSON.parse(content) : null;
-}
-
 async function saveToGist(data) {
-    const GIST_FILE_SIZE_LIMIT = 950 * 1024; // 950 KB, with a safety margin from 1MB
+    const GIST_FILE_SIZE_LIMIT = 950 * 1024; // 950 KB
 
-    // Extrahiere alle Bild-Anhänge aus den Notizen
-    const attachmentsData = {};
-    const dataWithoutAttachments = JSON.parse(JSON.stringify(data));
-
-    dataWithoutAttachments.notes = dataWithoutAttachments.notes.map(note => {
-        if (note.attachments && note.attachments.length > 0) {
-            // Speichere Anhänge separat
-            attachmentsData[note.id] = note.attachments;
-            // Entferne Anhänge aus den Haupt-Daten
-            const { attachments, ...rest } = note;
-            return rest;
-        }
-        return note;
-    });
-
-    // Speichere Bilder separat, falls vorhanden (VOR dem Haupt-Gist!)
-    if (Object.keys(attachmentsData).length > 0) {
-        await saveAttachmentsToGist(attachmentsData);
-    }
-
-    // Füge imagesGistId zu den Metadaten hinzu
-    dataWithoutAttachments.imagesGistId = imagesGistId;
-
-    const contentToSave = JSON.stringify(dataWithoutAttachments, null, 2);
+    // Notizen mit Imgur-URLs bleiben im Haupt-Gist (winzig klein!)
+    const contentToSave = JSON.stringify(data, null, 2);
 
     if (contentToSave.length > GIST_FILE_SIZE_LIMIT) {
-        throw new Error(`Daten ohne Anhänge zu groß (${(contentToSave.length / 1024).toFixed(0)} KB). Bitte alte Einträge oder Notizen löschen.`);
+        throw new Error(`Daten zu groß (${(contentToSave.length / 1024).toFixed(0)} KB). Bitte alte Einträge oder Notizen löschen.`);
     }
 
     // Speichere Haupt-Daten
@@ -2792,39 +2647,6 @@ async function saveToGist(data) {
         body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: contentToSave } } })
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
-}
-
-async function saveAttachmentsToGist(attachmentsData) {
-    const attachmentsContent = JSON.stringify(attachmentsData, null, 2);
-
-    // Erstelle Bilder-Gist, falls noch nicht vorhanden
-    if (!imagesGistId) {
-        const createResponse = await fetch(`${GITHUB_API}/gists`, {
-            method: 'POST',
-            headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                description: 'Portfolio Tracker - Bilder & Anhänge',
-                public: false,
-                files: { 'portfolio-attachments.json': { content: attachmentsContent } }
-            })
-        });
-
-        if (!createResponse.ok) throw new Error(`Fehler beim Erstellen des Bilder-Gists: ${createResponse.status}`);
-
-        const newGist = await createResponse.json();
-        imagesGistId = newGist.id;
-        localStorage.setItem(`${STORAGE_PREFIX}imagesGistId`, imagesGistId);
-        showNotification('Bilder-Gist automatisch erstellt!', 'success');
-    } else {
-        // Update existierenden Bilder-Gist
-        const updateResponse = await fetch(`${GITHUB_API}/gists/${imagesGistId}`, {
-            method: 'PATCH',
-            headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ files: { 'portfolio-attachments.json': { content: attachmentsContent } } })
-        });
-
-        if (!updateResponse.ok) throw new Error(`Fehler beim Update des Bilder-Gists: ${updateResponse.status}`);
-    }
 }
 
 async function mergeData(localData, cloudData) {
@@ -2944,11 +2766,6 @@ async function smartMerge(localData, cloudData) {
 
     merged.notes = Array.from(notesMap.values());
     // *** Ende Notizen-Merge ***
-
-    // Übernehme imagesGistId aus Cloud, falls vorhanden
-    if (cloudData.imagesGistId) {
-        merged.imagesGistId = cloudData.imagesGistId;
-    }
 
     merged.lastSync = new Date().toISOString();
     merged.lastModifiedDevice = getDeviceId();
