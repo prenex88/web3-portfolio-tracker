@@ -353,6 +353,7 @@ const isFxVersion = window.location.pathname.includes('/fx');
 const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
 const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
+const LAST_ACTIVE_TAB_KEY = `${STORAGE_PREFIX}lastActiveTab`;
 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
@@ -387,16 +388,6 @@ const GITHUB_API = 'https://api.github.com';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 const CORS_PROXY = 'https://corsproxy.io/?';
 const MIN_BENCHMARK_DATE = new Date('2024-02-14T00:00:00Z'); // KORRIGIERT: Fallback-Startdatum für Benchmark-Daten
-
-// NEU: Konfiguration für Alpha Vantage als robustere Datenquelle
-const ALPHA_VANTAGE_API_KEY = 'YOUR_API_KEY_HERE'; // Kostenlosen Key auf alphavantage.co erstellen und hier eintragen
-const ALPHA_VANTAGE_API_URL = 'https://www.alphavantage.co/query';
-
-// Mapping von internen Tickern zu Alpha Vantage Symbolen
-const ALPHA_VANTAGE_SYMBOL_MAP = {
-    '^GSPC': 'SPY',       // SPY ist ein ETF, der den S&P 500 abbildet und eine gute Annäherung ist.
-    '^GDAXI': '^GDAXI'      // DAX Index Symbol bei Alpha Vantage
-};
 
 // NEU: URLs für die veröffentlichten Google Sheets (bitte ersetzen)
 const GOOGLE_SHEET_URLS = {
@@ -440,6 +431,7 @@ let platforms = [];
 let entries = [];
 let cashflows = [];
 let dayStrategies = [];
+let notes = [];
 let filteredEntries = [];
 let filteredCashflows = [];
 let selectedPlatforms = [];
@@ -472,12 +464,18 @@ let globalSearchIndex = -1;
 let singleItemFilter = null;
 let globalSearchResults = [];
 
+// Notes workspace state
+let editingNoteId = null;
+let noteEditorAttachments = [];
+let noteSearchTerm = '';
+
 let currentForecastPeriod = 5;
 let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
 let githubToken = null;
 let gistId = GIST_ID_CURRENT;
 let syncInProgress = false;
+const GITHUB_IMAGES_REPO = 'prenex88/portfolio-images'; // Repo für Bilder
 let autoSyncTimeout = null;
 let lastSyncTime = null;
 let syncStatus = 'offline';
@@ -499,6 +497,25 @@ function isMobileDevice() {
 let undoStack = [];
 const MAX_UNDO_STACK = 20;
 
+function getVisibleHistoryIds() {
+    const selectors = [
+        '#historyTableBody tr[data-id]',
+        '#historyListView .history-card[data-id]',
+        '#historyMobileCards .history-card[data-id]',
+        '#historyGroupedView .history-card[data-id]',
+        '#historyByDateView .history-card[data-id]'
+    ];
+
+    const ids = new Set();
+    document.querySelectorAll(selectors.join(', ')).forEach(el => {
+        const entryId = Number(el.dataset.id);
+        if (!Number.isNaN(entryId)) {
+            ids.add(entryId);
+        }
+    });
+    return ids;
+}
+
 // =================================================================================
 // INITIALISIERUNG
 // =================================================================================
@@ -517,6 +534,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setToToday(); // Setzt das Datum im Eingabe-Tab
     setDateFilter('all'); // Setzt den initialen Filter für die gesamte App
     renderPlatformButtons();
+    setEntryStatus('Noch keine Auswahl aktiv.', 'info');
+    updateEntrySummary();
     initializeCharts();
     addEventListeners();
     
@@ -532,6 +551,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateCashflowTargets();
     checkConnectionOnStartup();
     registerServiceWorker(); 
+    warmUpBenchmarkApis(); // NEU: Proaktives Aufwärmen der Google Sheets
     initializeMobileNavigation();
 
     addMissingStyles();
@@ -546,6 +566,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableBatchSelection();
     updateBreadcrumbs();
     convertTablesToMobile();
+
+    setTimeout(restoreLastActiveTab, 150);
 
     window.addEventListener('resize', convertTablesToMobile);
     window.addEventListener('resize', initializeMobileNavigation);
@@ -606,6 +628,7 @@ function saveBackupToIndexedDB() {
         cashflows,
         dayStrategies,
         favorites,
+        notes,
         timestamp: new Date().toISOString()
     };
     const transaction = db.transaction(['backups'], 'readwrite');
@@ -1126,15 +1149,44 @@ function addEventListeners() {
     if (historySearch) {
         historySearch.addEventListener('input', (e) => updateHistory());
     }
-    document.querySelectorAll('input[name="cashflowType"]').forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            document.getElementById('cashflowTargetDiv').style.display = e.target.value === 'deposit' ? 'block' : 'none';
-        });
+    const cashflowTypeRadios = document.querySelectorAll('input[name="cashflowType"]');
+    const cashflowTargetField = document.getElementById('cashflowTargetDiv');
+    const setCashflowTargetVisibility = (value) => {
+        if (!cashflowTargetField) return;
+        cashflowTargetField.style.display = value === 'deposit' ? '' : 'none';
+    };
+
+    cashflowTypeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => setCashflowTargetVisibility(e.target.value));
     });
+    const initialCashflowType = document.querySelector('input[name="cashflowType"]:checked');
+    if (initialCashflowType) {
+        setCashflowTargetVisibility(initialCashflowType.value);
+    }
     const selectAllHistory = document.getElementById('selectAllHistory');
     if (selectAllHistory) {
         selectAllHistory.addEventListener('change', toggleSelectAllHistory);
     }
+
+    const notesSearchInput = document.getElementById('notesSearchInput');
+    if (notesSearchInput) {
+        notesSearchInput.addEventListener('input', (e) => {
+            noteSearchTerm = e.target.value;
+            renderNotesList();
+        });
+    }
+
+    const noteAttachmentInput = document.getElementById('noteAttachmentInput');
+    if (noteAttachmentInput) {
+        noteAttachmentInput.addEventListener('change', handleNoteAttachmentInput);
+    }
+
+    document.getElementById('noteSaveBtn')?.addEventListener('click', saveNote);
+    document.getElementById('noteCancelBtn')?.addEventListener('click', resetNoteForm);
+    document.getElementById('notesNewBtn')?.addEventListener('click', () => {
+        resetNoteForm();
+        document.getElementById('noteTitleInput')?.focus();
+    });
 
     const biometricToggle = document.getElementById('biometricToggle');
     if (biometricToggle) {
@@ -1152,12 +1204,15 @@ function addEventListeners() {
     let isScrolling;
     window.addEventListener('scroll', () => {
         document.body.classList.add('scrolling');
+        hideChartTooltip();
 
         clearTimeout(isScrolling);
         isScrolling = setTimeout(() => {
             document.body.classList.remove('scrolling');
         }, 200); // Entfernt die Klasse nach 200ms Inaktivität
     });
+
+    window.addEventListener('touchmove', () => hideChartTooltip(), { passive: true });
 }
 
 function setupMobileTitle() {
@@ -1183,9 +1238,9 @@ function setupKeyboardShortcuts() {
             else syncNow();
         }
 
-        if (e.altKey && e.key >= '1' && e.key <= '6') {
+        if (e.altKey && e.key >= '1' && e.key <= '7') {
             e.preventDefault();
-            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'cashflow', '4': 'history' };
+            const keyMap = { '1': 'dashboard', '2': 'entry', '3': 'platforms', '4': 'history', '5': 'notes', '6': 'settings' };
             if (keyMap[e.key]) switchTab(keyMap[e.key]);
         }
 
@@ -1250,6 +1305,8 @@ function updateBreadcrumbs() {
         case 'entry': path.push('Neuer Eintrag'); break;
         case 'history': path.push('Historie'); break;
         case 'cashflow': path.push('Cashflow'); break;
+        case 'platforms': path.push('Plattformen'); break;
+        case 'notes': path.push('Notizen'); break;
         case 'settings': path.push('Einstellungen'); break;
     }
 
@@ -1438,6 +1495,7 @@ async function loadData() {
     let cashflowsData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioCashflows`));
     let dayStrategiesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioDayStrategies`));
     let favoritesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioFavorites`));
+    let notesData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}portfolioNotes`));
 
     if (!entriesData || entriesData.length === 0) {
         console.log("LocalStorage ist leer, versuche Wiederherstellung aus IndexedDB-Backup...");
@@ -1449,6 +1507,7 @@ async function loadData() {
                 cashflowsData = backup.cashflows;
                 dayStrategiesData = backup.dayStrategies;
                 favoritesData = backup.favorites;
+                notesData = backup.notes;
                 showNotification("Daten aus dem letzten lokalen Backup wiederhergestellt!", "success");
             }
         } catch (error) {
@@ -1465,6 +1524,7 @@ async function loadData() {
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
+    notes = notesData || [];
     
     console.log(`📊 Loaded data: ${entries.length} entries, ${platforms.length} platforms, ${favorites.length} favorites`);
     if (entries.length > 0) {
@@ -1472,24 +1532,27 @@ async function loadData() {
         console.log(`📅 Entry dates: ${dates.slice(0, 5).join(', ')}${dates.length > 5 ? '...' : ''}`);
     }
     
+    renderNotesList();
+    updateNoteEditorMode();
+    resetNoteForm();
     applyDateFilter();
 }
 
-function saveData(triggerSync = true) {
+﻿function saveData(triggerSync = true) {
     try {
         localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(platforms));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies));
         localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
+        localStorage.setItem(`${STORAGE_PREFIX}portfolioNotes`, JSON.stringify(notes));
         const timestamp = new Date().toISOString();
         localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
         localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
         saveBackupToIndexedDB();
     } catch (error) {
-        if (error.name === 'QuotaExceededError') {
-            showNotification('⚠️ Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
-            // Zeige alle localStorage Keys für Debugging
+        if (error && error.name === 'QuotaExceededError') {
+            showNotification('Speicher voll! Bereinige alte Daten oder nutze Cloud-Sync.', 'error');
             const allKeys = [];
             for (let i = 0; i < localStorage.length; i++) {
                 allKeys.push(localStorage.key(i));
@@ -1499,79 +1562,82 @@ function saveData(triggerSync = true) {
                 entriesCount: entries.length,
                 platformsSize: JSON.stringify(platforms).length,
                 entriesSize: JSON.stringify(entries).length,
-                totalSize: JSON.stringify({platforms, entries, cashflows, dayStrategies, favorites}).length,
+                totalSize: JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites, notes }).length,
                 localStorageKeys: allKeys.length,
-                allKeys: allKeys.slice(0, 20), // Erste 20 Keys zeigen
+                allKeys: allKeys.slice(0, 20),
                 storageUsage: JSON.stringify(localStorage).length
             });
-            
-            // Bereinige aggressiv alte/unnötige localStorage Einträge
+
             const keysToRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && (
-                    !key.startsWith(STORAGE_PREFIX) && 
+                if (
+                    key &&
+                    !key.startsWith(STORAGE_PREFIX) &&
                     !key.includes('theme') &&
                     !key.includes('biometric') &&
                     !key.includes('auth')
-                )) {
+                ) {
                     keysToRemove.push(key);
                 }
             }
-            
-            // Entferne auch alte v10 Daten falls vorhanden
-            const oldKeys = allKeys.filter(k => k && (
-                k.includes('_v10_') || 
-                k.includes('portfolio_') || 
-                k.startsWith('w3pt_') && !k.startsWith(STORAGE_PREFIX)
+
+            const oldKeys = allKeys.filter(key => key && (
+                key.includes('_v10_') ||
+                key.includes('portfolio_') ||
+                (key.startsWith('w3pt_') && !key.startsWith(STORAGE_PREFIX))
             ));
             keysToRemove.push(...oldKeys);
-            
+
             keysToRemove.forEach(key => {
                 try {
                     localStorage.removeItem(key);
-                } catch (e) {
-                    console.warn('Could not remove key:', key);
+                } catch (removeError) {
+                    console.warn('Could not remove key:', key, removeError);
                 }
             });
-            
-            // Versuche nur die wichtigsten Daten zu speichern
+
             try {
-                // WICHTIG: Erst Einträge speichern (höchste Priorität)
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioEntries`, JSON.stringify(entries));
-                console.log(`✅ Saved ${entries.length} entries successfully`);
-                
+                console.log(`Saved ${entries.length} entries successfully`);
+
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioFavorites`, JSON.stringify(favorites));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioCashflows`, JSON.stringify(cashflows || []));
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioDayStrategies`, JSON.stringify(dayStrategies || []));
-                
-                // Minimale Plattformen (nur die mit Daten)
-                const usedPlatformNames = new Set(entries.map(e => e.protocol));
-                const minimalPlatforms = platforms.filter(p => 
-                    usedPlatformNames.has(p.name) || DEFAULT_PLATFORMS.some(dp => dp.name === p.name)
+                localStorage.setItem(`${STORAGE_PREFIX}portfolioNotes`, JSON.stringify(notes || []));
+
+                const usedPlatformNames = new Set(entries.map(entry => entry.protocol));
+                const minimalPlatforms = platforms.filter(platform =>
+                    usedPlatformNames.has(platform.name) ||
+                    DEFAULT_PLATFORMS.some(defaultPlatform => defaultPlatform.name === platform.name)
                 );
                 localStorage.setItem(`${STORAGE_PREFIX}portfolioPlatforms`, JSON.stringify(minimalPlatforms));
-                
+
                 const timestamp = new Date().toISOString();
                 localStorage.setItem(`${STORAGE_PREFIX}lastModified`, timestamp);
                 localStorage.setItem(`${STORAGE_PREFIX}lastModifiedDevice`, getDeviceId());
-                
-                showNotification(`⚠️ ${keysToRemove.length} alte Keys entfernt, ${entries.length} Einträge gesichert`, 'warning');
-                console.log(`✅ Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
+
+                showNotification(`${keysToRemove.length} alte Keys entfernt, ${entries.length} Eintraege gesichert`, 'warning');
+                console.log(`Emergency save completed: ${entries.length} entries, ${minimalPlatforms.length} platforms`);
                 console.log(`Removed ${keysToRemove.length} old keys:`, keysToRemove.slice(0, 10));
-            } catch (e) {
-                console.error('Critical storage error:', e);
-                showNotification('❌ Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
+            } catch (cleanupError) {
+                console.error('Critical storage error:', cleanupError);
+                showNotification('Kritischer Speicherfehler - nutze Cloud-Sync!', 'error');
             }
-            return;
+            return false;
         }
-        throw error;
+
+        console.error('Unexpected storage error:', error);
+        showNotification('Speichern fehlgeschlagen. Details in der Konsole.', 'error');
+        return false;
     }
 
     if (triggerSync && githubToken && gistId && localStorage.getItem(`${STORAGE_PREFIX}autoSync`) === 'true') {
         clearTimeout(autoSyncTimeout);
         autoSyncTimeout = setTimeout(() => syncNow(), 2000);
     }
+
+    return true;
 }
 
 function applyDateFilter() {
@@ -1701,6 +1767,766 @@ function updateFilterBadge() {
     if (badge) badge.style.display = badgeText ? 'inline-block' : 'none';
 }
 
+// =================================================================================
+// NOTES WORKSPACE
+// =================================================================================
+function resetNoteForm() {
+    editingNoteId = null;
+    noteEditorAttachments = [];
+    const titleInput = document.getElementById('noteTitleInput');
+    const contentInput = document.getElementById('noteContentInput');
+    const fileInput = document.getElementById('noteAttachmentInput');
+    if (titleInput) titleInput.value = '';
+    if (contentInput) contentInput.value = '';
+    if (fileInput) fileInput.value = '';
+    updateNoteAttachmentPreview();
+    updateNoteEditorMode();
+}
+
+function updateNoteEditorMode() {
+    const editor = document.getElementById('noteEditor');
+    const saveBtn = document.getElementById('noteSaveBtn');
+    const cancelBtn = document.getElementById('noteCancelBtn');
+    if (!editor || !saveBtn || !cancelBtn) return;
+    if (editingNoteId) {
+        editor.classList.add('editing');
+        saveBtn.textContent = 'Aktualisieren';
+        cancelBtn.textContent = 'Abbrechen';
+    } else {
+        editor.classList.remove('editing');
+        saveBtn.textContent = 'Speichern';
+        cancelBtn.textContent = 'Zurücksetzen';
+    }
+}
+
+function generateNoteId(prefix = 'note') {
+    return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+﻿﻿function updateNoteAttachmentPreview() {
+    const container = document.getElementById('noteAttachmentPreview');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!noteEditorAttachments.length) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = '';
+    noteEditorAttachments.forEach(attachment => {
+        const item = document.createElement('div');
+        item.className = 'note-attachment';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'note-attachment-remove';
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'x';
+        removeBtn.addEventListener('click', () => removeNoteAttachment(attachment.id));
+
+        const preview = document.createElement('img');
+        preview.src = attachment.thumbnail || attachment.url || attachment.data || '';
+        preview.alt = attachment.name || 'Anhang';
+
+        const meta = document.createElement('div');
+        meta.className = 'note-attachment-meta';
+        const sizeText = formatFileSize(attachment.size || 0);
+        const originalSizeText = attachment.originalSize && attachment.originalSize > (attachment.size || 0) + 1024
+            ? ` (von ${formatFileSize(attachment.originalSize)})`
+            : '';
+        meta.textContent = `${attachment.name || 'Screenshot'} - ${sizeText}${originalSizeText}`;
+
+        item.appendChild(removeBtn);
+        item.appendChild(preview);
+        item.appendChild(meta);
+        container.appendChild(item);
+    });
+}
+
+function removeNoteAttachment(attachmentId) {
+    noteEditorAttachments = noteEditorAttachments.filter(att => att.id !== attachmentId);
+    updateNoteAttachmentPreview();
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
+
+function calculateDataUrlSize(dataUrl) {
+    if (!dataUrl) return 0;
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return 0;
+    const base64 = parts[1];
+    const padding = (base64.match(/=+$/) || [''])[0].length;
+    return Math.floor(base64.length * 3 / 4) - padding;
+}
+
+function loadImageFromDataUrl(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.decoding = 'async';
+        img.src = dataUrl;
+    });
+}
+
+async function optimizeImageDataUrl(dataUrl, mimeType) {
+    const MAX_DIMENSION = 1200;
+    const TARGET_SIZE_BYTES = 100 * 1024; // Max 100KB
+
+    const image = await loadImageFromDataUrl(dataUrl);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+        return { dataUrl, mimeType, size: calculateDataUrlSize(dataUrl) };
+    }
+
+    const maxSide = Math.max(width, height);
+    const scale = maxSide > MAX_DIMENSION ? MAX_DIMENSION / maxSide : 1;
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) {
+        return { dataUrl, mimeType, size: calculateDataUrlSize(dataUrl) };
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    // Immer WebP für maximale Komprimierung
+    let outputType = 'image/webp';
+    let quality = 0.6;
+    let optimized = canvas.toDataURL(outputType, quality);
+    let optimizedSize = calculateDataUrlSize(optimized);
+
+    // Aggressive Qualitätsreduktion bis 50KB erreicht
+    while (optimizedSize > TARGET_SIZE_BYTES && quality > 0.2) {
+        quality = Math.max(0.2, quality - 0.05);
+        optimized = canvas.toDataURL(outputType, quality);
+        optimizedSize = calculateDataUrlSize(optimized);
+        if (quality <= 0.2) break;
+    }
+
+    return { dataUrl: optimized, mimeType: outputType, size: optimizedSize };
+}
+
+async function uploadToGitHub(file, optimizedDataUrl) {
+    // Konvertiere DataURL zu Base64
+    const base64 = optimizedDataUrl.split(',')[1];
+
+    try {
+        // Upload direkt ins Repo
+        const uploadUrl = await uploadImageToGitHub(base64, file.name);
+        return uploadUrl;
+    } catch (error) {
+        console.error('GitHub Upload Fehler:', error);
+        throw error;
+    }
+}
+
+async function uploadImageToGitHub(base64Content, filename) {
+    // Erstelle Pfad: images/YYYY-MM/timestamp-filename
+    const monthPath = new Date().toISOString().slice(0, 7); // z.B. "2025-01"
+    const timestamp = Date.now();
+    const path = `images/${monthPath}/${timestamp}-${filename}`;
+
+    console.log('📤 Upload zu GitHub:', path);
+
+    // Upload via Git Contents API
+    const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_IMAGES_REPO}/contents/${path}`,
+        {
+            method: 'PUT',
+            headers: {
+                'Authorization': `token ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: `Upload ${filename}`,
+                content: base64Content,
+                branch: 'main'
+            })
+        }
+    );
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        console.error('GitHub API Error:', errorData);
+        throw new Error(`GitHub Upload fehlgeschlagen: ${response.status} - ${errorData.message || 'Unknown error'}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Upload erfolgreich:', data.content.html_url);
+
+    // Nutze html_url + ?raw=true für direkten Bildabruf
+    const rawUrl = `${data.content.html_url}?raw=true`;
+    console.log('📸 Raw URL:', rawUrl);
+    return rawUrl;
+}
+
+async function prepareNoteAttachment(file) {
+    const OPTIMIZATION_THRESHOLD = 100 * 1024; // Nur komprimieren wenn >100KB
+
+    const baseDataUrl = await readFileAsDataURL(file);
+    const baseSize = calculateDataUrlSize(baseDataUrl);
+    const attachment = {
+        id: generateNoteId('attachment'),
+        name: file.name,
+        type: file.type,
+        originalSize: file.size,
+        size: baseSize,
+        data: baseDataUrl
+    };
+
+    if (!file.type.startsWith('image/')) {
+        return attachment;
+    }
+
+    // Optimiere Bild falls nötig
+    let dataToUpload = baseDataUrl;
+    if (baseSize > OPTIMIZATION_THRESHOLD) {
+        showNotification('Großes Bild wird optimiert...', 'info');
+        try {
+            const optimized = await optimizeImageDataUrl(baseDataUrl, file.type);
+            if (optimized && optimized.dataUrl) {
+                const optimizedSize = optimized.size || calculateDataUrlSize(optimized.dataUrl);
+                dataToUpload = optimized.dataUrl;
+                attachment.size = optimizedSize;
+                attachment.type = optimized.mimeType || file.type;
+
+                const savedKB = ((baseSize - optimizedSize) / 1024).toFixed(0);
+                console.log(`Bild optimiert: ${savedKB}KB gespart`);
+            }
+        } catch (error) {
+            console.warn('Konnte Bildanhang nicht optimieren:', error);
+        }
+    }
+
+    // Upload zu GitHub
+    showNotification('Bild wird hochgeladen...', 'info');
+    try {
+        const githubUrl = await uploadToGitHub(file, dataToUpload);
+
+        if (githubUrl) {
+            // Speichere nur URL + kleines Thumbnail
+            const canvas = document.createElement('canvas');
+            canvas.width = 150;
+            canvas.height = 150;
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = dataToUpload;
+            });
+            ctx.drawImage(img, 0, 0, 150, 150);
+
+            attachment.url = githubUrl;
+            attachment.thumbnail = canvas.toDataURL('image/webp', 0.6);
+            attachment.storage = 'github';
+            delete attachment.data; // Entferne Base64, spare Platz!
+
+            showNotification('Bild auf GitHub hochgeladen!', 'success');
+        } else {
+            throw new Error('Upload fehlgeschlagen');
+        }
+    } catch (error) {
+        console.error('GitHub Upload Fehler:', error);
+        showNotification('Upload fehlgeschlagen - Bild wird lokal gespeichert', 'warning');
+        // Behalte Base64 als Fallback
+        attachment.data = dataToUpload;
+        attachment.storage = 'local';
+    }
+
+    return attachment;
+}
+
+async function handleNoteAttachmentInput(event) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    let added = 0;
+
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+            showNotification(`${file.name} ist kein unterstuetztes Bildformat.`, 'error');
+            continue;
+        }
+
+        try {
+            const attachment = await prepareNoteAttachment(file);
+            noteEditorAttachments.push(attachment);
+            added += 1;
+        } catch (error) {
+            console.error('Fehler beim Verarbeiten des Anhangs:', error);
+            showNotification(`Konnte ${file.name} nicht laden`, 'error');
+        }
+    }
+
+    if (added) {
+        updateNoteAttachmentPreview();
+    }
+
+    if (event.target) {
+        event.target.value = '';
+    }
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const thresholds = [
+        { unit: 'GB', value: 1024 * 1024 * 1024 },
+        { unit: 'MB', value: 1024 * 1024 },
+        { unit: 'KB', value: 1024 }
+    ];
+    for (const threshold of thresholds) {
+        if (bytes >= threshold.value) {
+            return `${(bytes / threshold.value).toFixed(1)} ${threshold.unit}`;
+        }
+    }
+    return `${bytes} B`;
+}
+
+function formatNoteTimestamp(note) {
+    const timestamp = note.updatedAt || note.createdAt;
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    const formatted = date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+    if (note.updatedAt && note.updatedAt !== note.createdAt) {
+        return `Aktualisiert ${formatted}`;
+    }
+    return `Erstellt ${formatted}`;
+}
+
+function getFilteredNotes() {
+    const term = noteSearchTerm.trim().toLowerCase();
+    if (!term) return [...notes];
+    return notes.filter(note => {
+        const haystack = `${note.title || ''} ${note.content || ''}`.toLowerCase();
+        const attachmentNames = (note.attachments || []).map(a => a.name?.toLowerCase() || '').join(' ');
+        return haystack.includes(term) || attachmentNames.includes(term);
+    });
+}
+
+async function openNoteAttachment(attachment) {
+    if (!attachment) {
+        showNotification('Bild nicht verfügbar', 'error');
+        return;
+    }
+
+    console.log('🖼️ Öffne Attachment:', attachment);
+
+    const rawName = attachment.name || 'Screenshot';
+    const escapeHtml = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const title = escapeHtml(rawName);
+
+    // Wenn GitHub-URL: Lade über API mit Token
+    if (attachment.storage === 'github' && attachment.url) {
+        console.log('📸 Lade von GitHub:', attachment.url);
+
+        try {
+            // Konvertiere github.com URL zu API URL
+            // Von: https://github.com/prenex88/portfolio-images/blob/main/images/2025-10/file.png?raw=true
+            // Zu:  https://api.github.com/repos/prenex88/portfolio-images/contents/images/2025-10/file.png
+            const urlMatch = attachment.url.match(/github\.com\/([^/]+\/[^/]+)\/blob\/main\/(.+?)\?raw=true/);
+            if (!urlMatch) {
+                throw new Error('Ungültiges GitHub URL Format');
+            }
+
+            const repo = urlMatch[1]; // z.B. "prenex88/portfolio-images"
+            const path = decodeURIComponent(urlMatch[2]); // z.B. "images/2025-10/file.png"
+            const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+
+            console.log('📡 API Request:', apiUrl);
+
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `token ${githubToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const base64Content = data.content.replace(/\n/g, ''); // GitHub API gibt Base64 mit Zeilenumbrüchen
+            const mimeType = attachment.type || 'image/webp';
+            const dataUrl = `data:${mimeType};base64,${base64Content}`;
+
+            const viewer = window.open('', '_blank');
+            if (!viewer) {
+                showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
+                return;
+            }
+            viewer.opener = null;
+            viewer.document.open();
+            viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${dataUrl}" alt="${title}"></body></html>`);
+            viewer.document.close();
+            viewer.focus();
+
+        } catch (error) {
+            console.error('❌ Fehler beim Laden von GitHub:', error);
+            showNotification('Bild konnte nicht geladen werden', 'error');
+        }
+        return;
+    }
+
+    // Fallback: Base64 direkt nutzen
+    const imageUrl = attachment.data;
+    console.log('📸 Nutze lokale Daten');
+
+    if (!imageUrl) {
+        console.error('❌ Keine Daten vorhanden!');
+        showNotification('Bild nicht verfügbar', 'error');
+        return;
+    }
+
+    const viewer = window.open('', '_blank');
+    if (!viewer) {
+        showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
+        return;
+    }
+
+    viewer.opener = null;
+    viewer.document.open();
+    viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${imageUrl}" alt="${title}"></body></html>`);
+    viewer.document.close();
+    viewer.focus();
+}
+
+function buildNoteCard(note) {
+    const card = document.createElement('div');
+    card.className = 'note-card';
+    card.dataset.id = note.id;
+
+    const header = document.createElement('div');
+    header.className = 'note-card-header';
+
+    const title = document.createElement('div');
+    title.className = 'note-card-title';
+    title.textContent = note.title?.trim() || 'Ohne Titel';
+
+    const date = document.createElement('div');
+    date.className = 'note-card-date';
+    date.textContent = formatNoteTimestamp(note);
+
+    header.appendChild(title);
+    header.appendChild(date);
+    card.appendChild(header);
+
+    let toggleButton = null;
+    let attachmentsRow = null;
+
+    if (note.content) {
+        const content = document.createElement('div');
+        content.className = 'note-card-content';
+        const trimmed = note.content.trim();
+        const MAX_PREVIEW_CHARS = 600;
+        const MAX_PREVIEW_LINES = 12;
+        const lines = trimmed.split(/\r?\n/);
+        const shouldClamp = trimmed.length > MAX_PREVIEW_CHARS || lines.length > MAX_PREVIEW_LINES;
+
+        if (shouldClamp) {
+            let previewLines = lines.slice(0, MAX_PREVIEW_LINES);
+            let previewText = previewLines.join('\n').trimEnd();
+            if (previewText.length > MAX_PREVIEW_CHARS) {
+                previewText = previewText.slice(0, MAX_PREVIEW_CHARS).trimEnd();
+            }
+            previewText = `${previewText}...`;
+
+            content.textContent = previewText;
+            content.dataset.preview = previewText;
+            content.dataset.full = trimmed;
+            content.classList.add('note-card-content-clamped');
+
+            toggleButton = document.createElement('button');
+            toggleButton.type = 'button';
+            toggleButton.className = 'note-card-toggle';
+            toggleButton.textContent = 'Mehr anzeigen';
+            toggleButton.setAttribute('aria-expanded', 'false');
+            toggleButton.addEventListener('click', () => {
+                const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
+                if (expanded) {
+                    content.textContent = content.dataset.preview || '';
+                    content.classList.add('note-card-content-clamped');
+                    toggleButton.textContent = 'Mehr anzeigen';
+                    toggleButton.setAttribute('aria-expanded', 'false');
+                } else {
+                    content.textContent = content.dataset.full || '';
+                    content.classList.remove('note-card-content-clamped');
+                    toggleButton.textContent = 'Weniger anzeigen';
+                    toggleButton.setAttribute('aria-expanded', 'true');
+                }
+            });
+        } else {
+            content.textContent = trimmed;
+        }
+
+        card.appendChild(content);
+    }
+    if (note.attachments && note.attachments.length) {
+        attachmentsRow = document.createElement('div');
+        attachmentsRow.className = 'note-card-attachments';
+        note.attachments.forEach(attachment => {
+            const link = document.createElement('a');
+            link.href = '#';
+            link.rel = 'noopener noreferrer';
+            link.title = `${attachment.name || 'Screenshot'} (${formatFileSize(attachment.size || 0)})`;
+            link.setAttribute('role', 'button');
+            link.setAttribute('aria-label', `${attachment.name || 'Screenshot'} anzeigen`);
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                openNoteAttachment(attachment);
+            });
+
+            const thumb = document.createElement('img');
+            thumb.src = attachment.thumbnail || attachment.url || attachment.data || '';
+            thumb.alt = attachment.name || 'Screenshot';
+            link.appendChild(thumb);
+
+            attachmentsRow.appendChild(link);
+        });
+        card.appendChild(attachmentsRow);
+    }
+
+    if (toggleButton) {
+        if (attachmentsRow) {
+            card.insertBefore(toggleButton, attachmentsRow);
+        } else {
+            card.appendChild(toggleButton);
+        }
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'note-card-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-small';
+    editBtn.type = 'button';
+    editBtn.textContent = '✏️ Bearbeiten';
+    editBtn.addEventListener('click', () => editNote(note.id));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-danger btn-small';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = '🗑️ Löschen';
+    deleteBtn.addEventListener('click', () => deleteNote(note.id));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    card.appendChild(actions);
+
+    return card;
+}
+
+function renderNotesList() {
+    const list = document.getElementById('notesList');
+    const emptyState = document.getElementById('notesEmptyState');
+    const stats = document.getElementById('notesStats');
+    if (!list) return;
+
+    const filtered = getFilteredNotes().sort((a, b) => {
+        const aDate = new Date(a.updatedAt || a.createdAt || 0);
+        const bDate = new Date(b.updatedAt || b.createdAt || 0);
+        return bDate - aDate;
+    });
+
+    list.innerHTML = '';
+    if (!filtered.length) {
+        if (emptyState) {
+            if (!notes.length) {
+                emptyState.querySelector('h3').textContent = 'Keine Notizen gespeichert';
+                emptyState.querySelector('p').textContent = 'Halte spontane Ideen, wichtige Todos oder Links fest. Über den Button oben kannst du Screenshots hinzufügen.';
+            } else if (noteSearchTerm.trim()) {
+                emptyState.querySelector('h3').textContent = 'Keine Treffer';
+                emptyState.querySelector('p').textContent = 'Passe deine Suche an oder lege eine neue Notiz an.';
+            }
+            emptyState.style.display = 'flex';
+        }
+    } else {
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+        filtered.forEach(note => list.appendChild(buildNoteCard(note)));
+    }
+
+    if (stats) {
+        const total = notes.length;
+        const attachmentsTotal = notes.reduce((sum, note) => sum + ((note.attachments || []).length), 0);
+        if (!total) {
+            stats.textContent = 'Noch keine Notizen';
+        } else if (noteSearchTerm.trim()) {
+            stats.textContent = `${filtered.length} von ${total} Notizen · ${attachmentsTotal} Anhänge`;
+        } else {
+            stats.textContent = `${total} Notizen · ${attachmentsTotal} Anhänge`;
+        }
+    }
+}
+
+function saveNote() {
+    const titleInput = document.getElementById('noteTitleInput');
+    const contentInput = document.getElementById('noteContentInput');
+    const title = titleInput ? titleInput.value.trim() : '';
+    const content = contentInput ? contentInput.value.trim() : '';
+
+    if (!title && !content && noteEditorAttachments.length === 0) {
+        showNotification('Bitte gib einen Text ein oder haenge einen Screenshot an.', 'error');
+        return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const attachmentsForNote = noteEditorAttachments.map(att => {
+        const attachment = {
+            id: att.id || generateNoteId('attachment'),
+            name: att.name,
+            type: att.type,
+            size: att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
+        };
+
+        // Speichere je nach Storage-Typ
+        if (att.storage === 'github' && att.url) {
+            attachment.storage = 'github';
+            attachment.url = att.url;
+            attachment.thumbnail = att.thumbnail;
+        } else if (att.data) {
+            attachment.data = att.data;
+        }
+
+        if (att.originalSize) {
+            attachment.originalSize = att.originalSize;
+        }
+        return attachment;
+    });
+
+    if (editingNoteId) {
+        const noteIndex = notes.findIndex(n => n.id === editingNoteId);
+        if (noteIndex === -1) {
+            showNotification('Notiz nicht gefunden.', 'error');
+            return;
+        }
+
+        const previousNote = JSON.parse(JSON.stringify(notes[noteIndex]));
+
+        notes[noteIndex] = {
+            ...notes[noteIndex],
+            title,
+            content,
+            attachments: attachmentsForNote,
+            updatedAt: timestamp
+        };
+
+        const saved = saveData();
+        if (!saved) {
+            notes[noteIndex] = previousNote;
+            showNotification('Speichern fehlgeschlagen. Aenderungen wurden nicht uebernommen.', 'error');
+            return;
+        }
+
+        showNotification('Notiz aktualisiert!', 'success');
+    } else {
+        const newNote = {
+            id: generateNoteId(),
+            title,
+            content,
+            attachments: attachmentsForNote,
+            createdAt: timestamp,
+            updatedAt: timestamp
+        };
+
+        notes.push(newNote);
+
+        const saved = saveData();
+        if (!saved) {
+            notes.pop();
+            showNotification('Speichern fehlgeschlagen. Notiz wurde nicht gespeichert.', 'error');
+            return;
+        }
+
+        showNotification('Notiz gespeichert!', 'success');
+    }
+
+    renderNotesList();
+    resetNoteForm();
+}
+
+function editNote(noteId) {
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+    editingNoteId = noteId;
+    const titleInput = document.getElementById('noteTitleInput');
+    const contentInput = document.getElementById('noteContentInput');
+    if (titleInput) titleInput.value = note.title || '';
+    if (contentInput) contentInput.value = note.content || '';
+    noteEditorAttachments = (note.attachments || []).map(att => ({
+        ...att,
+        originalSize: att.originalSize || att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
+    }));
+    updateNoteAttachmentPreview();
+    updateNoteEditorMode();
+    const editor = document.getElementById('noteEditor');
+    if (editor) {
+        editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (titleInput) {
+        titleInput.focus();
+    }
+}
+
+async function deleteNote(noteId) {
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const confirmed = await showCustomPrompt({
+        title: '🗑️ Notiz löschen?',
+        text: 'Diese Notiz wird dauerhaft entfernt.',
+        actions: [
+            { text: 'Abbrechen', class: 'btn-secondary', value: 'cancel' },
+            { text: 'Löschen', class: 'btn-danger', value: 'confirm' }
+        ]
+    });
+
+    if (confirmed !== 'confirm') {
+        return;
+    }
+
+    notes = notes.filter(n => n.id !== noteId);
+    saveData();
+    renderNotesList();
+    if (editingNoteId === noteId) {
+        resetNoteForm();
+    }
+    showNotification('Notiz gelöscht.', 'success');
+}
+
+function highlightNoteCard(noteId) {
+    const card = document.querySelector(`.note-card[data-id="${noteId}"]`);
+    if (!card) return;
+    card.classList.add('highlight');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => card.classList.remove('highlight'), 1500);
+}
+
 function saveStrategyForDate(date, strategy) {
     const existingIndex = dayStrategies.findIndex(s => s.date === date);
     if (existingIndex >= 0) {
@@ -1747,6 +2573,7 @@ function saveSingleEntry(inputElement) {
     }
 
     showNotification(`${platformName} gespeichert!`);
+    updateEntrySummary();
 }
 
 function saveStrategyOnly() {
@@ -1854,13 +2681,48 @@ async function syncNow() {
     showSkeletons();
 
     try {
-        const cloudData = await fetchGistData();
-        const localData = { 
+        let cloudData;
+        try {
+            cloudData = await fetchGistData();
+        } catch (fetchError) {
+            // Check if it's a JSON parsing error
+            if (fetchError instanceof SyntaxError && fetchError.message.toLowerCase().includes('json')) {
+                const confirmed = await showCustomPrompt({
+                    title: 'Cloud-Daten korrupt',
+                    text: 'Die Daten in der Cloud konnten nicht gelesen werden (JSON-Fehler). Dies kann passieren, wenn die Daten zu groß sind. Möchten Sie die Cloud-Daten mit Ihren lokalen Daten überschreiben?',
+                    actions: [
+                        { text: 'Abbrechen', class: 'btn-secondary', value: 'cancel' },
+                        { text: 'Cloud überschreiben', class: 'btn-danger', value: 'overwrite' }
+                    ]
+                });
+
+                if (confirmed === 'overwrite') {
+                    const localDataForOverwrite = { platforms, entries, cashflows, dayStrategies, favorites, notes, lastSync: new Date().toISOString(), lastModifiedDevice: getDeviceId(), syncMetadata: { deviceId: getDeviceId(), timestamp: new Date().toISOString(), version: 'v11' } };
+                    await saveToGist(localDataForOverwrite); // This will use the new size-checking logic
+                    showNotification('Cloud-Daten erfolgreich überschrieben!', 'success');
+                    
+                    // After overwriting, we can consider the sync successful.
+                    lastSyncTime = new Date().toISOString();
+                    localStorage.setItem(`${STORAGE_PREFIX}lastSyncTime`, lastSyncTime);
+                    updateLastSyncDisplay();
+                    updateSyncUI('connected');
+                    return true;
+                } else {
+                    // User cancelled, throw a specific error to be caught by the outer catch block
+                    throw new Error("Sync abgebrochen. Cloud-Daten sind korrupt.");
+                }
+            }
+            // Re-throw other fetch errors (e.g., network issues)
+            throw fetchError;
+        }
+
+        const localData = {
             platforms, 
             entries, 
             cashflows, 
             dayStrategies, 
             favorites, 
+            notes, 
             lastSync: new Date().toISOString(),
             lastModifiedDevice: getDeviceId(),
             syncMetadata: {
@@ -1892,6 +2754,7 @@ async function syncNow() {
         cashflows = mergedData.cashflows;
         dayStrategies = mergedData.dayStrategies || [];
         favorites = mergedData.favorites || [];
+        notes = mergedData.notes || [];
         saveData(false);
 
         lastSyncTime = new Date().toISOString();
@@ -1899,6 +2762,8 @@ async function syncNow() {
         updateLastSyncDisplay();
 
         applyDateFilter();
+        renderNotesList();
+        resetNoteForm();
 
         updateSettingsConnectionStatus('connected', `Zuletzt synchronisiert: ${new Date().toLocaleTimeString('de-DE')}`);
         showNotification('Erfolgreich synchronisiert! ✨');
@@ -1923,23 +2788,57 @@ async function fetchGistData() {
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
     const gist = await response.json();
     const content = gist.files['portfolio-data-v11.json']?.content;
-    if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], lastSync: null };
-    return JSON.parse(content);
+    if (!content) return { platforms: [...DEFAULT_PLATFORMS], entries: [], cashflows: [], dayStrategies: [], favorites: [], notes: [], lastSync: null };
+
+    const data = JSON.parse(content);
+    console.log('✅ Daten aus Gist geladen (Bilder sind Imgur-URLs)');
+
+    return data;
 }
 
 async function saveToGist(data) {
+    const GIST_FILE_SIZE_LIMIT = 950 * 1024; // 950 KB
+
+    const contentToSave = JSON.stringify(data, null, 2);
+    const currentSize = contentToSave.length;
+
+    if (currentSize > GIST_FILE_SIZE_LIMIT) {
+        // Zähle Bilder in Notizen
+        const imageCount = data.notes.reduce((sum, note) => sum + (note.attachments?.length || 0), 0);
+
+        throw new Error(
+            `Daten zu groß (${(currentSize / 1024).toFixed(0)} KB / 950 KB).\n\n` +
+            `Du hast ${imageCount} Bilder in Notizen.\n\n` +
+            `Lösungen:\n` +
+            `• Lösche alte Notizen mit Bildern\n` +
+            `• Exportiere alte Notizen (JSON Backup)\n` +
+            `• Lösche alte Portfolio-Einträge`
+        );
+    }
+
+    // Warnung bei 80% voll
+    if (currentSize > GIST_FILE_SIZE_LIMIT * 0.8) {
+        const percentUsed = ((currentSize / GIST_FILE_SIZE_LIMIT) * 100).toFixed(0);
+        showNotification(`Gist zu ${percentUsed}% voll - bald Platz schaffen!`, 'warning');
+    }
+
+    // Speichere Haupt-Daten
     const response = await fetch(`${GITHUB_API}/gists/${gistId}`, {
         method: 'PATCH',
         headers: { 'Authorization': `token ${githubToken}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: JSON.stringify(data, null, 2) } } })
+        body: JSON.stringify({ files: { 'portfolio-data-v11.json': { content: contentToSave } } })
     });
     if (!response.ok) throw new Error(`GitHub API Fehler: ${response.status}`);
 }
 
 async function mergeData(localData, cloudData) {
     if (!cloudData || !cloudData.lastSync) {
+        localData.notes = localData.notes || [];
         return localData;
     }
+
+    localData.notes = localData.notes || [];
+    cloudData.notes = cloudData.notes || [];
     
     const localTime = new Date(localStorage.getItem(`${STORAGE_PREFIX}lastModified`) || 0);
     const cloudTime = new Date(cloudData.lastSync);
@@ -2022,11 +2921,45 @@ async function smartMerge(localData, cloudData) {
     // Merge Favoriten (union)
     merged.favorites = [...new Set([...localData.favorites, ...cloudData.favorites])];
     
+    // *** NEU: Intelligenter Merge für Notizen ***
+    const notesMap = new Map();
+    // 1. Alle lokalen Notizen zur Map hinzufügen
+    (localData.notes || []).forEach(note => {
+        notesMap.set(note.id, note);
+    });
+
+    // 2. Cloud-Notizen durchgehen und Map aktualisieren
+    let newNotesFromCloud = 0;
+    (cloudData.notes || []).forEach(cloudNote => {
+        if (notesMap.has(cloudNote.id)) {
+            // Notiz existiert bereits, behalte die neuere Version
+            const localNote = notesMap.get(cloudNote.id);
+            const localDate = new Date(localNote.updatedAt || localNote.createdAt || 0);
+            const cloudDate = new Date(cloudNote.updatedAt || cloudNote.createdAt || 0);
+            if (cloudDate > localDate) {
+                notesMap.set(cloudNote.id, cloudNote);
+            }
+        } else {
+            // Neue Notiz aus der Cloud
+            notesMap.set(cloudNote.id, cloudNote);
+            newNotesFromCloud++;
+        }
+    });
+
+    merged.notes = Array.from(notesMap.values());
+    // *** Ende Notizen-Merge ***
+
     merged.lastSync = new Date().toISOString();
     merged.lastModifiedDevice = getDeviceId();
-    
-    showNotification(`Smart Merge abgeschlossen: ${cloudData.entries.filter(e => !localEntryIds.has(e.id)).length} neue Einträge hinzugefügt`, "success");
-    
+
+    const newEntriesCount = cloudData.entries.filter(e => !localEntryIds.has(e.id)).length;
+    let mergeMessage = `Smart Merge: ${newEntriesCount} neue Einträge`;
+    if (newNotesFromCloud > 0) {
+        mergeMessage += ` & ${newNotesFromCloud} neue Notizen`;
+    }
+    mergeMessage += ' hinzugefügt.';
+    showNotification(mergeMessage, "success");
+
     return merged;
 }
 
@@ -2257,6 +3190,7 @@ function switchTab(tabName, options = {}) {
     const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`);
     if (tabBtn) tabBtn.classList.add('active');
     currentTab = tabName;
+    localStorage.setItem(LAST_ACTIVE_TAB_KEY, tabName);
     
     // NEU: Automatisch letzte Einträge laden beim Wechsel zu "entry"
     if (tabName === 'entry') {
@@ -2276,7 +3210,9 @@ function switchTab(tabName, options = {}) {
         }
     }
     
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!options.skipScroll) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     
     // Mobile Bottom Nav aktiven Tab aktualisieren
     if (window.innerWidth <= 768) {
@@ -2321,8 +3257,21 @@ function switchTab(tabName, options = {}) {
         document.getElementById('cashflowDate').value = new Date().toISOString().split('T')[0];
     } else if (tabName === 'platforms') {
         updatePlatformDetails();
+    } else if (tabName === 'notes') {
+        renderNotesList();
+        const searchInput = document.getElementById('notesSearchInput');
+        if (searchInput && !isMobileDevice()) {
+            searchInput.focus();
+        }
     }
     updateBreadcrumbs(); // Breadcrumbs bei jedem Tab-Wechsel aktualisieren
+}
+
+function restoreLastActiveTab() {
+    const savedTab = localStorage.getItem(LAST_ACTIVE_TAB_KEY);
+    const fallbackTab = 'dashboard';
+    const targetTab = (savedTab && document.getElementById(savedTab)) ? savedTab : fallbackTab;
+    switchTab(targetTab, { preserveFilter: true, skipScroll: true });
 }
 
 // =================================================================================
@@ -2406,7 +3355,7 @@ function renderPlatformButtons() {
         );
     }
 
-    const createTile = (p) => {
+    const createTile = (p, { inFavorites = false } = {}) => {
         const tile = document.createElement('div');
         tile.className = 'platform-btn';
         tile.dataset.platform = p.name;
@@ -2419,7 +3368,8 @@ function renderPlatformButtons() {
             if (navigator.vibrate) navigator.vibrate(50);
             togglePlatform(tile, p.name);
         };
-        
+
+        const isFavorite = favorites.includes(p.name);
         let tagsHtml = '';
         if (p.tags && p.tags.length > 0) {
             tagsHtml = '<div class="platform-tags">';
@@ -2440,10 +3390,34 @@ function renderPlatformButtons() {
             <div class="name">${p.name}</div>
             <div class="type">${p.type}</div>
             ${tagsHtml}`;
+
+        const favoriteButton = document.createElement('button');
+        favoriteButton.className = 'favorite-star';
+        favoriteButton.type = 'button';
+        favoriteButton.title = isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen';
+        favoriteButton.textContent = isFavorite ? '⭐' : '☆';
+        favoriteButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleFavorite(p.name);
+        });
+        tile.prepend(favoriteButton);
+
+        if (inFavorites) {
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'favorite-remove-btn';
+            removeBtn.type = 'button';
+            removeBtn.title = 'Aus Favoriten entfernen';
+            removeBtn.innerHTML = '✕';
+            removeBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                removeFavoritePlatform(p.name);
+            });
+            tile.appendChild(removeBtn);
+        }
         return tile;
     };
 
-    sortedFavorites.forEach(p => favoritesGrid.appendChild(createTile(p)));
+    sortedFavorites.forEach(p => favoritesGrid.appendChild(createTile(p, { inFavorites: true })));
     nonFavoritePlatforms.forEach(p => platformGrid.appendChild(createTile(p)));
 
     const addTile = document.createElement('div');
@@ -2474,6 +3448,137 @@ function filterCategory(element, category) {
     document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
     element.classList.add('active');
     renderPlatformButtons();
+}
+
+function guessPlatformMetadata(name) {
+    const trimmed = name.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (!lower) {
+        return {
+            type: '',
+            category: '',
+            tags: [],
+            icon: '💎'
+        };
+    }
+
+    const predefinedMatches = [
+        { names: ['ondo', 'ondo finance'], type: 'Yield', category: 'DeFi', tags: ['yield', 'rwa'], icon: '🏦' },
+        { names: ['pendle', 'pendle finance'], type: 'Yield', category: 'DeFi', tags: ['yield'], icon: '🌾' },
+        { names: ['curve', 'curve finance'], type: 'DEX', category: 'DeFi', tags: ['dex'], icon: '🔄' },
+        { names: ['binance', 'binance earn'], type: 'Exchange', category: 'Exchange', tags: ['exchange'], icon: '🏦' }
+    ];
+
+    let predefined = predefinedMatches.find(entry => entry.names.some(n => lower === n || lower.startsWith(n))); 
+    if (predefined) {
+        return {
+            type: predefined.type || '',
+            category: predefined.category || '',
+            tags: predefined.tags ? [...predefined.tags] : [],
+            icon: predefined.icon || '💎'
+        };
+    }
+
+    let match = DEFAULT_PLATFORMS.find(p => p.name.toLowerCase() === lower);
+    if (!match && lower.length >= 2) {
+        const partialMatches = DEFAULT_PLATFORMS.filter(p => p.name.toLowerCase().startsWith(lower));
+        if (partialMatches.length === 1) {
+            match = partialMatches[0];
+        }
+    }
+    if (match) {
+        return {
+            type: match.type || '',
+            category: match.category || '',
+            tags: match.tags ? [...match.tags] : [],
+            icon: match.icon || '💎'
+        };
+    }
+
+    const heuristics = [
+        { keywords: ['binance', 'coinbase', 'kraken', 'exchange', 'trade'], type: 'Exchange', category: 'Exchange', icon: '🏦', tags: ['exchange'] },
+        { keywords: ['swap', 'dex', 'uni', 'sushi', 'curve', 'balancer'], type: 'DEX', category: 'DeFi', icon: '🔄', tags: ['dex'] },
+        { keywords: ['lend', 'loan', 'borrow', 'aave', 'compound'], type: 'Lending', category: 'Lending', icon: '🤝', tags: ['lending'] },
+        { keywords: ['wallet', 'safe', 'vault', 'ledger', 'trezor', 'metamask'], type: 'Wallet', category: 'Wallet', icon: '👛', tags: ['wallet'] },
+        { keywords: ['nft', 'opensea', 'blur', 'rarible'], type: 'NFT', category: 'DeFi', icon: '🖼️', tags: ['nft'] },
+        { keywords: ['stake', 'yield', 'farm', 'liquidity', 'earning'], type: 'Yield', category: 'DeFi', icon: '🌾', tags: ['yield'] },
+        { keywords: ['bridge', 'layer', 'chain', 'rollup'], type: 'Infrastructure', category: 'DeFi', icon: '🛠️', tags: ['infrastructure'] }
+    ];
+
+    for (const rule of heuristics) {
+        if (rule.keywords.some(keyword => lower.includes(keyword) || keyword.includes(lower))) {
+            return {
+                type: rule.type || '',
+                category: rule.category || '',
+                tags: rule.tags ? [...rule.tags] : [],
+                icon: rule.icon || '💎'
+            };
+        }
+    }
+
+    return {
+        type: '',
+        category: '',
+        tags: [],
+        icon: '💎'
+    };
+}
+
+function toggleFavorite(platformName, options = {}) {
+    const { silent = false } = options;
+    if (!platformName) return;
+
+    const wasFavorite = favorites.includes(platformName);
+
+    if (wasFavorite) {
+        favorites = favorites.filter(name => name !== platformName);
+        if (!silent) {
+            showNotification(`${platformName} aus Favoriten entfernt.`, 'info');
+            setEntryStatus(`${platformName} aus den Favoriten entfernt.`, 'info');
+        }
+    } else {
+        favorites.push(platformName);
+        if (!silent) {
+            showNotification(`${platformName} zu Favoriten hinzugefügt!`, 'success');
+            setEntryStatus(`${platformName} als Favorit markiert.`, 'success');
+        }
+    }
+
+    saveData();
+    renderPlatformButtons();
+}
+
+function removeFavoritePlatform(platformName) {
+    if (!platformName || !favorites.includes(platformName)) return;
+    toggleFavorite(platformName, { silent: true });
+    setEntryStatus(`${platformName} aus der Favoriten-Zone entfernt.`, 'info');
+}
+
+function setEntryStatus(message, variant = 'info') {
+    const statusEl = document.getElementById('entryLoadStatus');
+    if (!statusEl) return;
+
+    statusEl.textContent = message;
+    statusEl.classList.remove('status-success', 'status-warning', 'status-info');
+
+    const classMap = {
+        success: 'status-success',
+        warning: 'status-warning',
+        info: 'status-info'
+    };
+    const className = classMap[variant];
+    if (className) statusEl.classList.add(className);
+}
+
+function updateEntrySelectionStatus() {
+    if (!Array.isArray(selectedPlatforms)) return;
+    if (selectedPlatforms.length === 0) {
+        setEntryStatus('Noch keine Auswahl aktiv.', 'info');
+    } else {
+        const label = selectedPlatforms.length === 1 ? 'Plattform' : 'Plattformen';
+        setEntryStatus(`${selectedPlatforms.length} ${label} aktiv.`, 'info');
+    }
 }
 
 async function resetPlatforms() {
@@ -2508,30 +3613,176 @@ function togglePlatform(element, platformName) {
         removePlatformInput(platformName);
     }
     updateAutoZeroHint();
+    updateEntrySelectionStatus();
 }
 
-async function addCustomPlatform() {
-    const name = await showCustomPrompt({ title: 'Neue Plattform', text: 'Name der Plattform:', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    if (!name || !name.trim()) return;
-    if (platforms.some(p => p.name.toLowerCase() === name.trim().toLowerCase())) return showNotification('Plattform existiert bereits!', 'error');
+function addCustomPlatform() {
+    const contentHtml = `
+        <div class="modal-header"><h2 class="modal-title">Neue Plattform hinzufügen</h2></div>
+        <div class="modal-body">
+            <form id="newPlatformForm" class="new-platform-form">
+                <div class="github-input-group">
+                    <label>Name</label>
+                    <input type="text" id="newPlatformName" class="input-field" placeholder="z.B. Binance" autocomplete="off">
+                    <div class="new-platform-hint" id="newPlatformSuggestionHint">Gib einen Namen ein – Typ, Kategorie und Tags schlagen wir automatisch vor.</div>
+                </div>
+                <div class="grid-two-cols">
+                    <div class="github-input-group">
+                        <label>Typ</label>
+                        <input type="text" id="newPlatformType" class="input-field" placeholder="Exchange, DEX ..." list="newPlatformTypeOptions">
+                    </div>
+                    <div class="github-input-group">
+                        <label>Kategorie</label>
+                        <input type="text" id="newPlatformCategory" class="input-field" placeholder="Exchange, DeFi ..." list="newPlatformCategoryOptions">
+                    </div>
+                </div>
+                <div class="github-input-group">
+                    <label>Tags (kommagetrennt)</label>
+                    <input type="text" id="newPlatformTags" class="input-field" placeholder="z.B. staking, layer2">
+                </div>
+                <div class="github-input-group">
+                    <label>Icon (Emoji)</label>
+                    <input type="text" id="newPlatformIcon" class="input-field" maxlength="2" placeholder="💎">
+                </div>
+                <datalist id="newPlatformTypeOptions">
+                    <option value="Exchange">
+                    <option value="DEX">
+                    <option value="Lending">
+                    <option value="Yield">
+                    <option value="NFT">
+                    <option value="Wallet">
+                    <option value="Infrastructure">
+                    <option value="Custom">
+                </datalist>
+                <datalist id="newPlatformCategoryOptions">
+                    <option value="Exchange">
+                    <option value="DeFi">
+                    <option value="Lending">
+                    <option value="Yield">
+                    <option value="NFT">
+                    <option value="Wallet">
+                    <option value="Infrastructure">
+                    <option value="Custom">
+                </datalist>
+                <div class="modal-footer" style="justify-content: flex-end; gap: 12px;">
+                    <button type="button" class="btn btn-danger" id="newPlatformCancelBtn">Abbrechen</button>
+                    <button type="submit" class="btn btn-success" id="newPlatformSaveBtn">Speichern</button>
+                </div>
+            </form>
+        </div>
+    `;
 
-    const type = await showCustomPrompt({ title: 'Plattform Typ', text: `Typ für "${name.trim()}"? (z.B. DEX, Lending)`, showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    const category = await showCustomPrompt({ title: 'Kategorie', text: 'Exchange, DeFi, Lending, Wallet oder Custom?', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Weiter', value: 'next', class: 'btn-primary'}] });
-    const tagsInput = await showCustomPrompt({ title: 'Tags', text: 'Tags (kommagetrennt, z.B. high-risk, staking, defi):', showInput: true, actions: [{text: 'Abbrechen'}, {text: 'Speichern', value: 'save', class: 'btn-success'}] });
-    
-    const tags = tagsInput ? tagsInput.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0) : [];
+    openBottomSheet(contentHtml);
 
-    platforms.push({ 
-        name: name.trim(), 
-        type: type ? type.trim() : 'Custom',
-        category: category ? category.trim() : 'Custom',
-        icon: '💎',
-        tags: tags
+    const form = document.getElementById('newPlatformForm');
+    const nameInput = document.getElementById('newPlatformName');
+    const typeInput = document.getElementById('newPlatformType');
+    const categoryInput = document.getElementById('newPlatformCategory');
+    const tagsInput = document.getElementById('newPlatformTags');
+    const iconInput = document.getElementById('newPlatformIcon');
+    const hintEl = document.getElementById('newPlatformSuggestionHint');
+    const cancelBtn = document.getElementById('newPlatformCancelBtn');
+
+    if (!form || !nameInput || !typeInput || !categoryInput || !tagsInput || !iconInput) {
+        console.error('Neue Plattform UI konnte nicht initialisiert werden');
+        return;
+    }
+
+    let internalUpdate = false;
+    const editState = { type: false, category: false, tags: false, icon: false };
+
+    const updateSuggestion = () => {
+        const nameValue = nameInput.value.trim();
+        if (!nameValue) {
+            if (hintEl) hintEl.textContent = 'Gib einen Namen ein – Typ, Kategorie und Tags schlagen wir automatisch vor.';
+            internalUpdate = true;
+            if (!editState.type) typeInput.value = '';
+            if (!editState.category) categoryInput.value = '';
+            if (!editState.tags) tagsInput.value = '';
+            if (!editState.icon) iconInput.value = '💎';
+            internalUpdate = false;
+            return;
+        }
+
+        const suggestion = guessPlatformMetadata(nameValue);
+        if (hintEl) {
+            const tagText = suggestion.tags && suggestion.tags.length ? ` • Tags: ${suggestion.tags.join(', ')}` : '';
+            const typeLabel = suggestion.type || '–';
+            const categoryLabel = suggestion.category || '–';
+            hintEl.innerHTML = `Vorschlag: <strong>${typeLabel}</strong> / <strong>${categoryLabel}</strong>${tagText}`;
+        }
+
+        internalUpdate = true;
+        if (!editState.type) typeInput.value = suggestion.type || '';
+        if (!editState.category) categoryInput.value = suggestion.category || '';
+        if (!editState.tags) tagsInput.value = suggestion.tags ? suggestion.tags.join(', ') : '';
+        if (!editState.icon) iconInput.value = suggestion.icon || '💎';
+        internalUpdate = false;
+    };
+
+    const handleManualEdit = (field) => {
+        return () => {
+            if (internalUpdate) return;
+            const value = field.value.trim();
+            if (field === typeInput) editState.type = value.length > 0;
+            if (field === categoryInput) editState.category = value.length > 0;
+            if (field === tagsInput) editState.tags = value.length > 0;
+            if (field === iconInput) editState.icon = value.length > 0;
+        };
+    };
+
+    typeInput.addEventListener('input', handleManualEdit(typeInput));
+    categoryInput.addEventListener('input', handleManualEdit(categoryInput));
+    tagsInput.addEventListener('input', handleManualEdit(tagsInput));
+    iconInput.addEventListener('input', handleManualEdit(iconInput));
+
+    nameInput.addEventListener('input', updateSuggestion);
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => closeBottomSheet());
+    }
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const newName = nameInput.value.trim();
+        if (!newName) {
+            showNotification('Bitte einen Namen angeben.', 'error');
+            nameInput.focus();
+            return;
+        }
+
+        if (platforms.some(p => p.name.toLowerCase() === newName.toLowerCase())) {
+            showNotification('Plattform existiert bereits!', 'error');
+            return;
+        }
+
+        const fallbackSuggestion = guessPlatformMetadata(newName);
+        const newType = typeInput.value.trim() || fallbackSuggestion.type || '';
+        const newCategory = categoryInput.value.trim() || fallbackSuggestion.category || '';
+        const newTags = tagsInput.value
+            ? tagsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0)
+            : [];
+        const newIcon = iconInput.value.trim() || fallbackSuggestion.icon || '💎';
+
+        platforms.push({
+            name: newName,
+            type: newType,
+            category: newCategory,
+            icon: newIcon,
+            tags: newTags
+        });
+
+        saveData();
+        renderPlatformButtons();
+        updateCashflowTargets();
+        showNotification(`${newName} hinzugefügt!`, 'success');
+        setEntryStatus(`${newName} hinzugefügt.`, 'success');
+        closeBottomSheet();
     });
-    saveData();
-    renderPlatformButtons();
-    updateCashflowTargets();
-    showNotification(`${name.trim()} hinzugefügt!`);
+
+    updateSuggestion();
+    nameInput.focus();
 }
 function addPlatformInput(platformName) {
     const container = document.getElementById('platformInputs');
@@ -2541,7 +3792,7 @@ function addPlatformInput(platformName) {
     if (container.children.length === 0) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) {
-            strategyContainer.style.display = 'block';
+            strategyContainer.style.display = 'flex';
             const date = document.getElementById('entryDate').value;
             const strategyInput = document.getElementById('dailyStrategy');
             if (strategyInput) strategyInput.value = getStrategyForDate(date);
@@ -2609,6 +3860,7 @@ function addPlatformInput(platformName) {
         
         const statusEl = div.querySelector('.value-status');
         statusEl.innerHTML = '<span class="status-unsaved">Nicht gespeichert</span>';
+        updateEntrySummary();
     });
 
     // Mit "Enter" speichern und zum nächsten Feld springen
@@ -2660,6 +3912,108 @@ function removePlatformInput(platformName) {
         const strategyContainer = document.getElementById('dayStrategyContainer');
         if (strategyContainer) strategyContainer.style.display = 'none';
     }
+
+    updateEntrySummary();
+}
+
+function clearEntryInputs() {
+    const container = document.getElementById('platformInputs');
+    if (container) container.innerHTML = '';
+
+    document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
+    selectedPlatforms = [];
+
+    const strategyContainer = document.getElementById('dayStrategyContainer');
+    if (strategyContainer) strategyContainer.style.display = 'none';
+
+    const autoZeroHint = document.getElementById('autoZeroHint');
+    if (autoZeroHint) autoZeroHint.classList.remove('visible');
+
+    setEntryStatus('Auswahl zurückgesetzt.', 'info');
+    updateEntrySummary();
+}
+
+function selectFavoritePlatformsForEntry() {
+    if (!favorites || favorites.length === 0) {
+        setEntryStatus('Keine Favoriten gespeichert.', 'warning');
+        showNotification('Keine Favoriten gespeichert.', 'warning');
+        return;
+    }
+
+    let newlySelected = 0;
+    favorites.forEach(platformName => {
+        const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => {
+            return btn.dataset.platform === platformName || btn.querySelector('.name')?.textContent === platformName;
+        });
+
+        if (button && !button.classList.contains('selected')) {
+            togglePlatform(button, platformName);
+            newlySelected++;
+        }
+    });
+
+    if (newlySelected === 0) {
+        setEntryStatus('Alle Favoriten sind bereits aktiv.', 'info');
+    } else {
+        const label = newlySelected === 1 ? 'Favorit' : 'Favoriten';
+        setEntryStatus(`${newlySelected} ${label} übernommen.`, 'success');
+        showNotification(`${newlySelected} Favoriten übernommen.`, 'success');
+    }
+}
+
+function selectPlatformsWithBalance() {
+    if (!entries || entries.length === 0) {
+        setEntryStatus('Keine vorhandenen Einträge.', 'warning');
+        showNotification('Keine früheren Einträge gefunden.', 'warning');
+        return;
+    }
+
+    const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+    if (sortedDates.length === 0) {
+        setEntryStatus('Keine vorhandenen Einträge.', 'warning');
+        return;
+    }
+
+    const lastDate = sortedDates[0];
+    const platformsToSelect = entries
+        .filter(e => e.date === lastDate && e.balance > 0)
+        .map(e => e.protocol);
+
+    if (platformsToSelect.length === 0) {
+        setEntryStatus('Keine Plattformen mit Bestand gefunden.', 'warning');
+        showNotification('Am letzten Stichtag gab es keine Bestände.', 'warning');
+        return;
+    }
+
+    let newlySelected = 0;
+    platformsToSelect.forEach(platformName => {
+        const button = Array.from(document.querySelectorAll('.platform-btn')).find(btn => {
+            return btn.dataset.platform === platformName || btn.querySelector('.name')?.textContent === platformName;
+        });
+
+        if (button && !button.classList.contains('selected')) {
+            togglePlatform(button, platformName);
+            newlySelected++;
+        }
+    });
+
+    if (newlySelected === 0) {
+        setEntryStatus('Alle Plattformen mit Bestand sind bereits aktiv.', 'info');
+    } else {
+        const dateLabel = formatDate(lastDate);
+        setEntryStatus(`${newlySelected} Plattformen mit Bestand vom ${dateLabel} geladen.`, 'success');
+        showNotification(`${newlySelected} Plattformen mit Bestand vom ${dateLabel} geladen.`, 'success');
+    }
+}
+
+function openCashflowFromEntry() {
+    const currentDate = document.getElementById('entryDate')?.value;
+    switchTab('cashflow');
+    if (currentDate) {
+        const cashflowDateInput = document.getElementById('cashflowDate');
+        if (cashflowDateInput) cashflowDateInput.value = currentDate;
+    }
+    setEntryStatus('Cashflow-Erfassung geöffnet.', 'info');
 }
 
 
@@ -2667,6 +4021,7 @@ function loadLastEntries() {
     const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
     if (sortedDates.length === 0) {
         showNotification('Keine früheren Einträge gefunden.', 'error');
+        setEntryStatus('Keine früheren Einträge gefunden.', 'warning');
         return;
     }
     const lastEntryDate = sortedDates[0];
@@ -2679,6 +4034,7 @@ function loadLastEntries() {
 
     if (platformsToLoad.length === 0) {
         showNotification(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
+        setEntryStatus(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
         return;
     }
     
@@ -2714,6 +4070,7 @@ function loadLastEntries() {
         setTimeout(() => {
             loadLastEntriesAfterRender(platformsToLoad, lastEntryDate);
         }, 200);
+        setEntryStatus('Fehlende Plattformen ergänzt. Bitte prüfen.', 'info');
         return;
     }
     
@@ -2747,6 +4104,8 @@ function loadLastEntriesAfterRender(platformsToLoad, lastEntryDate) {
     }, 200);
 
     showNotification(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen. Tab/Enter für nächstes Feld.`);
+    setEntryStatus(`${platformsToLoad.length} Plattformen vom ${formatDate(lastEntryDate)} geladen.`, 'success');
+    updateEntrySummary();
 }
 
 // =================================================================================
@@ -2861,6 +4220,8 @@ async function saveAllEntries() {
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
 
+    updateEntrySummary();
+
     let message = '';
     if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
     if (zeroedCount > 0) {
@@ -2933,30 +4294,23 @@ async function deleteCashflow(cashflowId) {
     applyDateFilter();
 }
 
-async function deletePlatform(platformName) {
-    const confirmed = await showCustomPrompt({
-        title: 'Plattform löschen',
-        text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
-        actions: [{ text: 'Abbrechen' }, { text: 'Löschen', class: 'btn-danger', value: true }]
-    });
-    if (confirmed === 'true') {
-        const platformToDelete = platforms.find(p => p.name === platformName);
-        if (!platformToDelete) return;
+function deletePlatform(platformName) {
+    const platformToDelete = platforms.find(p => p.name === platformName);
+    if (!platformToDelete) return;
 
-        const entriesToDelete = entries.filter(e => e.protocol === platformName);
-        const wasFavorite = favorites.includes(platformName);
+    const entriesToDelete = entries.filter(e => e.protocol === platformName);
+    const wasFavorite = favorites.includes(platformName);
 
-        const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
-        saveToUndoStack('delete_platform', undoData);
+    const undoData = { platform: platformToDelete, entries: entriesToDelete, wasFavorite: wasFavorite };
+    saveToUndoStack('delete_platform', undoData);
 
-        platforms = platforms.filter(p => p.name !== platformName);
-        favorites = favorites.filter(f => f !== platformName);
-        entries = entries.filter(e => e.protocol !== platformName);
-        saveData();
-        applyDateFilter();
-        renderPlatformButtons();
-        updateCashflowTargets();
-    }
+    platforms = platforms.filter(p => p.name !== platformName);
+    favorites = favorites.filter(f => f !== platformName);
+    entries = entries.filter(e => e.protocol !== platformName);
+    saveData();
+    applyDateFilter();
+    renderPlatformButtons();
+    updateCashflowTargets();
 }
 
 async function clearAllData() {
@@ -2971,8 +4325,11 @@ async function clearAllData() {
         entries = [];
         cashflows = [];
         dayStrategies = [];
+        notes = [];
         saveData();
         applyDateFilter();
+        renderNotesList();
+        resetNoteForm();
         showNotification('Alle Daten gelöscht!');
     }
 }
@@ -4150,7 +5507,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === 'true') {
+    if (confirmed === true) {
         deleteEntry(entryId);
     }
 }
@@ -4268,7 +5625,8 @@ function isSelected(entryId) {
     return selectedHistoryEntries.has(entryId);
 }
 
-function toggleHistorySelection(entryId, shouldBeSelected) {
+function toggleHistorySelection(entryId, shouldBeSelected, options = {}) {
+    const { skipStatusUpdate = false } = options;
     // Update table row
     const row = document.querySelector(`#historyTableBody tr[data-id='${entryId}']`);
     if (row) {
@@ -4299,19 +5657,31 @@ function toggleHistorySelection(entryId, shouldBeSelected) {
         }
     }
     
-    updateSelectAllCheckbox();
-    updateBulkActionsBar();
+    if (!skipStatusUpdate) {
+        updateSelectAllCheckbox();
+        updateBulkActionsBar();
+    }
 }
 
 function toggleSelectAllHistory(e) {
     const isChecked = e.target.checked;
-    const rows = document.querySelectorAll('#historyTableBody tr[data-id]');
-    rows.forEach(row => {
-        const entryId = parseFloat(row.dataset.id);
-        if (entryId) {
-            toggleHistorySelection(entryId, isChecked);
-        }
-    });
+    const visibleIds = getVisibleHistoryIds();
+
+    if (isChecked) {
+        visibleIds.forEach(id => selectedHistoryEntries.add(id));
+    } else {
+        visibleIds.forEach(id => selectedHistoryEntries.delete(id));
+    }
+
+    updateHistory();
+
+    const selectAllCheckbox = document.getElementById('selectAllHistory');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = isChecked && visibleIds.size > 0;
+        selectAllCheckbox.indeterminate = false;
+    }
+
+    updateBulkActionsBar();
 }
 
 function updateSelectAllCheckbox() {
@@ -4338,6 +5708,9 @@ function updateSelectAllCheckbox() {
             selectAllCheckbox.checked = false;
             selectAllCheckbox.indeterminate = false;
         }
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
     }
 }
 // =================================================================================
@@ -4527,7 +5900,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === 'true') {
+    if (confirmed === true) {
         deleteCashflow(cashflowId);
     }
 }
@@ -4538,7 +5911,7 @@ async function deletePlatformWithConfirmation(platformName) {
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed) {
+    if (confirmed === true) {
         deletePlatform(platformName);
     }
 }
@@ -4899,7 +6272,7 @@ function initializeCharts() {
             const tooltipEl = document.querySelector('.chartjs-tooltip');
             // Wenn der Tooltip sichtbar ist, wird er bei einem erneuten Touch auf den Chart geschlossen.
             if (tooltipEl && tooltipEl.style.opacity === '1') {
-                tooltipEl.style.opacity = '0';
+                hideChartTooltip();
                 // Verhindert, dass Chart.js sofort einen neuen Tooltip an der Touch-Position öffnet.
                 e.preventDefault();
             }
@@ -4936,6 +6309,28 @@ function handleChartClick(event, elements) {
             switchTab('history');
             updateHistory();
             showNotification(`Historie gefiltert für: ${platformName}`);
+        }
+    }
+}
+
+function hideChartTooltip() {
+    const tooltipEl = document.querySelector('.chartjs-tooltip');
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0';
+        tooltipEl.style.pointerEvents = 'none';
+    }
+
+    if (portfolioChart) {
+        if (typeof portfolioChart.setActiveElements === 'function') {
+            portfolioChart.setActiveElements([]);
+        }
+        if (portfolioChart.tooltip && typeof portfolioChart.tooltip.update === 'function') {
+            portfolioChart.tooltip.update();
+        }
+        if (typeof portfolioChart.update === 'function') {
+            portfolioChart.update('none');
+        } else if (typeof portfolioChart.draw === 'function') {
+            portfolioChart.draw();
         }
     }
 }
@@ -5277,9 +6672,9 @@ async function updateChartWithBenchmarks() {
         
         // Lade Krypto-Daten sequenziell mit einer kleinen Verzögerung, um CoinGecko Rate-Limits (429 Fehler) zu vermeiden.
         const btcPrices = await fetchMarketData('bitcoin', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
         const ethPrices = await fetchMarketData('ethereum', fromTs, toTs);
-        await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Pause
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Längere Pause zur Vermeidung von Rate-Limits
         const dpiPrices = await fetchCoinGeckoData('defipulse-index', fromTs, toTs);
 
         // Benchmark-Daten zur Chart-Konfiguration hinzufügen
@@ -5310,38 +6705,6 @@ function useStaticFallback(ticker) {
     return [];
 }
 
-async function fetchAlphaVantageData(symbol) {
-    // Ersetze 'YOUR_API_KEY_HERE' durch deinen tatsächlichen Schlüssel
-    const url = `${ALPHA_VANTAGE_API_URL}?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}&outputsize=full`;
-    
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Alpha Vantage API error: ${response.status}`);
-        const data = await response.json();
-
-        if (data['Error Message'] || !data['Time Series (Daily)']) {
-            if (data['Information']) console.warn(`Alpha Vantage info for ${symbol}: ${data['Information']}`);
-            else throw new Error(data['Error Message'] || 'Invalid data from Alpha Vantage');
-            return null; // Fehler signalisieren
-        }
-
-        const timeSeries = data['Time Series (Daily)'];
-        const prices = Object.entries(timeSeries).map(([date, values]) => {
-            const timestamp = new Date(date + 'T00:00:00Z').getTime(); // Datum als UTC behandeln
-            const price = parseFloat(values['5. adjusted close']);
-            return [timestamp, price];
-        });
-        
-        prices.sort((a, b) => a[0] - b[0]); // Nach Datum aufsteigend sortieren
-        console.log(`%cErfolgreich ${prices.length} Datenpunkte für ${symbol} von Alpha Vantage geladen.`, 'color: green; font-weight: bold;');
-        return prices;
-
-    } catch (error) {
-        console.error(`Fehler beim Abrufen von Alpha Vantage für ${symbol}:`, error);
-        return null; 
-    }
-}
-
 async function fetchMarketData(ticker, from, to) {
     const decodedTicker = decodeURIComponent(ticker);
 
@@ -5350,34 +6713,25 @@ async function fetchMarketData(ticker, from, to) {
         return fetchCoinGeckoData(decodedTicker, from, to);
     }
 
-    // NEU: Bevorzugter Abruf über Alpha Vantage, falls konfiguriert
-    if (ALPHA_VANTAGE_API_KEY && ALPHA_VANTAGE_API_KEY !== 'YOUR_API_KEY_HERE') {
-        const avSymbol = ALPHA_VANTAGE_SYMBOL_MAP[decodedTicker];
-        if (avSymbol) {
-            console.log(`Versuche ${decodedTicker} (als ${avSymbol}) von Alpha Vantage abzurufen...`);
-            const avData = await fetchAlphaVantageData(avSymbol);
-            if (avData && avData.length > 0) {
-                return avData; // Erfolg, Alpha Vantage Daten verwenden
-            }
-            console.warn(`Alpha Vantage Abruf für ${decodedTicker} fehlgeschlagen. Fallback auf Google Sheets.`);
-        }
-    }
-
     const sheetUrl = GOOGLE_SHEET_URLS[ticker];
     if (!sheetUrl || sheetUrl.includes('YOUR_')) {
         console.warn(`Google Sheet URL für ${decodedTicker} ist nicht konfiguriert.`);
         showNotification(`Sheet für ${decodedTicker} nicht konfiguriert. Fallback wird genutzt.`, 'warning');
         return useStaticFallback(ticker);
     }
-    const url = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
+    const baseUrl = CORS_PROXY + sheetUrl; // Verwende den CORS-Proxy
 
     // NEU: Wiederholungslogik für den Abruf
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 2000; // 2 Sekunden
+    const MAX_RETRIES = 4; // Erhöht auf 4 Versuche
+    // NEU: Längere Startverzögerung, da Google Sheets manchmal langsam sind
+    const INITIAL_RETRY_DELAY = 4000; // Start mit 4 Sekunden
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const response = await fetch(url);
+            // Logik für den Ladeversuch bleibt, aber ohne Benachrichtigung an den User.
+            // NEU: Cache-Busting Parameter hinzufügen, um immer eine frische Antwort zu erzwingen
+            const urlWithBust = baseUrl + '&_=' + new Date().getTime();
+            const response = await fetch(urlWithBust);
             if (!response.ok) throw new Error(`HTTP error ${response.status}`);
             const csvText = await response.text();
 
@@ -5426,19 +6780,34 @@ async function fetchMarketData(ticker, from, to) {
             return prices; // Erfolg, die Schleife wird verlassen.
 
         } catch (error) {
-            console.warn(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen: ${error.message}`);
+            console.log(`Versuch ${attempt}/${MAX_RETRIES} für ${decodedTicker} fehlgeschlagen, versuche erneut...`);
             if (attempt === MAX_RETRIES) {
                 // Nach dem letzten Versuch aufgeben und Fallback nutzen.
-                console.error(`Fehler beim Laden des Google Sheets für ${decodeURIComponent(ticker)} nach ${MAX_RETRIES} Versuchen:`, error);
-                showNotification(`Fehler beim Laden der Daten für ${decodedTicker}. Fallback wird genutzt.`, 'error');
+                console.log(`Laden für ${decodedTicker} nach ${MAX_RETRIES} Versuchen fehlgeschlagen. Nutze statische Fallback-Daten.`);
+                // Die Benachrichtigung wird entfernt, da der Fallback nahtlos funktioniert.
                 return useStaticFallback(ticker);
             }
             // Warten vor dem nächsten Versuch.
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
     // Dieser Punkt sollte nicht erreicht werden, aber als Sicherheitsnetz.
     return useStaticFallback(ticker);
+}
+
+/**
+ * NEU: Sendet "Wake-up Calls" an die Google Sheet APIs, um sie aus dem Schlafmodus zu holen.
+ * Dies geschieht "fire-and-forget" im Hintergrund, ohne auf eine Antwort zu warten.
+ */
+function warmUpBenchmarkApis() {
+    console.log('Warming up Google Sheet APIs...');
+    Object.values(GOOGLE_SHEET_URLS).forEach(sheetUrl => {
+        if (sheetUrl && !sheetUrl.includes('YOUR_')) {
+            // 'no-cors' ist hier wichtig, da wir die Antwort nicht benötigen und CORS-Fehler ignorieren wollen.
+            fetch(CORS_PROXY + sheetUrl, { mode: 'no-cors' }).catch(() => {});
+        }
+    });
 }
 
 function toggleBenchmarkView() {
@@ -5551,7 +6920,7 @@ async function exportPDF() {
 }
 
 function exportJSON() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites }));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ platforms, entries, cashflows, dayStrategies, favorites, notes }));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
     downloadAnchorNode.setAttribute("download", `portfolio_backup_${new Date().toISOString().split('T')[0]}.json`);
@@ -5728,8 +7097,11 @@ function handleJsonImport(event) {
                     cashflows = data.cashflows;
                     favorites = data.favorites || [];
                     dayStrategies = data.dayStrategies || [];
+                    notes = data.notes || [];
                     saveData();
                     applyDateFilter();
+                    renderNotesList();
+                    resetNoteForm();
                     showNotification('Daten erfolgreich aus JSON importiert!', 'success');
                 } else {
                     showNotification('Import abgebrochen.', 'warning');
@@ -5760,6 +7132,80 @@ const formatDollar = (value) => {
     if (document.body.classList.contains('privacy-mode')) return '$******';
     return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 };
+
+const formatDollarSigned = (value) => {
+    const numericValue = typeof value === 'number' && !Number.isNaN(value) ? value : 0;
+    if (document.body.classList.contains('privacy-mode')) return '$******';
+    if (numericValue === 0) return formatDollar(0);
+    const formatted = formatDollar(Math.abs(numericValue));
+    const sign = numericValue > 0 ? '+' : '-';
+    return `${sign}${formatted}`;
+};
+
+function updateEntrySummary() {
+    const summaryCard = document.getElementById('entrySummary');
+    if (!summaryCard) return;
+
+    const inputCards = Array.from(document.querySelectorAll('#platformInputs .input-card'));
+    const activeCount = inputCards.length;
+
+    const activeCountEl = document.getElementById('summaryActiveCount');
+    const totalValueEl = document.getElementById('summaryTotalValue');
+    const deltaValueEl = document.getElementById('summaryDeltaValue');
+    const pendingCountEl = document.getElementById('summaryPendingCount');
+
+    if (activeCount === 0) {
+        summaryCard.style.display = 'none';
+        if (activeCountEl) activeCountEl.textContent = '0';
+        if (totalValueEl) totalValueEl.textContent = formatDollar(0);
+        if (deltaValueEl) {
+            deltaValueEl.textContent = formatDollar(0);
+            deltaValueEl.classList.remove('positive', 'negative');
+        }
+        if (pendingCountEl) pendingCountEl.textContent = '0';
+        return;
+    }
+
+    summaryCard.style.display = 'block';
+
+    let totalCurrent = 0;
+    let totalOriginal = 0;
+    let pendingCount = 0;
+
+    inputCards.forEach(card => {
+        const input = card.querySelector('.input-field');
+        if (!input) return;
+
+        const currentValue = parseLocaleNumberString(input.value);
+        if (!Number.isNaN(currentValue)) {
+            totalCurrent += currentValue;
+        }
+
+        const originalValue = parseFloat(input.dataset.originalValue || '0');
+        if (!Number.isNaN(originalValue)) {
+            totalOriginal += originalValue;
+        }
+
+        if (input.dataset.saved !== 'true') {
+            pendingCount += 1;
+        }
+    });
+
+    const delta = totalCurrent - totalOriginal;
+
+    if (activeCountEl) activeCountEl.textContent = String(activeCount);
+    if (totalValueEl) totalValueEl.textContent = formatDollar(totalCurrent);
+    if (deltaValueEl) {
+        deltaValueEl.textContent = formatDollarSigned(delta);
+        deltaValueEl.classList.remove('positive', 'negative');
+        if (delta > 0) {
+            deltaValueEl.classList.add('positive');
+        } else if (delta < 0) {
+            deltaValueEl.classList.add('negative');
+        }
+    }
+    if (pendingCountEl) pendingCountEl.textContent = String(pendingCount);
+}
 
 
 function setToToday() { 
@@ -5911,9 +7357,25 @@ function showCustomPrompt({ title, text, showInput = false, showDateInput = fals
     return new Promise(resolve => {
         promptResolve = resolve;
 
-        let actionsHtml = actions.map(action => 
-            `<button class="btn ${action.class || 'btn-primary'}" onclick="closeBottomSheet('${action.value || action.text}')">${action.text}</button>`
-        ).join('');
+        // Definiert, welche Aktionswerte eine Eingabe vom Benutzer erwarten.
+        const positiveActionValues = ['next', 'save', 'confirm', 'change', 'reset', 'DELETE ALL', 'RESTORE'];
+
+        let actionsHtml = actions.map(action => {
+            let onclickCall;
+            // Wenn ein Input angezeigt wird UND die Aktion eine Bestätigungsaktion ist,
+            // wird der Wert des Inputs an closeBottomSheet übergeben.
+            if ((showInput || showDateInput) && positiveActionValues.includes(action.value)) {
+                const inputId = showInput ? 'bottomSheet_input' : 'bottomSheet_date_input';
+                onclickCall = `closeBottomSheet(document.getElementById('${inputId}').value)`;
+            } else {
+                // Andernfalls wird der Wert der Aktion selbst oder null (für Abbrechen) übergeben.
+                // Der Wert wird in Anführungszeichen gesetzt, um ihn als String zu übergeben, es sei denn, er ist 'true' oder 'null'.
+                const param = action.value !== undefined && action.value !== null ? (typeof action.value === 'boolean' ? action.value : `'${action.value}'`) : 'null';
+                onclickCall = `closeBottomSheet(${param})`;
+            }
+            return `<button class="btn ${action.class || 'btn-primary'}" onclick="${onclickCall}">${action.text}</button>`;
+        }).join('');
+
         if (actions.length === 0) {
             actionsHtml = `
                 <button class="btn btn-danger" onclick="closeBottomSheet(null)">Abbrechen</button>
@@ -6035,9 +7497,12 @@ async function restoreFromLocalBackup() {
                 cashflows = backup.cashflows;
                 dayStrategies = backup.dayStrategies;
                 favorites = backup.favorites;
+                notes = backup.notes || [];
                 
                 saveData(); // Speichert die wiederhergestellten Daten in localStorage und aktualisiert das Backup
                 applyDateFilter();
+                renderNotesList();
+                resetNoteForm();
                 showNotification('Daten erfolgreich aus lokalem Backup wiederhergestellt!', 'success');
             } else {
                 showNotification('Kein lokales Backup gefunden.', 'error');
@@ -7004,7 +8469,9 @@ function performGlobalSearch(term) {
         { title: 'Dashboard', icon: '📊', category: 'Navigation', type: 'action', action: () => switchTab('dashboard'), tags: ['overview', 'start', 'home'] },
         { title: 'Neuer Eintrag', icon: '📝', category: 'Navigation', type: 'action', action: () => switchTab('entry'), tags: ['new', 'add', 'create'] },
         { title: 'Cashflow', icon: '💸', category: 'Navigation', type: 'action', action: () => switchTab('cashflow'), tags: ['money', 'transactions', 'flow'] },
+        { title: 'Plattformen', icon: '💼', category: 'Navigation', type: 'action', action: () => switchTab('platforms'), tags: ['platform', 'übersicht', 'details'] },
         { title: 'Historie', icon: '📜', category: 'Navigation', type: 'action', action: () => switchTab('history'), tags: ['history', 'past', 'records'] },
+        { title: 'Notizbuch', icon: '🗒️', category: 'Navigation', type: 'action', action: () => switchTab('notes'), tags: ['notes', 'journal', 'ideen'] },
         { title: 'Einstellungen', icon: '⚙️', category: 'Navigation', type: 'action', action: () => switchTab('settings'), tags: ['settings', 'config', 'options'] },
     ];
 
@@ -7122,7 +8589,46 @@ function performGlobalSearch(term) {
         }
     });
 
-    // 5. Cashflows nach Typ durchsuchen
+    // 5. Notizen durchsuchen (Titel, Inhalt, Dateinamen)
+    notes.forEach(note => {
+        const noteText = `${note.title || ''} ${note.content || ''}`.toLowerCase();
+        const attachmentMatch = (note.attachments || []).some(att => (att.name || '').toLowerCase().includes(lowerTerm));
+        if (noteText.includes(lowerTerm) || attachmentMatch) {
+            const id = `note-${note.id}`;
+            if (!addedIds.has(id)) {
+                const relevance = globalSearchEngine.calculateRelevance({
+                    title: note.title || 'Notiz',
+                    subtitle: note.content || '',
+                    category: 'Notizen',
+                    tags: (note.attachments || []).map(att => att.name || '')
+                }, term);
+
+                results.push({
+                    title: note.title?.trim() || 'Notiz',
+                    subtitle: formatNoteTimestamp(note) || 'Notiz',
+                    icon: '🗒️',
+                    category: 'Notizen',
+                    type: 'note',
+                    relevance: relevance || 4,
+                    action: () => {
+                        switchTab('notes');
+                        setTimeout(() => {
+                            noteSearchTerm = term;
+                            const searchInput = document.getElementById('notesSearchInput');
+                            if (searchInput) {
+                                searchInput.value = term;
+                            }
+                            renderNotesList();
+                            highlightNoteCard(note.id);
+                        }, 150);
+                    }
+                });
+                addedIds.add(id);
+            }
+        }
+    });
+
+    // 6. Cashflows nach Typ durchsuchen
     if ('einzahlung'.includes(lowerTerm)) {
         const count = cashflows.filter(c => c.type === 'deposit').length;
         if (count > 0) {
@@ -7156,7 +8662,7 @@ function performGlobalSearch(term) {
         }
     }
 
-    // 6. Nach Datum suchen (Format DD.MM.YYYY oder YYYY-MM-DD)
+    // 7. Nach Datum suchen (Format DD.MM.YYYY oder YYYY-MM-DD)
     let searchDate = null;
     const dateMatch = lowerTerm.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
     if (dateMatch) {
@@ -7193,7 +8699,7 @@ function performGlobalSearch(term) {
         }
     }
 
-    // 7. Tages-Strategien durchsuchen (gruppiert)
+    // 8. Tages-Strategien durchsuchen (gruppiert)
     const matchingStrategyTexts = [...new Set(
         dayStrategies
             .filter(ds => ds.strategy && ds.strategy.toLowerCase().includes(lowerTerm))
@@ -7596,6 +9102,8 @@ function addAriaLabels() {
             }
         }
     });
+
+    updateEntrySummary();
 }
 
 function convertTablesToMobile() {
