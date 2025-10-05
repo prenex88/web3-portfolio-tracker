@@ -669,21 +669,75 @@
                         <input type="text" id="notesSearchInput" class="input-field" placeholder="Notizen durchsuchen...">
                         <button class="btn btn-primary btn-small" type="button" id="notesNewBtn">➕ Neue Notiz</button>
                     </div>
+                    <div class="notes-filter-bar">
+                        <button type="button" class="notes-filter-chip" id="notePinnedFilterBtn" aria-pressed="false">📌 Angepinnt</button>
+                        <div class="notes-tag-filter" id="noteTagFilters"></div>
+                        <div class="notes-sort-group">
+                            <label for="noteSortSelect">Sortieren:</label>
+                            <select id="noteSortSelect" class="notes-sort-select">
+                                <option value="updated-desc">Zuletzt aktualisiert</option>
+                                <option value="updated-asc">Älteste zuerst</option>
+                                <option value="created-desc">Erstellt (neueste)</option>
+                                <option value="created-asc">Erstellt (älteste)</option>
+                                <option value="title-asc">Titel A → Z</option>
+                                <option value="title-desc">Titel Z → A</option>
+                            </select>
+                        </div>
+                        <button type="button" class="notes-filter-reset" id="noteFilterResetBtn" disabled>Filter zurücksetzen</button>
+                    </div>
                 </div>
                 <div class="note-editor" id="noteEditor">
-                    <div class="note-editor-fields">
-                        <input type="text" id="noteTitleInput" class="input-field" placeholder="Titel der Notiz">
-                        <textarea id="noteContentInput" class="input-field note-textarea" placeholder="Was möchtest du festhalten?"></textarea>
-                    </div>
-                    <div class="note-editor-footer">
-                        <label class="file-upload" for="noteAttachmentInput">
-                            <input type="file" id="noteAttachmentInput" accept="image/*" multiple>
-                            <span>📎 Screenshots anhängen</span>
-                        </label>
-                        <div class="note-editor-actions">
-                            <button class="btn btn-secondary btn-small" type="button" id="noteCancelBtn">Zurücksetzen</button>
-                            <button class="btn btn-success btn-small" type="button" id="noteSaveBtn">Speichern</button>
+                    <div class="note-editor-content">
+                        <div class="note-editor-form">
+                            <input type="text" id="noteTitleInput" class="input-field" placeholder="Titel der Notiz">
+                        <div class="note-rich-editor">
+                            <div class="note-toolbar" id="noteToolbar">
+                                <button type="button" class="note-tool" data-command="bold" title="Fett">B</button>
+                                <button type="button" class="note-tool" data-command="italic" title="Kursiv">I</button>
+                                <button type="button" class="note-tool" data-command="underline" title="Unterstreichen">U</button>
+                                <span class="note-toolbar-separator"></span>
+                                <button type="button" class="note-tool" data-command="insertUnorderedList" title="Liste">• List</button>
+                                <button type="button" class="note-tool" data-command="insertOrderedList" title="Nummerierte Liste">1. List</button>
+                                <span class="note-toolbar-separator"></span>
+                                <label class="note-color-picker" title="Textfarbe">
+                                    🎨
+                                    <input type="color" id="noteColorPicker" value="#3b82f6">
+                                </label>
+                                <button type="button" class="note-tool" data-command="removeFormat" title="Formatierung entfernen">⨯</button>
+                            </div>
+                            <div id="noteContentEditor" class="note-content-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Was möchtest du festhalten?"></div>
+                            <textarea id="noteContentInput" class="note-content-hidden" aria-hidden="true"></textarea>
                         </div>
+                        <div class="note-tags-group">
+                            <input type="text" id="noteTagsInput" class="input-field" placeholder="Tags mit Komma trennen (z.B. DeFi, Ideen)">
+                            <div id="noteTagChips" class="note-tag-chips"></div>
+                        </div>
+                            <div class="note-editor-footer">
+                                <label class="file-upload" for="noteAttachmentInput">
+                                    <input type="file" id="noteAttachmentInput" accept="image/*" multiple>
+                                    <span>📎 Screenshots anhängen</span>
+                                </label>
+                                <div class="note-editor-actions">
+                                    <label class="note-pin-toggle">
+                                        <input type="checkbox" id="notePinnedToggle">
+                                        <span>📌 Wichtig markieren</span>
+                                    </label>
+                                    <button class="btn btn-secondary btn-small" type="button" id="noteCancelBtn">Zurücksetzen</button>
+                                    <button class="btn btn-success btn-small" type="button" id="noteSaveBtn">Speichern</button>
+                                </div>
+                                <div id="noteDraftStatus" class="note-draft-status"></div>
+                            </div>
+                        </div>
+                        <aside class="note-preview-panel">
+                            <div class="note-preview-header">
+                                <span>Live Vorschau</span>
+                                <label class="note-preview-toggle">
+                                    <input type="checkbox" id="notePreviewToggle" checked>
+                                    <span>anzeigen</span>
+                                </label>
+                            </div>
+                            <div id="notePreview" class="note-preview note-preview-empty">Markdown Vorschau erscheint hier.</div>
+                        </aside>
                     </div>
                     <div id="noteAttachmentPreview" class="note-attachments"></div>
                 </div>
@@ -699,7 +753,16 @@
                     <h3>Keine Notizen gespeichert</h3>
                     <p>Halte spontane Ideen, wichtige Todos oder Links fest. Über den Button oben kannst du Screenshots hinzufügen.</p>
                 </div>
-                <div id="notesList" class="notes-list"></div>
+                <div class="notes-sections">
+                    <div class="notes-group" id="notesPinnedGroup" style="display: none;">
+                        <div class="notes-group-title">📌 Angepinnt</div>
+                        <div id="notesPinned" class="notes-list pinned"></div>
+                    </div>
+                    <div class="notes-group" id="notesRegularGroup">
+                        <div class="notes-group-title">Alle Notizen</div>
+                        <div id="notesRegular" class="notes-list"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -935,6 +998,26 @@
         <button class="mobile-nav-item" onclick="openMobileMenu()">
             <span class="nav-icon">⋮</span>
         </button>
+    </div>
+
+    <div id="noteGalleryOverlay" class="note-gallery-overlay">
+        <div class="note-gallery-content">
+            <button type="button" class="note-gallery-close" id="noteGalleryClose" aria-label="Galerie schließen">✕</button>
+            <div class="note-gallery-image-wrapper" id="noteGalleryImageWrapper">
+                <div class="note-gallery-loader" id="noteGalleryLoader">
+                    <span>⏳</span>
+                </div>
+                <img id="noteGalleryImage" alt="Notiz Anhang" class="note-gallery-image">
+            </div>
+            <div class="note-gallery-meta">
+                <div id="noteGalleryCaption" class="note-gallery-caption"></div>
+                <div class="note-gallery-controls">
+                    <button type="button" id="noteGalleryPrev" class="note-gallery-nav" aria-label="Vorheriges Bild">←</button>
+                    <span id="noteGalleryCounter" class="note-gallery-counter"></span>
+                    <button type="button" id="noteGalleryNext" class="note-gallery-nav" aria-label="Nächstes Bild">→</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

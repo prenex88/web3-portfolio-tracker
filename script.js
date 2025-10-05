@@ -354,6 +354,9 @@ const STORAGE_PREFIX = isFxVersion ? 'w3pt_fx_v11_' : 'w3pt_default_v11_';
 const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
 const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
 const LAST_ACTIVE_TAB_KEY = `${STORAGE_PREFIX}lastActiveTab`;
+const NOTE_DRAFT_KEY = `${STORAGE_PREFIX}noteDraft`;
+const NOTE_AUTOSAVE_DELAY = 600;
+const NOTE_DRAFT_MESSAGE_DURATION = 4000;
 
 const DEFAULT_PLATFORMS = [
     { name: 'Binance', icon: '🛏️', type: 'Exchange', category: 'Exchange', tags: ['high-volume', 'spot'] },
@@ -468,7 +471,205 @@ let globalSearchResults = [];
 let editingNoteId = null;
 let noteEditorAttachments = [];
 let noteSearchTerm = '';
+let noteEditorTags = [];
+let noteSortMode = 'updated-desc';
+let noteFilterState = { tags: [], pinnedOnly: false };
+let noteDraftTimer = null;
+let noteDraftStatusTimeout = null;
+let noteSearchMetadata = new Map();
+let noteGalleryState = { noteId: null, attachments: [], index: 0 };
+const noteAttachmentCache = new Map();
+let notePreviewEnabled = true;
+let noteGallerySwipeStartX = null;
+let noteEditorSelectionRange = null;
 
+const ALLOWED_NOTE_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'A', 'P', 'BR', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'DIV', 'CODE', 'PRE', 'FONT']);
+const ALLOWED_NOTE_ATTRS = {
+    A: ['href', 'target', 'rel'],
+    SPAN: ['style'],
+    DIV: ['style'],
+    P: ['style'],
+    CODE: ['class'],
+    PRE: [],
+    FONT: ['color']
+};
+
+function stripHtml(html) {
+    if (!html) return '';
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    return (template.content.textContent || '').trim();
+}
+
+function sanitizeNoteHtml(html) {
+    if (!html) return '';
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    const sanitizeNode = (root) => {
+        Array.from(root.childNodes).forEach(child => {
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                if (!ALLOWED_NOTE_TAGS.has(child.tagName)) {
+                    if (child.childNodes.length) {
+                        while (child.firstChild) {
+                            root.insertBefore(child.firstChild, child);
+                        }
+                    }
+                    root.removeChild(child);
+                    return;
+                }
+                sanitizeAttributes(child);
+                sanitizeNode(child);
+            } else if (child.nodeType === Node.COMMENT_NODE) {
+                root.removeChild(child);
+            }
+        });
+    };
+
+    const sanitizeAttributes = (el) => {
+        const allowed = ALLOWED_NOTE_ATTRS[el.tagName] || [];
+        Array.from(el.attributes).forEach(attr => {
+            if (!allowed.includes(attr.name)) {
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if (attr.name === 'href') {
+                const href = attr.value.trim();
+                if (!/^https?:\/\//i.test(href) && !href.startsWith('mailto:')) {
+                    el.removeAttribute('href');
+                    el.removeAttribute('target');
+                    el.removeAttribute('rel');
+                } else {
+                    el.setAttribute('target', '_blank');
+                    el.setAttribute('rel', 'noopener noreferrer');
+                }
+            }
+            if (attr.name === 'style') {
+                const sanitized = sanitizeStyle(attr.value);
+                if (sanitized) {
+                    el.setAttribute('style', sanitized);
+                } else {
+                    el.removeAttribute('style');
+                }
+            }
+        });
+    };
+
+    const sanitizeStyle = (value) => {
+        if (!value) return '';
+        const declarations = value.split(';');
+        const allowed = [];
+        declarations.forEach(pair => {
+            const [rawProp, rawValue] = pair.split(':');
+            if (!rawProp || !rawValue) return;
+            const prop = rawProp.trim().toLowerCase();
+            const val = rawValue.trim();
+            if (!val) return;
+            if (prop === 'color' || prop === 'background-color') {
+                allowed.push(`${prop}: ${val}`);
+            }
+        });
+        return allowed.join('; ');
+    };
+
+    sanitizeNode(template.content);
+    return template.innerHTML;
+}
+
+function getNoteEditorElement() {
+    return document.getElementById('noteContentEditor');
+}
+
+function convertTextToHtml(text) {
+    if (!text) return '';
+    const parts = text.split(/\r?\n\r?\n/);
+    const html = parts.map(part => {
+        const escaped = escapeHtmlForHighlight(part).replace(/\r?\n/g, '<br>');
+        return `<p>${escaped}</p>`;
+    }).join('');
+    return html;
+}
+
+function setNoteEditorHtml(html) {
+    const editor = getNoteEditorElement();
+    if (!editor) return;
+    editor.innerHTML = sanitizeNoteHtml(html || '');
+    syncNoteEditorHiddenInput();
+    saveNoteEditorSelection();
+}
+
+function getNoteEditorHtml() {
+    const editor = getNoteEditorElement();
+    if (!editor) return '';
+    return sanitizeNoteHtml(editor.innerHTML);
+}
+
+function syncNoteEditorHiddenInput() {
+    const hidden = document.getElementById('noteContentInput');
+    if (!hidden) return;
+    hidden.value = stripHtml(getNoteEditorElement()?.innerHTML || '');
+}
+
+function saveNoteEditorSelection() {
+    const editor = getNoteEditorElement();
+    if (!editor) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+        return;
+    }
+    noteEditorSelectionRange = range.cloneRange();
+}
+
+function restoreNoteEditorSelection() {
+    const editor = getNoteEditorElement();
+    if (!editor || !noteEditorSelectionRange) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(noteEditorSelectionRange);
+}
+
+function handleNoteToolbarClick(event) {
+    const button = event.target.closest('.note-tool');
+    if (!button) return;
+    const command = button.dataset.command;
+    if (!command) return;
+    event.preventDefault();
+    const editor = getNoteEditorElement();
+    if (!editor) return;
+    editor.focus({ preventScroll: true });
+    restoreNoteEditorSelection();
+    if (command === 'removeFormat') {
+        document.execCommand('removeFormat');
+        document.execCommand('unlink');
+    } else if (command === 'createLink') {
+        const url = prompt('Link URL eingeben:');
+        if (url) {
+            document.execCommand('createLink', false, url);
+        }
+    } else {
+        document.execCommand(command, false, null);
+    }
+    syncNoteEditorHiddenInput();
+    scheduleNoteDraftSave();
+    renderNotePreview();
+    saveNoteEditorSelection();
+}
+
+function handleNoteColorChange(event) {
+    const color = event.target.value;
+    const editor = getNoteEditorElement();
+    if (!editor) return;
+    editor.focus({ preventScroll: true });
+    restoreNoteEditorSelection();
+    document.execCommand('foreColor', false, color);
+    syncNoteEditorHiddenInput();
+    scheduleNoteDraftSave();
+    renderNotePreview();
+    saveNoteEditorSelection();
+}
 let currentForecastPeriod = 5;
 let showForecastScenarios = true;
 // GITHUB SYNC VARIABLEN
@@ -1176,10 +1377,103 @@ function addEventListeners() {
         });
     }
 
+    const noteTitleInput = document.getElementById('noteTitleInput');
+    if (noteTitleInput) {
+        noteTitleInput.addEventListener('input', scheduleNoteDraftSave);
+    }
+
+    const noteContentEditor = document.getElementById('noteContentEditor');
+    if (noteContentEditor) {
+        noteContentEditor.addEventListener('input', () => {
+            syncNoteEditorHiddenInput();
+            scheduleNoteDraftSave();
+            renderNotePreview();
+        });
+        ['mouseup', 'keyup', 'mouseleave'].forEach(evt => {
+            noteContentEditor.addEventListener(evt, saveNoteEditorSelection);
+        });
+        noteContentEditor.addEventListener('focus', restoreNoteEditorSelection);
+        noteContentEditor.addEventListener('blur', saveNoteEditorSelection);
+    }
+
+    const noteToolbar = document.getElementById('noteToolbar');
+    if (noteToolbar) {
+        noteToolbar.addEventListener('click', handleNoteToolbarClick);
+    }
+
+    const noteColorPicker = document.getElementById('noteColorPicker');
+    if (noteColorPicker) {
+        noteColorPicker.addEventListener('input', handleNoteColorChange);
+    }
+
+    const notePinnedToggle = document.getElementById('notePinnedToggle');
+    if (notePinnedToggle) {
+        notePinnedToggle.addEventListener('change', scheduleNoteDraftSave);
+    }
+
+    const noteTagsInput = document.getElementById('noteTagsInput');
+    if (noteTagsInput) {
+        noteTagsInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ',') {
+                event.preventDefault();
+                commitTagFromInput();
+            } else if (event.key === 'Backspace' && !noteTagsInput.value && noteEditorTags.length) {
+                noteEditorTags.pop();
+                renderNoteTagChips();
+                scheduleNoteDraftSave();
+            }
+        });
+        noteTagsInput.addEventListener('blur', () => commitTagFromInput(true));
+        noteTagsInput.addEventListener('input', () => {
+            // If user typed a comma, convert immediately
+            if (noteTagsInput.value.includes(',')) {
+                commitTagFromInput();
+            } else {
+                scheduleNoteDraftSave();
+            }
+        });
+    }
+
     const noteAttachmentInput = document.getElementById('noteAttachmentInput');
     if (noteAttachmentInput) {
         noteAttachmentInput.addEventListener('change', handleNoteAttachmentInput);
     }
+
+    const notePreviewToggle = document.getElementById('notePreviewToggle');
+    if (notePreviewToggle) {
+        notePreviewEnabled = notePreviewToggle.checked;
+        notePreviewToggle.addEventListener('change', () => {
+            notePreviewEnabled = notePreviewToggle.checked;
+            renderNotePreview();
+        });
+    }
+
+    document.getElementById('notePinnedFilterBtn')?.addEventListener('click', togglePinnedFilter);
+
+    const noteSortSelect = document.getElementById('noteSortSelect');
+    if (noteSortSelect) {
+        noteSortSelect.addEventListener('change', (event) => setNoteSortMode(event.target.value));
+    }
+
+    document.getElementById('noteFilterResetBtn')?.addEventListener('click', () => resetNoteFilters(true));
+
+    const galleryOverlay = document.getElementById('noteGalleryOverlay');
+    if (galleryOverlay) {
+        galleryOverlay.addEventListener('click', (event) => {
+            if (event.target === galleryOverlay) {
+                closeNoteGallery();
+            }
+        });
+    }
+    document.getElementById('noteGalleryClose')?.addEventListener('click', closeNoteGallery);
+    document.getElementById('noteGalleryPrev')?.addEventListener('click', prevNoteGallery);
+    document.getElementById('noteGalleryNext')?.addEventListener('click', nextNoteGallery);
+    const galleryWrapper = document.getElementById('noteGalleryImageWrapper');
+    if (galleryWrapper) {
+        galleryWrapper.addEventListener('touchstart', handleNoteGalleryTouchStart, { passive: true });
+        galleryWrapper.addEventListener('touchend', handleNoteGalleryTouchEnd, { passive: true });
+    }
+    document.addEventListener('keydown', handleNoteGalleryKeydown);
 
     document.getElementById('noteSaveBtn')?.addEventListener('click', saveNote);
     document.getElementById('noteCancelBtn')?.addEventListener('click', resetNoteForm);
@@ -1524,7 +1818,7 @@ async function loadData() {
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
-    notes = notesData || [];
+    notes = (notesData || []).map(normalizeNote).filter(Boolean);
     
     console.log(`📊 Loaded data: ${entries.length} entries, ${platforms.length} platforms, ${favorites.length} favorites`);
     if (entries.length > 0) {
@@ -1533,8 +1827,9 @@ async function loadData() {
     }
     
     renderNotesList();
-    updateNoteEditorMode();
-    resetNoteForm();
+    resetNoteForm({ preserveDraft: true, silent: true });
+    loadNoteDraft();
+    renderNotePreview();
     applyDateFilter();
 }
 
@@ -1770,17 +2065,613 @@ function updateFilterBadge() {
 // =================================================================================
 // NOTES WORKSPACE
 // =================================================================================
-function resetNoteForm() {
+function resetNoteForm(options = {}) {
+    const { preserveDraft = false, silent = false } = options;
     editingNoteId = null;
     noteEditorAttachments = [];
+    noteEditorTags = [];
+
     const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
+    const tagsInput = document.getElementById('noteTagsInput');
+    const pinnedToggle = document.getElementById('notePinnedToggle');
     const fileInput = document.getElementById('noteAttachmentInput');
+
     if (titleInput) titleInput.value = '';
-    if (contentInput) contentInput.value = '';
+    setNoteEditorHtml('');
+    if (tagsInput) tagsInput.value = '';
+    if (pinnedToggle) pinnedToggle.checked = false;
     if (fileInput) fileInput.value = '';
+
+    renderNoteTagChips();
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
+    renderNotePreview();
+
+    if (!preserveDraft) {
+        clearNoteDraft(!silent);
+    } else if (!silent) {
+        updateNoteDraftStatus('Entwurf bereit.');
+    }
+}
+
+function renderNoteTagChips() {
+    const container = document.getElementById('noteTagChips');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (!noteEditorTags.length) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'flex';
+    noteEditorTags.forEach(tag => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'note-tag-chip';
+        chip.dataset.tag = tag;
+        chip.innerHTML = `<span>${tag}</span><span class="note-tag-remove" aria-hidden="true">✕</span>`;
+        chip.addEventListener('click', () => removeNoteTag(tag));
+        container.appendChild(chip);
+    });
+}
+
+function removeNoteTag(tag) {
+    noteEditorTags = noteEditorTags.filter(existing => existing !== tag);
+    renderNoteTagChips();
+    scheduleNoteDraftSave();
+}
+
+function commitTagFromInput(force = false) {
+    const input = document.getElementById('noteTagsInput');
+    if (!input) return;
+
+    let raw = input.value.trim();
+    if (!raw && !force) {
+        return;
+    }
+
+    raw = raw.replace(/,+$/, '');
+    const candidates = raw
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean);
+
+    if (!candidates.length) {
+        input.value = '';
+        return;
+    }
+
+    const existing = new Set(noteEditorTags.map(tag => tag.toLowerCase()));
+    candidates.forEach(candidate => {
+        const lower = candidate.toLowerCase();
+        if (!existing.has(lower)) {
+            existing.add(lower);
+            noteEditorTags.push(candidate);
+        }
+    });
+
+    noteEditorTags = noteEditorTags.sort((a, b) => a.localeCompare(b, 'de')); // keep list tidy
+    renderNoteTagChips();
+    input.value = '';
+    scheduleNoteDraftSave();
+}
+
+function scheduleNoteDraftSave() {
+    if (noteDraftTimer) {
+        clearTimeout(noteDraftTimer);
+    }
+    syncNoteEditorHiddenInput();
+    updateNoteDraftStatus('Speichere Entwurf...');
+    noteDraftTimer = setTimeout(saveNoteDraft, NOTE_AUTOSAVE_DELAY);
+}
+
+function saveNoteDraft() {
+    const title = document.getElementById('noteTitleInput')?.value || '';
+    const contentHtml = getNoteEditorHtml();
+    const contentText = stripHtml(contentHtml);
+    const isPinned = document.getElementById('notePinnedToggle')?.checked || false;
+
+    const draftPayload = {
+        title,
+        contentHtml,
+        contentText,
+        tags: [...noteEditorTags],
+        isPinned,
+        editingNoteId
+    };
+
+    if (!title && !contentText && !noteEditorTags.length && !isPinned && !editingNoteId) {
+        clearNoteDraft();
+        return;
+    }
+
+    localStorage.setItem(NOTE_DRAFT_KEY, JSON.stringify({
+        ...draftPayload,
+        updatedAt: new Date().toISOString()
+    }));
+
+    updateNoteDraftStatus('Entwurf gespeichert.');
+}
+
+function clearNoteDraft(showMessage = false) {
+    localStorage.removeItem(NOTE_DRAFT_KEY);
+    updateNoteDraftStatus(showMessage ? 'Entwurf verworfen.' : '');
+}
+
+function loadNoteDraft() {
+    const rawDraft = localStorage.getItem(NOTE_DRAFT_KEY);
+    if (!rawDraft) return;
+
+    try {
+        const draft = JSON.parse(rawDraft);
+        const titleInput = document.getElementById('noteTitleInput');
+        const pinnedToggle = document.getElementById('notePinnedToggle');
+
+        if (titleInput) titleInput.value = draft.title || '';
+        setNoteEditorHtml(draft.contentHtml || draft.contentText || draft.content || '');
+        if (Array.isArray(draft.tags)) {
+            noteEditorTags = draft.tags.filter(tag => !!tag);
+        }
+        if (pinnedToggle) pinnedToggle.checked = !!draft.isPinned;
+        let editingNote = null;
+        if (draft.editingNoteId && notes.some(n => n.id === draft.editingNoteId)) {
+            editingNoteId = draft.editingNoteId;
+            editingNote = notes.find(n => n.id === draft.editingNoteId) || null;
+        } else {
+            editingNoteId = null;
+        }
+
+        if (editingNote) {
+            noteEditorAttachments = (editingNote.attachments || []).map(att => ({
+                ...att,
+                originalSize: att.originalSize || att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
+            }));
+        } else {
+            noteEditorAttachments = [];
+        }
+        updateNoteAttachmentPreview();
+
+        renderNoteTagChips();
+        updateNoteEditorMode();
+        renderNotePreview();
+        if (draft.updatedAt) {
+            const date = new Date(draft.updatedAt);
+            if (!Number.isNaN(date.getTime())) {
+                updateNoteDraftStatus(`Entwurf vom ${date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}`);
+            }
+        }
+    } catch (error) {
+        console.warn('Konnte Notiz-Entwurf nicht laden:', error);
+        clearNoteDraft();
+    }
+}
+
+function updateNoteDraftStatus(message) {
+    const statusEl = document.getElementById('noteDraftStatus');
+    if (!statusEl) return;
+
+    if (noteDraftStatusTimeout) {
+        clearTimeout(noteDraftStatusTimeout);
+        noteDraftStatusTimeout = null;
+    }
+
+    statusEl.textContent = message || '';
+    statusEl.style.opacity = message ? '1' : '0';
+
+    if (message) {
+        noteDraftStatusTimeout = setTimeout(() => {
+            statusEl.style.opacity = '0';
+        }, NOTE_DRAFT_MESSAGE_DURATION);
+    }
+}
+
+function normalizeNote(rawNote) {
+    if (!rawNote) return null;
+
+    const attachments = Array.isArray(rawNote.attachments)
+        ? rawNote.attachments.map(att => ({
+            ...att,
+            id: att.id || generateNoteId('attachment'),
+            name: att.name || 'Screenshot',
+            size: att.size || 0
+        }))
+        : [];
+
+    const uniqueTags = Array.isArray(rawNote.tags)
+        ? Array.from(new Set(rawNote.tags
+            .map(tag => (typeof tag === 'string' ? tag.trim() : '')
+            ).filter(Boolean)))
+        : [];
+
+    const contentHtmlRaw = typeof rawNote.contentHtml === 'string' ? rawNote.contentHtml : rawNote.content || '';
+    const contentHtml = sanitizeNoteHtml(contentHtmlRaw);
+    const plainContent = stripHtml(contentHtml).trim();
+
+    return {
+        ...rawNote,
+        attachments,
+        tags: uniqueTags,
+        isPinned: !!rawNote.isPinned,
+        title: rawNote.title || '',
+        content: plainContent,
+        contentHtml
+    };
+}
+
+function getNoteContentFragments(note) {
+    const sanitizedHtml = note.contentHtml ? sanitizeNoteHtml(note.contentHtml) : convertTextToHtml(note.content || '');
+    const plainText = stripHtml(sanitizedHtml);
+    const MAX_PREVIEW_CHARS = 360;
+    const MAX_PREVIEW_LINES = 8;
+    const previewLines = plainText.split(/\r?\n/);
+    const isClamped = plainText.length > MAX_PREVIEW_CHARS || previewLines.length > MAX_PREVIEW_LINES;
+
+    const previewText = isClamped ? plainText.slice(0, MAX_PREVIEW_CHARS).trim() : plainText;
+    const previewHtml = sanitizedHtml;
+
+    return {
+        previewText,
+        fullText: plainText,
+        previewHtml,
+        fullHtml: sanitizedHtml,
+        isClamped
+    };
+}
+
+function escapeHtmlForHighlight(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function highlightHtml(html, term) {
+    if (!term || !term.trim() || !html) return html;
+    const safeTerm = term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(safeTerm, 'gi');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    while (walker.nextNode()) {
+        textNodes.push(walker.currentNode);
+    }
+    textNodes.forEach(node => {
+        const value = node.nodeValue;
+        if (!value || !regex.test(value)) return;
+        const wrapper = document.createElement('span');
+        wrapper.innerHTML = value.replace(regex, '<mark class="note-highlight">$&</mark>');
+        const fragment = document.createDocumentFragment();
+        Array.from(wrapper.childNodes).forEach(child => fragment.appendChild(child));
+        node.replaceWith(fragment);
+    });
+    return template.innerHTML;
+}
+
+function highlightNoteText(text, term) {
+    const raw = String(text ?? '');
+    if (!term || !term.trim()) {
+        return escapeHtmlForHighlight(raw).replace(/\r?\n/g, '<br>');
+    }
+
+    const normalizedTerm = term.trim();
+    const markerStart = '__<<HIGHLIGHT_START>>__';
+    const markerEnd = '__<<HIGHLIGHT_END>>__';
+    const safeTerm = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(safeTerm, 'gi');
+
+    const marked = raw.replace(regex, match => `${markerStart}${match}${markerEnd}`);
+    let escaped = escapeHtmlForHighlight(marked).replace(/\r?\n/g, '<br>');
+    escaped = escaped
+        .replaceAll(markerStart, '<mark class="note-highlight">')
+        .replaceAll(markerEnd, '</mark>');
+    return escaped;
+}
+
+function calculateNoteSearchScore(note, term) {
+    if (!term) return 0;
+    const comparableTerm = term.toLowerCase();
+    const fuzzyAvailable = globalSearchEngine && typeof globalSearchEngine.fuzzyMatch === 'function';
+    const fuzzy = fuzzyAvailable ? globalSearchEngine.fuzzyMatch.bind(globalSearchEngine) : null;
+
+    const addScore = (value, weight = 1) => {
+        if (!value) return 0;
+        let score = 0;
+        const text = String(value);
+        const lower = text.toLowerCase();
+        if (lower.includes(comparableTerm)) {
+            score += weight;
+        }
+        if (fuzzy) {
+            score += fuzzy(text, comparableTerm, 0.35) * weight * 1.5;
+        }
+        return score;
+    };
+
+    let score = 0;
+    score += addScore(note.title, 6);
+    score += addScore((note.content || '').slice(0, 1000), 4);
+    (note.tags || []).forEach(tag => {
+        score += addScore(tag, 3);
+    });
+    (note.attachments || []).forEach(att => {
+        score += addScore(att.name, 2);
+    });
+
+    return score;
+}
+
+function noteMatchesTerm(note, term) {
+    if (!term) return true;
+    const comparable = term.toLowerCase();
+    if ((note.title || '').toLowerCase().includes(comparable)) return true;
+    if ((note.content || '').toLowerCase().includes(comparable)) return true;
+    if ((note.tags || []).some(tag => tag.toLowerCase().includes(comparable))) return true;
+    if ((note.attachments || []).some(att => (att.name || '').toLowerCase().includes(comparable))) return true;
+    return false;
+}
+
+function buildNoteSearchMeta(note, term, score, fragments) {
+    const matchingTags = (note.tags || []).filter(tag => tag.toLowerCase().includes(term));
+    const previewHtml = fragments.previewHtml ? highlightHtml(fragments.previewHtml, term) : highlightNoteText(fragments.previewText, term);
+    const fullHtml = fragments.fullHtml ? highlightHtml(fragments.fullHtml, term) : highlightNoteText(fragments.fullText, term);
+    return {
+        score,
+        titleHtml: highlightNoteText(note.title || 'Ohne Titel', term),
+        previewHtml,
+        fullHtml,
+        previewText: fragments.previewText,
+        fullText: fragments.fullText,
+        isClamped: fragments.isClamped,
+        matchingTags
+    };
+}
+
+function compareNotesBySortMode(a, b) {
+    switch (noteSortMode) {
+        case 'updated-asc':
+            return new Date(a.updatedAt || a.createdAt || 0) - new Date(b.updatedAt || b.createdAt || 0);
+        case 'created-desc':
+            return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
+        case 'created-asc':
+            return new Date(a.createdAt || a.updatedAt || 0) - new Date(b.createdAt || b.updatedAt || 0);
+        case 'title-asc':
+            return (a.title || '').localeCompare(b.title || '', 'de', { sensitivity: 'base' });
+        case 'title-desc':
+            return (b.title || '').localeCompare(a.title || '', 'de', { sensitivity: 'base' });
+        case 'updated-desc':
+        default:
+            return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
+    }
+}
+
+function convertInlineMarkdown(text) {
+    if (!text) return '';
+
+    let result = escapeHtmlForHighlight(text);
+    const codePlaceholders = [];
+
+    result = result.replace(/`([^`]+)`/g, (match, code) => {
+        const index = codePlaceholders.length;
+        codePlaceholders.push(`<code class="note-md-inline">${code}</code>`);
+        return `__CODE_${index}__`;
+    });
+
+    result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+        const safeHref = href.trim();
+        if (!safeHref || /^(javascript:|data:)/i.test(safeHref)) {
+            return label;
+        }
+        return `<a href="${escapeHtmlForHighlight(safeHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    });
+
+    result = result.replace(/\\\*/g, '__AST__').replace(/\\_/g, '__UND__');
+
+    result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    result = result.replace(/~~(.+?)~~/g, '<s>$1</s>');
+    result = result.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    result = result.replace(/_(.+?)_/g, '<em>$1</em>');
+
+    result = result.replace(/__CODE_(\d+)__/g, (match, idx) => codePlaceholders[idx] || match);
+    result = result.replace(/__AST__/g, '*').replace(/__UND__/g, '_');
+
+    return result;
+}
+
+function renderMarkdown(text) {
+    if (!text) return '';
+    const lines = text.split(/\r?\n/);
+    const html = [];
+    let listBuffer = [];
+    let listType = null;
+    let inCodeBlock = false;
+    let codeBuffer = [];
+
+    const flushList = () => {
+        if (!listBuffer.length) return;
+        html.push(`<${listType}>${listBuffer.join('')}</${listType}>`);
+        listBuffer = [];
+        listType = null;
+    };
+
+    const flushCode = () => {
+        html.push(`<pre class="note-md-code"><code>${escapeHtmlForHighlight(codeBuffer.join('\n'))}</code></pre>`);
+        codeBuffer = [];
+        inCodeBlock = false;
+    };
+
+    lines.forEach(line => {
+        if (line.trim().startsWith('```')) {
+            if (inCodeBlock) {
+                flushCode();
+            } else {
+                flushList();
+                inCodeBlock = true;
+            }
+            return;
+        }
+
+        if (inCodeBlock) {
+            codeBuffer.push(line);
+            return;
+        }
+
+        const ordered = line.match(/^\s*(\d+)\.\s+(.*)$/);
+        const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+
+        if (ordered) {
+            if (listType !== 'ol') {
+                flushList();
+                listType = 'ol';
+            }
+            listBuffer.push(`<li>${convertInlineMarkdown(ordered[2])}</li>`);
+            return;
+        }
+
+        if (unordered) {
+            if (listType !== 'ul') {
+                flushList();
+                listType = 'ul';
+            }
+            listBuffer.push(`<li>${convertInlineMarkdown(unordered[1])}</li>`);
+            return;
+        }
+
+        flushList();
+
+        if (!line.trim()) {
+            html.push('<br>');
+            return;
+        }
+
+        const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+        if (headingMatch) {
+            const level = Math.min(6, headingMatch[1].length);
+            html.push(`<h${level} class="note-md-heading">${convertInlineMarkdown(headingMatch[2])}</h${level}>`);
+            return;
+        }
+
+        html.push(`<p>${convertInlineMarkdown(line)}</p>`);
+    });
+
+    if (inCodeBlock) {
+        flushCode();
+    } else {
+        flushList();
+    }
+
+    return html.join('');
+}
+
+function renderNotePreview() {
+    const preview = document.getElementById('notePreview');
+    const toggle = document.getElementById('notePreviewToggle');
+    if (!preview) return;
+
+    if (toggle) {
+        notePreviewEnabled = toggle.checked;
+    }
+
+    if (!notePreviewEnabled) {
+        preview.innerHTML = '';
+        preview.classList.add('collapsed');
+        preview.classList.add('note-preview-empty');
+        return;
+    }
+
+    preview.classList.remove('collapsed');
+    const contentHtml = getNoteEditorHtml();
+    const contentText = stripHtml(contentHtml).trim();
+    if (!contentText) {
+        preview.innerHTML = '<div class="note-preview-empty">Vorschau erscheint hier.</div>';
+        preview.classList.add('note-preview-empty');
+        return;
+    }
+
+    preview.classList.remove('note-preview-empty');
+    preview.innerHTML = contentHtml;
+}
+
+function renderNoteFilters() {
+    const pinnedBtn = document.getElementById('notePinnedFilterBtn');
+    if (pinnedBtn) {
+        const isActive = !!noteFilterState.pinnedOnly;
+        pinnedBtn.classList.toggle('active', isActive);
+        pinnedBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    const tagContainer = document.getElementById('noteTagFilters');
+    if (tagContainer) {
+        const allTags = Array.from(new Set(notes.flatMap(note => note.tags || [])))
+            .sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+
+        tagContainer.innerHTML = '';
+
+        if (!allTags.length) {
+            const emptyIndicator = document.createElement('span');
+            emptyIndicator.className = 'notes-filter-empty';
+            emptyIndicator.textContent = 'Noch keine Tags';
+            tagContainer.appendChild(emptyIndicator);
+        } else {
+            allTags.forEach(tag => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'notes-filter-chip';
+                const isSelected = noteFilterState.tags.some(selected => selected.toLowerCase() === tag.toLowerCase());
+                if (isSelected) btn.classList.add('active');
+                btn.textContent = `#${tag}`;
+                btn.addEventListener('click', () => toggleNoteTagFilter(tag));
+                tagContainer.appendChild(btn);
+            });
+        }
+    }
+
+    const sortSelect = document.getElementById('noteSortSelect');
+    if (sortSelect && sortSelect.value !== noteSortMode) {
+        sortSelect.value = noteSortMode;
+    }
+
+    const resetBtn = document.getElementById('noteFilterResetBtn');
+    if (resetBtn) {
+        const hasFilters = noteFilterState.pinnedOnly || noteFilterState.tags.length > 0 || !!noteSearchTerm.trim();
+        resetBtn.disabled = !hasFilters;
+    }
+}
+
+function togglePinnedFilter() {
+    noteFilterState.pinnedOnly = !noteFilterState.pinnedOnly;
+    renderNotesList();
+}
+
+function toggleNoteTagFilter(tag) {
+    const normalized = tag.toLowerCase();
+    const index = noteFilterState.tags.findIndex(existing => existing.toLowerCase() === normalized);
+    if (index > -1) {
+        noteFilterState.tags.splice(index, 1);
+    } else {
+        noteFilterState.tags.push(tag);
+    }
+    renderNotesList();
+}
+
+function resetNoteFilters(includeSearch = true) {
+    noteFilterState.tags = [];
+    noteFilterState.pinnedOnly = false;
+    if (includeSearch) {
+        noteSearchTerm = '';
+        const searchInput = document.getElementById('notesSearchInput');
+        if (searchInput) searchInput.value = '';
+    }
+    renderNotesList();
+}
+
+function setNoteSortMode(value) {
+    noteSortMode = value;
+    renderNotesList();
 }
 
 function updateNoteEditorMode() {
@@ -1846,6 +2737,7 @@ function generateNoteId(prefix = 'note') {
 function removeNoteAttachment(attachmentId) {
     noteEditorAttachments = noteEditorAttachments.filter(att => att.id !== attachmentId);
     updateNoteAttachmentPreview();
+    scheduleNoteDraftSave();
 }
 
 function readFileAsDataURL(file) {
@@ -2078,6 +2970,7 @@ async function handleNoteAttachmentInput(event) {
 
     if (added) {
         updateNoteAttachmentPreview();
+        scheduleNoteDraftSave();
     }
 
     if (event.target) {
@@ -2101,212 +2994,224 @@ function formatFileSize(bytes) {
 }
 
 function formatNoteTimestamp(note) {
-    const timestamp = note.updatedAt || note.createdAt;
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return '';
-    const formatted = date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
-    if (note.updatedAt && note.updatedAt !== note.createdAt) {
-        return `Aktualisiert ${formatted}`;
+    const createdDate = note.createdAt ? new Date(note.createdAt) : null;
+    const updatedDate = note.updatedAt ? new Date(note.updatedAt) : null;
+
+    const format = (date) => {
+        if (!date || Number.isNaN(date.getTime())) return null;
+        return date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+    };
+
+    const createdText = format(createdDate);
+    const updatedText = format(updatedDate);
+
+    if (createdText && updatedText && note.updatedAt && note.updatedAt !== note.createdAt) {
+        return `Erstellt ${createdText} · Aktualisiert ${updatedText}`;
     }
-    return `Erstellt ${formatted}`;
+
+    if (createdText) {
+        return `Erstellt ${createdText}`;
+    }
+
+    if (updatedText) {
+        return `Aktualisiert ${updatedText}`;
+    }
+
+    return '';
+}
+
+function formatNoteShort(note) {
+    if (note.updatedAt && note.updatedAt !== note.createdAt) {
+        const updated = new Date(note.updatedAt);
+        if (!Number.isNaN(updated.getTime())) {
+            return `Aktualisiert ${updated.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })}`;
+        }
+    }
+    if (note.createdAt) {
+        const created = new Date(note.createdAt);
+        if (!Number.isNaN(created.getTime())) {
+            return `Erstellt ${created.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })}`;
+        }
+    }
+    return '';
 }
 
 function getFilteredNotes() {
+    let filtered = [...notes];
+
+    if (noteFilterState.pinnedOnly) {
+        filtered = filtered.filter(note => note.isPinned);
+    }
+
+    if (noteFilterState.tags.length) {
+        const selectedTags = noteFilterState.tags.map(tag => tag.toLowerCase());
+        filtered = filtered.filter(note => {
+            const noteTags = (note.tags || []).map(tag => tag.toLowerCase());
+            return selectedTags.every(tag => noteTags.includes(tag));
+        });
+    }
+
     const term = noteSearchTerm.trim().toLowerCase();
-    if (!term) return [...notes];
-    return notes.filter(note => {
-        const haystack = `${note.title || ''} ${note.content || ''}`.toLowerCase();
-        const attachmentNames = (note.attachments || []).map(a => a.name?.toLowerCase() || '').join(' ');
-        return haystack.includes(term) || attachmentNames.includes(term);
-    });
-}
+    noteSearchMetadata.clear();
+    if (term) {
+        filtered = filtered.filter(note => {
+            const fragments = getNoteContentFragments(note);
+            const score = calculateNoteSearchScore(note, term);
+            const matches = score > 0 || noteMatchesTerm(note, term);
+            if (!matches) return false;
 
-async function openNoteAttachment(attachment) {
-    if (!attachment) {
-        showNotification('Bild nicht verfügbar', 'error');
-        return;
+            const meta = buildNoteSearchMeta(note, term, Math.max(score, 0), fragments);
+            noteSearchMetadata.set(note.id, meta);
+            return true;
+        });
     }
 
-    console.log('🖼️ Öffne Attachment:', attachment);
-
-    const rawName = attachment.name || 'Screenshot';
-    const escapeHtml = (value) => String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    const title = escapeHtml(rawName);
-
-    // Wenn GitHub-URL: Lade über API mit Token
-    if (attachment.storage === 'github' && attachment.url) {
-        console.log('📸 Lade von GitHub:', attachment.url);
-
-        try {
-            // Konvertiere github.com URL zu API URL
-            // Von: https://github.com/prenex88/portfolio-images/blob/main/images/2025-10/file.png?raw=true
-            // Zu:  https://api.github.com/repos/prenex88/portfolio-images/contents/images/2025-10/file.png
-            const urlMatch = attachment.url.match(/github\.com\/([^/]+\/[^/]+)\/blob\/main\/(.+?)\?raw=true/);
-            if (!urlMatch) {
-                throw new Error('Ungültiges GitHub URL Format');
-            }
-
-            const repo = urlMatch[1]; // z.B. "prenex88/portfolio-images"
-            const path = decodeURIComponent(urlMatch[2]); // z.B. "images/2025-10/file.png"
-            const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
-
-            console.log('📡 API Request:', apiUrl);
-
-            const response = await fetch(apiUrl, {
-                headers: {
-                    'Authorization': `token ${githubToken}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
-            const base64Content = data.content.replace(/\n/g, ''); // GitHub API gibt Base64 mit Zeilenumbrüchen
-            const mimeType = attachment.type || 'image/webp';
-            const dataUrl = `data:${mimeType};base64,${base64Content}`;
-
-            const viewer = window.open('', '_blank');
-            if (!viewer) {
-                showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
-                return;
-            }
-            viewer.opener = null;
-            viewer.document.open();
-            viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${dataUrl}" alt="${title}"></body></html>`);
-            viewer.document.close();
-            viewer.focus();
-
-        } catch (error) {
-            console.error('❌ Fehler beim Laden von GitHub:', error);
-            showNotification('Bild konnte nicht geladen werden', 'error');
-        }
-        return;
-    }
-
-    // Fallback: Base64 direkt nutzen
-    const imageUrl = attachment.data;
-    console.log('📸 Nutze lokale Daten');
-
-    if (!imageUrl) {
-        console.error('❌ Keine Daten vorhanden!');
-        showNotification('Bild nicht verfügbar', 'error');
-        return;
-    }
-
-    const viewer = window.open('', '_blank');
-    if (!viewer) {
-        showNotification('Bitte Pop-ups erlauben, um Anhaenge zu oeffnen.', 'error');
-        return;
-    }
-
-    viewer.opener = null;
-    viewer.document.open();
-    viewer.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{margin:0;background:#0f111a;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;object-fit:contain;}</style></head><body><img src="${imageUrl}" alt="${title}"></body></html>`);
-    viewer.document.close();
-    viewer.focus();
+    return filtered;
 }
 
 function buildNoteCard(note) {
     const card = document.createElement('div');
     card.className = 'note-card';
     card.dataset.id = note.id;
+    if (note.isPinned) {
+        card.classList.add('note-card-pinned');
+    }
+
+    const searchMeta = noteSearchMetadata.get(note.id);
 
     const header = document.createElement('div');
     header.className = 'note-card-header';
 
     const title = document.createElement('div');
     title.className = 'note-card-title';
-    title.textContent = note.title?.trim() || 'Ohne Titel';
+    const defaultTitle = note.title?.trim() || 'Ohne Titel';
+    if (searchMeta && searchMeta.titleHtml) {
+        title.innerHTML = searchMeta.titleHtml;
+    } else {
+        title.textContent = defaultTitle;
+    }
 
-    const date = document.createElement('div');
+    const metaRow = document.createElement('div');
+    metaRow.className = 'note-card-meta';
+
+    const metaInfo = document.createElement('div');
+    metaInfo.className = 'note-card-meta-info';
+
+    const date = document.createElement('span');
     date.className = 'note-card-date';
-    date.textContent = formatNoteTimestamp(note);
+    date.textContent = formatNoteShort(note);
+    metaInfo.appendChild(date);
+
+    const tagsSummary = document.createElement('span');
+    tagsSummary.className = 'note-card-tags-summary';
+    const tagList = (note.tags || []).slice(0, 2);
+    if (tagList.length) {
+        tagsSummary.textContent = tagList.map(tag => `#${tag}`).join(' · ');
+        metaInfo.appendChild(tagsSummary);
+    }
+
+    const pinToggle = document.createElement('button');
+    pinToggle.className = note.isPinned ? 'note-card-pin-toggle active' : 'note-card-pin-toggle';
+    pinToggle.type = 'button';
+    pinToggle.title = note.isPinned ? 'Pin entfernen' : 'Anheften';
+    pinToggle.innerHTML = '📌';
+    pinToggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleNotePin(note.id);
+    });
 
     header.appendChild(title);
-    header.appendChild(date);
+    metaRow.appendChild(metaInfo);
+    metaRow.appendChild(pinToggle);
+    header.appendChild(metaRow);
     card.appendChild(header);
 
     let toggleButton = null;
     let attachmentsRow = null;
 
-    if (note.content) {
+    const fragments = searchMeta
+        ? {
+            previewText: searchMeta.previewText,
+            fullText: searchMeta.fullText,
+            previewHtml: searchMeta.previewHtml,
+            fullHtml: searchMeta.fullHtml,
+            isClamped: searchMeta.isClamped
+        }
+        : getNoteContentFragments(note);
+    const clampedText = fragments.previewText && fragments.fullText && fragments.previewText !== fragments.fullText;
+
+    if (fragments.fullText) {
         const content = document.createElement('div');
         content.className = 'note-card-content';
-        const trimmed = note.content.trim();
-        const MAX_PREVIEW_CHARS = 600;
-        const MAX_PREVIEW_LINES = 12;
-        const lines = trimmed.split(/\r?\n/);
-        const shouldClamp = trimmed.length > MAX_PREVIEW_CHARS || lines.length > MAX_PREVIEW_LINES;
-
-        if (shouldClamp) {
-            let previewLines = lines.slice(0, MAX_PREVIEW_LINES);
-            let previewText = previewLines.join('\n').trimEnd();
-            if (previewText.length > MAX_PREVIEW_CHARS) {
-                previewText = previewText.slice(0, MAX_PREVIEW_CHARS).trimEnd();
-            }
-            previewText = `${previewText}...`;
-
-            content.textContent = previewText;
-            content.dataset.preview = previewText;
-            content.dataset.full = trimmed;
+        if (fragments.isClamped) {
+            const previewHtml = fragments.previewHtml || highlightNoteText(fragments.previewText, noteSearchTerm.trim().toLowerCase());
+            content.innerHTML = previewHtml;
+            content.dataset.previewHtml = previewHtml;
+            content.dataset.previewText = fragments.previewText;
+            const fullHtml = fragments.fullHtml || highlightNoteText(fragments.fullText, noteSearchTerm.trim().toLowerCase());
+            content.dataset.fullHtml = fullHtml;
+            content.dataset.fullText = fragments.fullText;
             content.classList.add('note-card-content-clamped');
 
-            toggleButton = document.createElement('button');
-            toggleButton.type = 'button';
-            toggleButton.className = 'note-card-toggle';
-            toggleButton.textContent = 'Mehr anzeigen';
-            toggleButton.setAttribute('aria-expanded', 'false');
-            toggleButton.addEventListener('click', () => {
-                const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
-                if (expanded) {
-                    content.textContent = content.dataset.preview || '';
-                    content.classList.add('note-card-content-clamped');
-                    toggleButton.textContent = 'Mehr anzeigen';
-                    toggleButton.setAttribute('aria-expanded', 'false');
-                } else {
-                    content.textContent = content.dataset.full || '';
-                    content.classList.remove('note-card-content-clamped');
-                    toggleButton.textContent = 'Weniger anzeigen';
-                    toggleButton.setAttribute('aria-expanded', 'true');
-                }
-            });
+            if (clampedText) {
+                toggleButton = document.createElement('button');
+                toggleButton.type = 'button';
+                toggleButton.className = 'note-card-toggle';
+                toggleButton.textContent = 'Mehr anzeigen';
+                toggleButton.setAttribute('aria-expanded', 'false');
+                toggleButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const expanded = toggleButton.getAttribute('aria-expanded') === 'true';
+                    if (expanded) {
+                        if (content.dataset.previewHtml) {
+                            content.innerHTML = content.dataset.previewHtml;
+                        } else {
+                            content.textContent = content.dataset.previewText || '';
+                        }
+                        content.classList.add('note-card-content-clamped');
+                        toggleButton.textContent = 'Mehr anzeigen';
+                        toggleButton.setAttribute('aria-expanded', 'false');
+                    } else {
+                        if (content.dataset.fullHtml) {
+                            content.innerHTML = content.dataset.fullHtml;
+                        } else {
+                            content.textContent = content.dataset.fullText || '';
+                        }
+                        content.classList.remove('note-card-content-clamped');
+                        toggleButton.textContent = 'Weniger anzeigen';
+                        toggleButton.setAttribute('aria-expanded', 'true');
+                    }
+                });
+            }
         } else {
-            content.textContent = trimmed;
+            if (fragments.previewHtml) {
+                content.innerHTML = fragments.previewHtml;
+            } else {
+                content.textContent = fragments.previewText;
+            }
+            content.dataset.previewText = fragments.previewText;
+            content.dataset.fullText = fragments.fullText;
+            if (fragments.previewHtml) content.dataset.previewHtml = fragments.previewHtml;
+            if (fragments.fullHtml) content.dataset.fullHtml = fragments.fullHtml;
         }
 
         card.appendChild(content);
     }
     if (note.attachments && note.attachments.length) {
         attachmentsRow = document.createElement('div');
-        attachmentsRow.className = 'note-card-attachments';
-        note.attachments.forEach(attachment => {
-            const link = document.createElement('a');
-            link.href = '#';
-            link.rel = 'noopener noreferrer';
-            link.title = `${attachment.name || 'Screenshot'} (${formatFileSize(attachment.size || 0)})`;
-            link.setAttribute('role', 'button');
-            link.setAttribute('aria-label', `${attachment.name || 'Screenshot'} anzeigen`);
-            link.addEventListener('click', (event) => {
-                event.preventDefault();
-                openNoteAttachment(attachment);
-            });
+        attachmentsRow.className = 'note-card-attachments summary';
 
-            const thumb = document.createElement('img');
-            thumb.src = attachment.thumbnail || attachment.url || attachment.data || '';
-            thumb.alt = attachment.name || 'Screenshot';
-            link.appendChild(thumb);
-
-            attachmentsRow.appendChild(link);
+        const previewButton = document.createElement('button');
+        previewButton.type = 'button';
+        previewButton.className = 'note-card-attachments-trigger';
+        previewButton.title = 'Anhänge ansehen';
+        previewButton.innerHTML = `📎 ${note.attachments.length}`;
+        previewButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            openNoteGallery(note.id, 0);
         });
+
+        attachmentsRow.appendChild(previewButton);
         card.appendChild(attachmentsRow);
     }
 
@@ -2321,39 +3226,112 @@ function buildNoteCard(note) {
     const actions = document.createElement('div');
     actions.className = 'note-card-actions';
 
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'note-card-action';
+    viewBtn.type = 'button';
+    viewBtn.title = 'Notiz anzeigen';
+    viewBtn.setAttribute('aria-label', 'Notiz anzeigen');
+    viewBtn.innerHTML = '<span class="action-icon">👁️</span>';
+    viewBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        openNoteDetail(note.id);
+    });
+
     const editBtn = document.createElement('button');
-    editBtn.className = 'btn btn-small';
+    editBtn.className = 'note-card-action';
     editBtn.type = 'button';
-    editBtn.textContent = '✏️ Bearbeiten';
-    editBtn.addEventListener('click', () => editNote(note.id));
+    editBtn.title = 'Bearbeiten';
+    editBtn.setAttribute('aria-label', 'Notiz bearbeiten');
+    editBtn.innerHTML = '<span class="action-icon">✏️</span>';
+    editBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        editNote(note.id);
+    });
 
     const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn btn-danger btn-small';
+    deleteBtn.className = 'note-card-action delete';
     deleteBtn.type = 'button';
-    deleteBtn.textContent = '🗑️ Löschen';
-    deleteBtn.addEventListener('click', () => deleteNote(note.id));
+    deleteBtn.title = 'Löschen';
+    deleteBtn.setAttribute('aria-label', 'Notiz löschen');
+    deleteBtn.innerHTML = '<span class="action-icon">🗑️</span>';
+    deleteBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        deleteNote(note.id);
+    });
 
+    actions.appendChild(viewBtn);
     actions.appendChild(editBtn);
     actions.appendChild(deleteBtn);
     card.appendChild(actions);
+
+    card.addEventListener('click', () => openNoteDetail(note.id));
 
     return card;
 }
 
 function renderNotesList() {
-    const list = document.getElementById('notesList');
+    const legacyList = document.getElementById('notesList');
+    const pinnedContainer = document.getElementById('notesPinned');
+    const regularContainer = document.getElementById('notesRegular');
     const emptyState = document.getElementById('notesEmptyState');
     const stats = document.getElementById('notesStats');
-    if (!list) return;
 
-    const filtered = getFilteredNotes().sort((a, b) => {
-        const aDate = new Date(a.updatedAt || a.createdAt || 0);
-        const bDate = new Date(b.updatedAt || b.createdAt || 0);
-        return bDate - aDate;
+    if (!legacyList && (!pinnedContainer || !regularContainer)) {
+        return;
+    }
+
+    const filtered = getFilteredNotes();
+    const hasSearch = !!noteSearchTerm.trim();
+
+    filtered.sort((a, b) => {
+        const pinDiff = Number(b.isPinned) - Number(a.isPinned);
+        if (!noteFilterState.pinnedOnly && pinDiff !== 0) {
+            return pinDiff;
+        }
+
+        if (hasSearch) {
+            const scoreDiff = (noteSearchMetadata.get(b.id)?.score || 0) - (noteSearchMetadata.get(a.id)?.score || 0);
+            if (Math.abs(scoreDiff) > 0.0001) {
+                return scoreDiff;
+            }
+        }
+
+        return compareNotesBySortMode(a, b);
     });
 
-    list.innerHTML = '';
+    const pinnedGroup = document.getElementById('notesPinnedGroup');
+    const regularGroup = document.getElementById('notesRegularGroup');
+
+    if (pinnedContainer && regularContainer) {
+        pinnedContainer.innerHTML = '';
+        regularContainer.innerHTML = '';
+
+        filtered.forEach(cardNote => {
+            const cardEl = buildNoteCard(cardNote);
+            if (cardNote.isPinned) {
+                pinnedContainer.appendChild(cardEl);
+            } else {
+                regularContainer.appendChild(cardEl);
+            }
+        });
+
+        if (pinnedGroup) {
+            pinnedGroup.style.display = pinnedContainer.children.length ? '' : 'none';
+        }
+        if (regularGroup) {
+            regularGroup.style.display = regularContainer.children.length ? '' : 'none';
+        }
+    } else {
+        legacyList.innerHTML = '';
+        filtered.forEach(note => legacyList.appendChild(buildNoteCard(note)));
+    }
+
+    renderNoteFilters();
+
     if (!filtered.length) {
+        if (pinnedGroup) pinnedGroup.style.display = 'none';
+        if (regularGroup) regularGroup.style.display = 'none';
+
         if (emptyState) {
             if (!notes.length) {
                 emptyState.querySelector('h3').textContent = 'Keine Notizen gespeichert';
@@ -2361,36 +3339,41 @@ function renderNotesList() {
             } else if (noteSearchTerm.trim()) {
                 emptyState.querySelector('h3').textContent = 'Keine Treffer';
                 emptyState.querySelector('p').textContent = 'Passe deine Suche an oder lege eine neue Notiz an.';
+            } else if (noteFilterState.tags.length || noteFilterState.pinnedOnly) {
+                emptyState.querySelector('h3').textContent = 'Keine Notizen für diese Filter';
+                emptyState.querySelector('p').textContent = 'Setze die Filter zurück oder erstelle eine neue Notiz.';
             }
             emptyState.style.display = 'flex';
         }
-    } else {
-        if (emptyState) {
-            emptyState.style.display = 'none';
-        }
-        filtered.forEach(note => list.appendChild(buildNoteCard(note)));
+    } else if (emptyState) {
+        emptyState.style.display = 'none';
     }
 
     if (stats) {
         const total = notes.length;
         const attachmentsTotal = notes.reduce((sum, note) => sum + ((note.attachments || []).length), 0);
+        const pinnedCount = notes.filter(note => note.isPinned).length;
+        const pinnedInfo = pinnedCount ? ` · ${pinnedCount} angepinnt` : '';
         if (!total) {
             stats.textContent = 'Noch keine Notizen';
         } else if (noteSearchTerm.trim()) {
-            stats.textContent = `${filtered.length} von ${total} Notizen · ${attachmentsTotal} Anhänge`;
+            stats.textContent = `${filtered.length} von ${total} Notizen · ${attachmentsTotal} Anhänge${pinnedInfo}`;
         } else {
-            stats.textContent = `${total} Notizen · ${attachmentsTotal} Anhänge`;
+            stats.textContent = `${total} Notizen · ${attachmentsTotal} Anhänge${pinnedInfo}`;
         }
     }
 }
 
 function saveNote() {
     const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
     const title = titleInput ? titleInput.value.trim() : '';
-    const content = contentInput ? contentInput.value.trim() : '';
+    const contentHtml = getNoteEditorHtml();
+    const contentText = stripHtml(contentHtml).trim();
+    const pinnedToggle = document.getElementById('notePinnedToggle');
+    const isPinned = pinnedToggle ? pinnedToggle.checked : false;
+    const tagsForNote = [...noteEditorTags];
 
-    if (!title && !content && noteEditorAttachments.length === 0) {
+    if (!title && !contentText && noteEditorAttachments.length === 0) {
         showNotification('Bitte gib einen Text ein oder haenge einen Screenshot an.', 'error');
         return;
     }
@@ -2431,8 +3414,11 @@ function saveNote() {
         notes[noteIndex] = {
             ...notes[noteIndex],
             title,
-            content,
+            content: contentText,
+            contentHtml,
             attachments: attachmentsForNote,
+            tags: tagsForNote,
+            isPinned,
             updatedAt: timestamp
         };
 
@@ -2448,8 +3434,11 @@ function saveNote() {
         const newNote = {
             id: generateNoteId(),
             title,
-            content,
+            content: contentText,
+            contentHtml,
             attachments: attachmentsForNote,
+            tags: tagsForNote,
+            isPinned,
             createdAt: timestamp,
             updatedAt: timestamp
         };
@@ -2467,7 +3456,8 @@ function saveNote() {
     }
 
     renderNotesList();
-    resetNoteForm();
+    resetNoteForm({ silent: true });
+    updateNoteDraftStatus('Notiz gespeichert.');
 }
 
 function editNote(noteId) {
@@ -2475,15 +3465,23 @@ function editNote(noteId) {
     if (!note) return;
     editingNoteId = noteId;
     const titleInput = document.getElementById('noteTitleInput');
-    const contentInput = document.getElementById('noteContentInput');
+    const tagsInput = document.getElementById('noteTagsInput');
+    const pinnedToggle = document.getElementById('notePinnedToggle');
     if (titleInput) titleInput.value = note.title || '';
-    if (contentInput) contentInput.value = note.content || '';
+    setNoteEditorHtml(note.contentHtml || note.content || '');
+    if (tagsInput) tagsInput.value = '';
+    noteEditorTags = Array.isArray(note.tags) ? [...note.tags] : [];
+    renderNoteTagChips();
+    if (pinnedToggle) pinnedToggle.checked = !!note.isPinned;
     noteEditorAttachments = (note.attachments || []).map(att => ({
         ...att,
         originalSize: att.originalSize || att.size || (att.data ? calculateDataUrlSize(att.data) : 0)
     }));
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
+    renderNotePreview();
+    updateNoteDraftStatus('Bearbeite bestehende Notiz.');
+    scheduleNoteDraftSave();
     const editor = document.getElementById('noteEditor');
     if (editor) {
         editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2517,6 +3515,250 @@ async function deleteNote(noteId) {
         resetNoteForm();
     }
     showNotification('Notiz gelöscht.', 'success');
+}
+
+function toggleNotePin(noteId) {
+    const index = notes.findIndex(note => note.id === noteId);
+    if (index === -1) return;
+
+    const newState = !notes[index].isPinned;
+    notes[index].isPinned = newState;
+    notes[index].updatedAt = new Date().toISOString();
+    saveData();
+    renderNotesList();
+
+    if (editingNoteId === noteId) {
+        const pinnedToggle = document.getElementById('notePinnedToggle');
+        if (pinnedToggle) pinnedToggle.checked = newState;
+        scheduleNoteDraftSave();
+    }
+
+    showNotification(newState ? 'Notiz angepinnt.' : 'Pin entfernt.', 'success');
+}
+
+async function resolveAttachmentSource(attachment) {
+    if (!attachment) throw new Error('Kein Anhang vorhanden');
+    if (noteAttachmentCache.has(attachment.id)) {
+        return noteAttachmentCache.get(attachment.id);
+    }
+
+    if (attachment.data) {
+        noteAttachmentCache.set(attachment.id, attachment.data);
+        return attachment.data;
+    }
+
+    if (attachment.storage === 'github' && attachment.url) {
+        if (!githubToken) {
+            const directUrl = attachment.url.includes('raw=true') ? attachment.url : `${attachment.url}?raw=true`;
+            noteAttachmentCache.set(attachment.id, directUrl);
+            return directUrl;
+        }
+
+        const urlMatch = attachment.url.match(/github\.com\/([^/]+\/[^/]+)\/blob\/main\/(.+?)(?:\?raw=true)?$/);
+        if (!urlMatch) {
+            throw new Error('Ungültiges GitHub URL Format');
+        }
+
+        const repo = urlMatch[1];
+        const path = decodeURIComponent(urlMatch[2]);
+        const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+
+        try {
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `token ${githubToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const base64Content = data.content.replace(/\n/g, '');
+            const mimeType = attachment.type || 'image/webp';
+            const dataUrl = `data:${mimeType};base64,${base64Content}`;
+            noteAttachmentCache.set(attachment.id, dataUrl);
+            return dataUrl;
+        } catch (error) {
+            console.warn('Fallback auf Raw-URL für GitHub Anhang:', error);
+            const fallbackUrl = attachment.url.includes('raw=true') ? attachment.url : `${attachment.url}?raw=true`;
+            noteAttachmentCache.set(attachment.id, fallbackUrl);
+            return fallbackUrl;
+        }
+    }
+
+    if (attachment.url) {
+        noteAttachmentCache.set(attachment.id, attachment.url);
+        return attachment.url;
+    }
+
+    if (attachment.thumbnail) {
+        noteAttachmentCache.set(attachment.id, attachment.thumbnail);
+        return attachment.thumbnail;
+    }
+
+    throw new Error('Keine Quelle für Anhang gefunden');
+}
+
+function openNoteDetail(noteId) {
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const attachments = note.attachments || [];
+    const metadata = formatNoteTimestamp(note) || '';
+    const tagHtml = (note.tags || []).map(tag => `<span class="note-detail-tag">#${escapeHtmlForHighlight(tag)}</span>`).join('');
+    const detailContentHtml = note.contentHtml && note.contentHtml.trim()
+        ? sanitizeNoteHtml(note.contentHtml)
+        : (note.content ? renderMarkdown(note.content) : '<p><em>Kein Inhalt</em></p>');
+
+    const attachmentsHtml = attachments.length
+        ? `<div class="note-detail-attachments">${attachments.map((attachment, index) => {
+            const thumbSrc = attachment.thumbnail || attachment.url || attachment.data || '';
+            const name = escapeHtmlForHighlight(attachment.name || `Anhang ${index + 1}`);
+            return `
+                <button class="note-detail-attachment" onclick="openNoteGallery('${noteId}', ${index})">
+                    <img src="${thumbSrc}" alt="${name}">
+                    <span>${name}</span>
+                </button>
+            `;
+        }).join('')}</div>`
+        : '';
+
+    const contentHtml = `
+        <div class="modal-header note-detail-header">
+            <h2 class="modal-title">🗒️ ${escapeHtmlForHighlight(note.title || 'Ohne Titel')}</h2>
+            <button class="note-detail-close" type="button" onclick="closeBottomSheet()" aria-label="Schließen">✕</button>
+        </div>
+        <div class="modal-body note-detail-body">
+            <div class="note-detail-meta">
+                <span>${escapeHtmlForHighlight(metadata)}</span>
+                ${note.isPinned ? '<span class="note-detail-badge">📌 Angepinnt</span>' : ''}
+            </div>
+            ${tagHtml ? `<div class="note-detail-tags">${tagHtml}</div>` : ''}
+            <div class="note-detail-content">${detailContentHtml}</div>
+            ${attachmentsHtml}
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="editNote('${noteId}'); closeBottomSheet();">Bearbeiten</button>
+            <button class="btn btn-danger" onclick="deleteNote('${noteId}'); closeBottomSheet();">Löschen</button>
+        </div>
+    `;
+
+    openBottomSheet(contentHtml);
+}
+
+async function openNoteGallery(noteId, attachmentIndex = 0) {
+    const overlay = document.getElementById('noteGalleryOverlay');
+    if (!overlay) return;
+
+    const note = notes.find(n => n.id === noteId);
+    if (!note || !(note.attachments || []).length) {
+        showNotification('Keine Anhänge verfügbar.', 'error');
+        return;
+    }
+
+    noteGalleryState = {
+        noteId,
+        attachments: note.attachments,
+        index: attachmentIndex
+    };
+
+    overlay.classList.add('visible');
+    document.body.classList.add('modal-open');
+
+    await showNoteGalleryAttachment(attachmentIndex);
+}
+
+async function showNoteGalleryAttachment(index) {
+    const overlay = document.getElementById('noteGalleryOverlay');
+    const imageEl = document.getElementById('noteGalleryImage');
+    const captionEl = document.getElementById('noteGalleryCaption');
+    const counterEl = document.getElementById('noteGalleryCounter');
+    const loaderEl = document.getElementById('noteGalleryLoader');
+
+    if (!overlay || !imageEl || !captionEl || !counterEl) return;
+
+    const attachments = noteGalleryState.attachments || [];
+    if (!attachments.length) {
+        showNotification('Keine Anhänge verfügbar.', 'error');
+        return;
+    }
+
+    const clampedIndex = Math.max(0, Math.min(index, attachments.length - 1));
+    const attachment = attachments[clampedIndex];
+    if (!attachment) return;
+
+    noteGalleryState.index = clampedIndex;
+    counterEl.textContent = `${clampedIndex + 1} / ${attachments.length}`;
+    captionEl.textContent = `${attachment.name || 'Screenshot'} · ${formatFileSize(attachment.size || 0)}`;
+
+    if (loaderEl) loaderEl.style.display = 'flex';
+    imageEl.classList.add('is-loading');
+
+    try {
+        const src = await resolveAttachmentSource(attachment);
+        imageEl.src = src;
+        imageEl.alt = attachment.name || 'Screenshot';
+    } catch (error) {
+        console.error('Fehler beim Laden des Anhangs:', error);
+        showNotification('Bild konnte nicht geladen werden.', 'error');
+    } finally {
+        if (loaderEl) loaderEl.style.display = 'none';
+        imageEl.classList.remove('is-loading');
+    }
+}
+
+function closeNoteGallery() {
+    const overlay = document.getElementById('noteGalleryOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('visible');
+    document.body.classList.remove('modal-open');
+    noteGalleryState = { noteId: null, attachments: [], index: 0 };
+}
+
+function nextNoteGallery() {
+    const attachments = noteGalleryState.attachments || [];
+    if (!attachments.length) return;
+    const nextIndex = (noteGalleryState.index + 1) % attachments.length;
+    showNoteGalleryAttachment(nextIndex);
+}
+
+function prevNoteGallery() {
+    const attachments = noteGalleryState.attachments || [];
+    if (!attachments.length) return;
+    const prevIndex = (noteGalleryState.index - 1 + attachments.length) % attachments.length;
+    showNoteGalleryAttachment(prevIndex);
+}
+
+function handleNoteGalleryKeydown(event) {
+    const overlay = document.getElementById('noteGalleryOverlay');
+    if (!overlay || !overlay.classList.contains('visible')) return;
+
+    if (event.key === 'Escape') {
+        closeNoteGallery();
+    } else if (event.key === 'ArrowRight') {
+        nextNoteGallery();
+    } else if (event.key === 'ArrowLeft') {
+        prevNoteGallery();
+    }
+}
+
+function handleNoteGalleryTouchStart(event) {
+    noteGallerySwipeStartX = event.touches[0].clientX;
+}
+
+function handleNoteGalleryTouchEnd(event) {
+    if (noteGallerySwipeStartX === null) return;
+    const deltaX = event.changedTouches[0].clientX - noteGallerySwipeStartX;
+    const threshold = 40;
+    if (deltaX > threshold) {
+        prevNoteGallery();
+    } else if (deltaX < -threshold) {
+        nextNoteGallery();
+    }
+    noteGallerySwipeStartX = null;
 }
 
 function highlightNoteCard(noteId) {
@@ -9111,6 +10353,7 @@ function updateThemeIcon() {
 // Make mobile menu functions globally available
 window.openMobileMenu = openMobileMenu;
 window.updateThemeIcon = updateThemeIcon;
+window.openNoteDetail = openNoteDetail;
 
 // =================================================================================
 // UI/UX ENHANCEMENT FUNCTIONS (Implementation)
