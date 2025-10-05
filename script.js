@@ -479,7 +479,6 @@ let noteDraftStatusTimeout = null;
 let noteSearchMetadata = new Map();
 let noteGalleryState = { noteId: null, attachments: [], index: 0 };
 const noteAttachmentCache = new Map();
-let notePreviewEnabled = true;
 let noteGallerySwipeStartX = null;
 let noteEditorSelectionRange = null;
 
@@ -654,7 +653,6 @@ function handleNoteToolbarClick(event) {
     }
     syncNoteEditorHiddenInput();
     scheduleNoteDraftSave();
-    renderNotePreview();
     saveNoteEditorSelection();
 }
 
@@ -667,7 +665,6 @@ function handleNoteColorChange(event) {
     document.execCommand('foreColor', false, color);
     syncNoteEditorHiddenInput();
     scheduleNoteDraftSave();
-    renderNotePreview();
     saveNoteEditorSelection();
 }
 let currentForecastPeriod = 5;
@@ -1387,7 +1384,6 @@ function addEventListeners() {
         noteContentEditor.addEventListener('input', () => {
             syncNoteEditorHiddenInput();
             scheduleNoteDraftSave();
-            renderNotePreview();
         });
         ['mouseup', 'keyup', 'mouseleave'].forEach(evt => {
             noteContentEditor.addEventListener(evt, saveNoteEditorSelection);
@@ -1437,15 +1433,6 @@ function addEventListeners() {
     const noteAttachmentInput = document.getElementById('noteAttachmentInput');
     if (noteAttachmentInput) {
         noteAttachmentInput.addEventListener('change', handleNoteAttachmentInput);
-    }
-
-    const notePreviewToggle = document.getElementById('notePreviewToggle');
-    if (notePreviewToggle) {
-        notePreviewEnabled = notePreviewToggle.checked;
-        notePreviewToggle.addEventListener('change', () => {
-            notePreviewEnabled = notePreviewToggle.checked;
-            renderNotePreview();
-        });
     }
 
     document.getElementById('notePinnedFilterBtn')?.addEventListener('click', togglePinnedFilter);
@@ -1829,7 +1816,6 @@ async function loadData() {
     renderNotesList();
     resetNoteForm({ preserveDraft: true, silent: true });
     loadNoteDraft();
-    renderNotePreview();
     applyDateFilter();
 }
 
@@ -2085,7 +2071,6 @@ function resetNoteForm(options = {}) {
     renderNoteTagChips();
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
-    renderNotePreview();
 
     if (!preserveDraft) {
         clearNoteDraft(!silent);
@@ -2234,8 +2219,7 @@ function loadNoteDraft() {
 
         renderNoteTagChips();
         updateNoteEditorMode();
-        renderNotePreview();
-        if (draft.updatedAt) {
+            if (draft.updatedAt) {
             const date = new Date(draft.updatedAt);
             if (!Number.isNaN(date.getTime())) {
                 updateNoteDraftStatus(`Entwurf vom ${date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}`);
@@ -2565,35 +2549,6 @@ function renderMarkdown(text) {
     }
 
     return html.join('');
-}
-
-function renderNotePreview() {
-    const preview = document.getElementById('notePreview');
-    const toggle = document.getElementById('notePreviewToggle');
-    if (!preview) return;
-
-    if (toggle) {
-        notePreviewEnabled = toggle.checked;
-    }
-
-    if (!notePreviewEnabled) {
-        preview.innerHTML = '';
-        preview.classList.add('collapsed');
-        preview.classList.add('note-preview-empty');
-        return;
-    }
-
-    preview.classList.remove('collapsed');
-    const contentHtml = getNoteEditorHtml();
-    const contentText = stripHtml(contentHtml).trim();
-    if (!contentText) {
-        preview.innerHTML = '<div class="note-preview-empty">Vorschau erscheint hier.</div>';
-        preview.classList.add('note-preview-empty');
-        return;
-    }
-
-    preview.classList.remove('note-preview-empty');
-    preview.innerHTML = contentHtml;
 }
 
 function renderNoteFilters() {
@@ -3479,7 +3434,6 @@ function editNote(noteId) {
     }));
     updateNoteAttachmentPreview();
     updateNoteEditorMode();
-    renderNotePreview();
     updateNoteDraftStatus('Bearbeite bestehende Notiz.');
     scheduleNoteDraftSave();
     const editor = document.getElementById('noteEditor');
