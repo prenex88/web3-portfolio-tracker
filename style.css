@@ -1914,6 +1914,7 @@ body.compact-mode .data-table td, body.compact-mode .data-table th { padding: 10
     padding: 15px;
     cursor: grab;
     flex-shrink: 0;
+    touch-action: none;
 }
 .bottom-sheet-header:active {
     cursor: grabbing;
@@ -2540,6 +2541,10 @@ body.privacy-mode .dollar-value::after {
 
 .btn-icon:active {
     transform: scale(0.95);
+}
+
+.clickable {
+    cursor: pointer;
 }
 
 /* Header Dropdown */

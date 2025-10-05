@@ -11,18 +11,12 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" integrity="sha384-XcdcwHqIPULERb2yDEM4R0XaQKU3YnDsrTmjACBZyfdVVqjh6xQ4/DCMd7XLcA6Y" crossorigin="anonymous" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0" integrity="sha384-M00GJNq2IplZCB3+JOJEl2H0un45ODvqJSSnIc4DvG8gPn8RX5ToITFXcv3AvOx5" crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" integrity="sha384-HZZ/fukV+9G8gwTNjN7zQDG0Sp7MsZy5DDN6VfY3Be7V9dvQpEpR2jF2HlyFUUjU" crossorigin="anonymous" defer></script>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Verhindert, dass der Browser scrollt, während wir das Bottom Sheet ziehen. */
-        .bottom-sheet-header {
-            touch-action: none;
-        }
-    </style>
 </head>
 <body>
 
@@ -31,7 +25,7 @@
             <div class="biometric-icon">🔐</div>
             <div class="biometric-text">Portfolio Tracker entsperren</div>
             <div class="biometric-subtitle">Verwenden Sie Ihren Fingerabdruck oder Face ID</div>
-            <button class="biometric-fallback" onclick="bypassBiometric()">
+            <button class="biometric-fallback" data-action="bypass-biometric">
                 Ohne Authentifizierung fortfahren
             </button>
         </div>
@@ -44,18 +38,18 @@
             <span id="lastSyncTime" style="color: var(--text-secondary); font-size: 12px;"></span>
         </div>
         <div class="sync-actions">
-            <button id="syncNowBtn" class="btn btn-primary btn-small" onclick="syncNow()">
+            <button id="syncNowBtn" class="btn btn-primary btn-small" data-action="sync-now">
                 <span id="syncBtnIcon">☁️</span>
                 <span id="syncBtnText">Sync</span>
             </button>
-            <button class="btn btn-small" onclick="toggleSyncBar()">✕</button>
+            <button class="btn btn-small" data-action="toggle-sync-bar">✕</button>
         </div>
     </div>
 
     <div class="container" id="appContainer">
         <div class="header">
             <div class="header-content">
-                <div class="header-title-group" onclick="switchTab('dashboard')" style="cursor: pointer;" title="Zum Dashboard">
+                <div class="header-title-group clickable" data-action="switch-tab" data-tab="dashboard" title="Zum Dashboard">
                     <h1>🚀 Web3 Portfolio</h1>
                     <!-- Subtitle nur auf Desktop -->
                     <div class="subtitle desktop-only">Track your crypto & DeFi investments</div>
@@ -63,43 +57,43 @@
                 <!-- Controls nur auf Desktop -->
                 <div class="header-controls desktop-only">
                 <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)">🔍</button>
-                <button class="theme-toggle btn-icon" onclick="toggleTheme()" title="Theme wechseln (Ctrl+D)">🌙</button>
+                <button class="theme-toggle btn-icon" data-action="toggle-theme" title="Theme wechseln (Ctrl+D)">🌙</button>
                 
                 <!-- Dropdown Menü -->
                 <div class="header-menu-dropdown">
-                    <button class="btn-icon" onclick="toggleHeaderMenu()" title="Mehr Optionen">
+                    <button class="btn-icon" data-action="toggle-header-menu" title="Mehr Optionen">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
                         </svg>
                     </button>
                     <div id="headerDropdown" class="dropdown-content">
-                        <button class="dropdown-item-flex" onclick="openCloudSettings(); toggleHeaderMenu();">
+                        <button class="dropdown-item-flex" data-action="open-cloud-settings" data-close-menu="true">
                             <span class="item-icon" id="cloudIcon">🔌</span>
                             <span class="item-text" id="cloudText">Offline</span>
                             <span id="cloudStatusIndicator" class="status-indicator disconnected"></span>
                         </button>
-                        <button class="dropdown-item-flex" onclick="openDateFilterModal(); toggleHeaderMenu();">
+                        <button class="dropdown-item-flex" data-action="open-date-filter" data-close-menu="true">
                             <span class="item-icon">🗓️</span>
                             <span class="item-text">Zeitraum filtern</span>
                             <span id="activeFilterBadge" class="status-indicator-badge"></span>
                         </button>
-                        <button class="dropdown-item-flex" onclick="switchTab('cashflow'); toggleHeaderMenu();">
+                        <button class="dropdown-item-flex" data-action="switch-tab" data-tab="cashflow" data-close-menu="true">
                             <span class="item-icon">💸</span>
                             <span class="item-text">Cashflow verwalten</span>
                         </button>
-                        <button class="dropdown-item-flex" onclick="switchTab('history'); toggleHeaderMenu();">
+                        <button class="dropdown-item-flex" data-action="switch-tab" data-tab="history" data-close-menu="true">
                             <span class="item-icon">📜</span>
                             <span class="item-text">Historie öffnen</span>
                         </button>
                         <div class="dropdown-divider"></div>
-                        <button onclick="togglePrivacyMode(); toggleHeaderMenu();">👁️ Privatsphäre-Modus</button>
-                        <button onclick="toggleCompactMode(); toggleHeaderMenu();">📱 Kompakte Ansicht</button>
-                        <button onclick="toggleBiometric(); toggleHeaderMenu();">🔐 Bio Auth</button>
-                        <button onclick="exportPDF(); toggleHeaderMenu();">📄 PDF Export</button>
-                        <button onclick="exportJSON(); toggleHeaderMenu();">💾 JSON Backup</button>
-                        <button onclick="exportCSV(); toggleHeaderMenu();">📊 CSV Export</button>
+                        <button data-action="toggle-privacy-mode" data-close-menu="true">👁️ Privatsphäre-Modus</button>
+                        <button data-action="toggle-compact-mode" data-close-menu="true">📱 Kompakte Ansicht</button>
+                        <button data-action="toggle-biometric" data-close-menu="true">🔐 Bio Auth</button>
+                        <button data-action="export-pdf" data-close-menu="true">📄 PDF Export</button>
+                        <button data-action="export-json" data-close-menu="true">💾 JSON Backup</button>
+                        <button data-action="export-csv" data-close-menu="true">📊 CSV Export</button>
                         <div class="dropdown-divider"></div>
-                        <button onclick="switchTab('settings'); toggleHeaderMenu();">⚙️ Einstellungen</button>
+                        <button data-action="switch-tab" data-tab="settings" data-close-menu="true">⚙️ Einstellungen</button>
                     </div>
                 </div>
                 </div>
@@ -107,11 +101,11 @@
         </div>
 
         <div class="tab-navigation">
-            <button class="tab-btn active" onclick="switchTab('dashboard')" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
-            <button class="tab-btn" onclick="switchTab('entry')" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
-            <button class="tab-btn" onclick="switchTab('platforms')" title="Alt+3" data-tab="platforms">💼 Plattformen</button>
-            <button class="tab-btn" onclick="switchTab('notes')" title="Alt+5" data-tab="notes">🗒️ Notizen</button>
-            <button class="tab-btn" onclick="switchTab('settings')" title="Alt+6" data-tab="settings">⚙️ Einstellungen</button>
+            <button class="tab-btn active" data-action="switch-tab" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
+            <button class="tab-btn" data-action="switch-tab" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
+            <button class="tab-btn" data-action="switch-tab" title="Alt+3" data-tab="platforms">💼 Plattformen</button>
+            <button class="tab-btn" data-action="switch-tab" title="Alt+5" data-tab="notes">🗒️ Notizen</button>
+            <button class="tab-btn" data-action="switch-tab" title="Alt+6" data-tab="settings">⚙️ Einstellungen</button>
         </div>
 
         <!-- Versteckte Inputs für den Filter-Status -->
@@ -123,7 +117,7 @@
                 <div style="font-size: 48px; margin-bottom: 16px;">👋</div>
                 <h2 class="section-title" style="justify-content: center; margin-bottom: 16px;">Willkommen beim Portfolio Tracker!</h2>
                 <p style="color: var(--text-secondary); margin-bottom: 24px;">Es sieht so aus, als hättest du noch keine Daten eingegeben. Starte jetzt mit deinem ersten Eintrag!</p>
-                <button class="btn btn-success" onclick="switchTab('entry')">
+                <button class="btn btn-success" data-action="switch-tab" data-tab="entry">
                     <span>📝</span><span>Ersten Eintrag erstellen</span>
                 </button>
             </div>
@@ -185,13 +179,13 @@
                     <div class="section-header">
                         <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
                         <div class="chart-controls">
-                            <button class="chart-timeframe-btn" onclick="setDateFilter('30d')">1M</button>
-                            <button class="chart-timeframe-btn" onclick="setDateFilter('90d')">3M</button>
-                            <button class="chart-timeframe-btn" onclick="setDateFilter('ytd')">YTD</button>
-                            <button class="chart-timeframe-btn" onclick="setDateFilter('1y')">1J</button>
-                            <button class="chart-timeframe-btn active" onclick="setDateFilter('all')">MAX</button>
+                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="30d">1M</button>
+                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="90d">3M</button>
+                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="ytd">YTD</button>
+                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="1y">1J</button>
+                            <button class="chart-timeframe-btn active" data-action="set-date-filter" data-range="all">MAX</button>
                         </div>
-                        <button class="btn btn-primary btn-small" onclick="exportChart('portfolioChartContainer')" title="Ctrl+E">📷 Export</button>
+                        <button class="btn btn-primary btn-small" data-action="export-chart" data-target="portfolioChartContainer" title="Ctrl+E">📷 Export</button>
                     </div>
                     <div class="chart-container" id="portfolioChartContainer">
                          <div class="chart-skeleton"></div>
@@ -249,7 +243,7 @@
                      <div class="section">
                         <div class="section-header">
                             <div class="section-title"><span>🏰</span><span>Portfolio-Verteilung</span></div>
-                             <button class="btn btn-primary btn-small" onclick="exportChart('allocationChartContainer')" title="Ctrl+E">📷 Export</button>
+                             <button class="btn btn-primary btn-small" data-action="export-chart" data-target="allocationChartContainer" title="Ctrl+E">📷 Export</button>
                         </div>
                         <div class="chart-container" id="allocationChartContainer">
                             <div class="chart-skeleton"></div>
@@ -269,11 +263,11 @@
                         </div>
                         <div class="forecast-controls">
                             <div class="time-selector">
-                                <button class="time-btn" onclick="setForecastPeriod(3)">3 Jahre</button>
-                                <button class="time-btn active" onclick="setForecastPeriod(5)">5 Jahre</button>
-                                <button class="time-btn" onclick="setForecastPeriod(10)">10 Jahre</button>
+                                <button class="time-btn" data-action="set-forecast-period" data-years="3">3 Jahre</button>
+                                <button class="time-btn active" data-action="set-forecast-period" data-years="5">5 Jahre</button>
+                                <button class="time-btn" data-action="set-forecast-period" data-years="10">10 Jahre</button>
                             </div>
-                            <button class="scenario-toggle" onclick="toggleScenarios()">
+                            <button class="scenario-toggle" data-action="toggle-scenarios">
                                 📊 Szenarien
                             </button>
                         </div>
@@ -377,7 +371,7 @@
                 <div class="section-header">
                     <div class="section-title"><span>📝</span><span>Neuer Eintrag</span></div>
                     <div>
-                        <button class="btn btn-success pulse" onclick="saveAllEntries()" title="Ctrl+S">
+                        <button class="btn btn-success pulse" data-action="save-all-entries" title="Ctrl+S">
                             <span>💾</span><span>Alle Speichern</span>
                         </button>
                     </div>
@@ -389,9 +383,9 @@
                         <input type="date" id="entryDate" class="date-input compact">
                     </div>
                     <div class="date-bar-actions">
-                        <button class="btn btn-secondary btn-small" onclick="setToToday()">Heute</button>
-                        <button class="btn btn-secondary btn-small" onclick="setToYesterday()">Gestern</button>
-                        <button class="btn btn-secondary btn-small" onclick="loadLastEntries()">🔁 Letzte Einträge laden</button>
+                        <button class="btn btn-secondary btn-small" data-action="set-to-today">Heute</button>
+                        <button class="btn btn-secondary btn-small" data-action="set-to-yesterday">Gestern</button>
+                        <button class="btn btn-secondary btn-small" data-action="load-last-entries">🔁 Letzte Einträge laden</button>
                     </div>
                 </div>
 
@@ -426,7 +420,7 @@
                             <div class="entry-fold-body" id="dayStrategyContainer">
                                 <textarea id="dailyStrategy" class="strategy-area" rows="4" placeholder="z.B. Absicherung, Rebalancing..." onkeydown="if(event.key === 'Enter' && event.metaKey) { event.preventDefault(); saveStrategyOnly(); }"></textarea>
                                 <div class="entry-fold-actions">
-                                    <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">💾 Strategie speichern</button>
+                                    <button class="btn btn-primary btn-small" data-action="save-strategy-only">💾 Strategie speichern</button>
                                 </div>
                             </div>
                         </details>
@@ -436,10 +430,10 @@
                             <div class="entry-fold-body">
                                 <div class="entry-toolbar-status" id="entryLoadStatus">Noch keine Auswahl aktiv.</div>
                                 <div class="entry-fold-actions stacked">
-                                    <button class="btn btn-secondary" onclick="selectFavoritePlatformsForEntry()">⭐ Favoriten übernehmen</button>
-                                    <button class="btn btn-secondary" onclick="selectPlatformsWithBalance()">💰 Mit Bestand</button>
-                                    <button class="btn btn-secondary" onclick="openCashflowFromEntry()">💸 Cashflow verbuchen</button>
-                                    <button class="btn btn-secondary" onclick="clearEntryInputs()">♻️ Zurücksetzen</button>
+                                    <button class="btn btn-secondary" data-action="select-favorite-platforms">⭐ Favoriten übernehmen</button>
+                                    <button class="btn btn-secondary" data-action="select-platforms-with-balance">💰 Mit Bestand</button>
+                                    <button class="btn btn-secondary" data-action="open-cashflow-from-entry">💸 Cashflow verbuchen</button>
+                                    <button class="btn btn-secondary" data-action="clear-entry-inputs">♻️ Zurücksetzen</button>
                                 </div>
                             </div>
                         </details>
@@ -473,11 +467,11 @@
                                         </div>
                                     </div>
                                     <div class="main-filters">
-                                        <button class="category-btn active" onclick="filterCategory(this, 'all')">Alle</button>
-                                        <button class="category-btn" onclick="filterCategory(this, 'Exchange')">Exchanges</button>
-                                        <button class="category-btn" onclick="filterCategory(this, 'DeFi')">DeFi</button>
-                                        <button class="category-btn" onclick="filterCategory(this, 'Lending')">Lending</button>
-                                        <button class="category-btn" onclick="filterCategory(this, 'Wallet')">Wallets</button>
+                                        <button class="category-btn active" data-action="filter-category" data-category="all">Alle</button>
+                                        <button class="category-btn" data-action="filter-category" data-category="Exchange">Exchanges</button>
+                                        <button class="category-btn" data-action="filter-category" data-category="DeFi">DeFi</button>
+                                        <button class="category-btn" data-action="filter-category" data-category="Lending">Lending</button>
+                                        <button class="category-btn" data-action="filter-category" data-category="Wallet">Wallets</button>
                                     </div>
                                 </div>
                                 <div class="platform-grid" id="platformGrid"></div>
@@ -551,7 +545,7 @@
                         <input type="text" id="cashflowNote" class="input-field" placeholder="Optional...">
                     </div>
                     <div class="cashflow-actions">
-                        <button class="btn btn-success cashflow-save-btn" onclick="saveCashflow()" title="Ctrl+S">
+                        <button class="btn btn-success cashflow-save-btn" data-action="save-cashflow" title="Ctrl+S">
                             <span>💾</span><span>Speichern</span>
                         </button>
                     </div>
@@ -562,9 +556,9 @@
                 <div class="section-header">
                     <div class="section-title"><span>📜</span><span>Cashflow Historie</span></div>
                     <div class="view-switcher">
-                        <button class="view-btn active" onclick="setCashflowView('list')">Liste</button>
-                        <button class="view-btn" onclick="setCashflowView('month')">Monat</button>
-                        <button class="view-btn" onclick="setCashflowView('quarter')">Quartal</button>
+                        <button class="view-btn active" data-action="set-cashflow-view" data-view="list">Liste</button>
+                        <button class="view-btn" data-action="set-cashflow-view" data-view="month">Monat</button>
+                        <button class="view-btn" data-action="set-cashflow-view" data-view="quarter">Quartal</button>
                     </div>
                 </div>
                 <div id="cashflowDisplayContainer" class="cashflow-display-container">
@@ -613,9 +607,9 @@
                 <div class="section-header">
                     <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
                     <div class="view-switcher">
-                        <button class="view-btn active" onclick="setHistoryView('list')">Liste</button>
-                        <button class="view-btn" onclick="setHistoryView('grouped')">Nach Plattform</button>
-                        <button class="view-btn" onclick="setHistoryView('bydate')">Nach Datum</button>
+                        <button class="view-btn active" data-action="set-history-view" data-view="list">Liste</button>
+                        <button class="view-btn" data-action="set-history-view" data-view="grouped">Nach Plattform</button>
+                        <button class="view-btn" data-action="set-history-view" data-view="bydate">Nach Datum</button>
                     </div>
                     <input type="text" id="historySearch" class="input-field" placeholder="In Liste suchen..." style="width: 200px;">
                 </div>
@@ -643,13 +637,13 @@
                 <div id="historyBulkActions" class="bulk-actions-bar">
                     <span id="bulkSelectedCount">0 Einträge ausgewählt</span>
                     <div class="bulk-actions-buttons">
-                        <button class="btn btn-primary btn-small" onclick="bulkChangeDate()">
+                        <button class="btn btn-primary btn-small" data-action="bulk-change-date">
                             <span>🗓️</span> Datum ändern
                         </button>
-                        <button class="btn btn-primary btn-small" onclick="bulkChangeAmount()">
+                        <button class="btn btn-primary btn-small" data-action="bulk-change-amount">
                             <span>💰</span> Betrag ändern
                         </button>
-                        <button class="btn btn-danger btn-small" onclick="deleteSelectedEntries()">
+                        <button class="btn btn-danger btn-small" data-action="delete-selected-entries">
                             <span>🗑️</span> Auswahl löschen
                         </button>
                     </div>
@@ -784,8 +778,8 @@
                                 <div class="setting-label">GitHub Token</div>
                                 <div class="setting-value" id="tokenDisplay">Nicht konfiguriert</div>
                                 <div class="setting-actions">
-                                    <button class="btn btn-primary btn-small" onclick="setupGitHubToken()">Token setzen</button>
-                                    <button class="btn btn-danger btn-small" onclick="clearGitHubToken()">Löschen</button>
+                                    <button class="btn btn-primary btn-small" data-action="setup-github-token">Token setzen</button>
+                                    <button class="btn btn-danger btn-small" data-action="clear-github-token">Löschen</button>
                                 </div>
                             </div>
                             
@@ -793,9 +787,9 @@
                                 <div class="setting-label">Gist ID</div>
                                 <div class="setting-value" id="gistDisplay">Nicht konfiguriert</div>
                                 <div class="setting-actions">
-                                    <button class="btn btn-primary btn-small" onclick="setupGistId()">Gist ID setzen</button>
-                                    <button class="btn btn-success btn-small" onclick="createNewGist()">Neu erstellen</button>
-                                     <button class="btn btn-danger btn-small" onclick="clearGistId()">Löschen</button>
+                                    <button class="btn btn-primary btn-small" data-action="setup-gist-id">Gist ID setzen</button>
+                                    <button class="btn btn-success btn-small" data-action="create-new-gist">Neu erstellen</button>
+                                     <button class="btn btn-danger btn-small" data-action="clear-gist-id">Löschen</button>
                                 </div>
                             </div>
 
@@ -813,13 +807,13 @@
                                 <div class="setting-label">Letzter Sync</div>
                                 <div class="setting-value" id="lastSyncDisplay">Noch nie synchronisiert</div>
                                 <div class="setting-actions">
-                                    <button class="btn btn-success btn-small" onclick="syncNow()">Jetzt synchronisieren</button>
+                                    <button class="btn btn-success btn-small" data-action="sync-now">Jetzt synchronisieren</button>
                                 </div>
                             </div>
                         </div>
 
                         <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                            <button class="btn btn-primary" onclick="testConnection()">
+                            <button class="btn btn-primary" data-action="test-connection">
                                 <span>🔌</span><span>Verbindung testen</span>
                             </button>
                         </div>
@@ -839,7 +833,7 @@
                                 <div class="setting-label">Lokales Backup</div>
                                 <div class="setting-value">Stellt den Zustand vom letzten Speichern wieder her.</div>
                                 <div class="setting-actions">
-                                    <button class="btn btn-warning btn-small" onclick="restoreFromLocalBackup()">Aus lokalem Backup wiederherstellen</button>
+                                    <button class="btn btn-warning btn-small" data-action="restore-local-backup">Aus lokalem Backup wiederherstellen</button>
                                 </div>
                             </div>
                         </div>
@@ -892,9 +886,9 @@
                                 <div class="setting-label">📤 Export Optionen</div>
                                 <div class="setting-value">Sichere deine Daten in verschiedenen Formaten</div>
                                 <div class="setting-actions">
-                                    <button class="btn btn-primary btn-small" onclick="exportJSON()">JSON</button>
-                                    <button class="btn btn-primary btn-small" onclick="exportCSV()">CSV</button>
-                                    <button class="btn btn-primary btn-small" onclick="exportPDF()">PDF</button>
+                                    <button class="btn btn-primary btn-small" data-action="export-json">JSON</button>
+                                    <button class="btn btn-primary btn-small" data-action="export-csv">CSV</button>
+                                    <button class="btn btn-primary btn-small" data-action="export-pdf">PDF</button>
                                 </div>
                             </div>
                             
@@ -904,8 +898,8 @@
                                 <div class="setting-actions">
                                     <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
                                     <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
-                                    <button class="btn btn-primary btn-small" onclick="document.getElementById('jsonFileInput').click()">JSON</button>
-                                    <button class="btn btn-primary btn-small" onclick="document.getElementById('csvFileInput').click()">CSV</button>
+                                    <button class="btn btn-primary btn-small" data-action="trigger-json-upload">JSON</button>
+                                    <button class="btn btn-primary btn-small" data-action="trigger-csv-upload">CSV</button>
                                 </div>
                             </div>
                         </div>
@@ -915,9 +909,9 @@
                             <h3>⚠️ Gefahrenbereich</h3>
                             <p>Diese Aktionen können nicht rückgängig gemacht werden! Das Leeren des Caches kann bei API-Problemen helfen.</p>
                             <div class="danger-actions">
-                                <button class="btn btn-warning" onclick="clearApiCache()">🔄 API Cache leeren</button>
-                                <button class="btn btn-danger" onclick="resetPlatforms()">Plattformen zurücksetzen</button>
-                                <button class="btn btn-danger" onclick="clearAllData()">🗑️ Alle Daten löschen</button>
+                                <button class="btn btn-warning" data-action="clear-api-cache">🔄 API Cache leeren</button>
+                                <button class="btn btn-danger" data-action="reset-platforms">Plattformen zurücksetzen</button>
+                                <button class="btn btn-danger" data-action="clear-all-data">🗑️ Alle Daten löschen</button>
                             </div>
                         </div>
                     </div>
@@ -946,19 +940,19 @@
         <div id="globalSearchModal" class="global-search-modal">
             <div class="search-input-wrapper">
                 <input type="text" id="globalSearchInput" placeholder="Suche nach Plattformen, Einträgen, Aktionen...">
-                <button class="btn btn-small" onclick="exportSearchResults()" title="Suchergebnisse exportieren">💾</button>
-                <span class="search-modal-close" onclick="closeGlobalSearch()">✕</span>
+                <button class="btn btn-small" data-action="export-search-results" title="Suchergebnisse exportieren">💾</button>
+                <span class="search-modal-close" data-action="close-global-search">✕</span>
             </div>
             <div id="searchFilters" class="search-filters" style="display: none;">
                 <!-- Filter werden hier dynamisch eingefügt -->
             </div>
             <div class="search-quick-filters">
-                <button class="btn btn-small" onclick="setDateRangeFilter('heute')">📅 Heute</button>
-                <button class="btn btn-small" onclick="setDateRangeFilter('woche')">📅 Diese Woche</button>
-                <button class="btn btn-small" onclick="setDateRangeFilter('monat')">📅 Dieser Monat</button>
-                <button class="btn btn-small" onclick="toggleSearchFilter('category', 'Exchange')">🏦 Exchange</button>
-                <button class="btn btn-small" onclick="toggleSearchFilter('category', 'DeFi')">🔄 DeFi</button>
-                <button class="btn btn-small" onclick="toggleSearchFilter('tag', 'high-risk')">⚠️ High-Risk</button>
+                <button class="btn btn-small" data-action="set-date-range-filter" data-range="heute">📅 Heute</button>
+                <button class="btn btn-small" data-action="set-date-range-filter" data-range="woche">📅 Diese Woche</button>
+                <button class="btn btn-small" data-action="set-date-range-filter" data-range="monat">📅 Dieser Monat</button>
+                <button class="btn btn-small" data-action="toggle-search-filter" data-filter-type="category" data-filter-value="Exchange">🏦 Exchange</button>
+                <button class="btn btn-small" data-action="toggle-search-filter" data-filter-type="category" data-filter-value="DeFi">🔄 DeFi</button>
+                <button class="btn btn-small" data-action="toggle-search-filter" data-filter-type="tag" data-filter-value="high-risk">⚠️ High-Risk</button>
             </div>
             <div id="globalSearchResults" class="global-search-results">
                 <!-- Ergebnisse werden hier dynamisch eingefügt -->
@@ -969,25 +963,25 @@
     <!-- Mobile Bottom Navigation -->
     <!-- Mobile Bottom Navigation mit mehr Funktionen -->
     <div class="mobile-bottom-nav" style="display: none;">
-        <button class="mobile-nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+        <button class="mobile-nav-item active" data-tab="dashboard" data-action="switch-tab" data-tab="dashboard">
             <span class="nav-icon">📊</span>
         </button>
-        <button class="mobile-nav-item" data-tab="entry" onclick="switchTab('entry')">
+        <button class="mobile-nav-item" data-tab="entry" data-action="switch-tab" data-tab="entry">
             <span class="nav-icon">➕</span>
         </button>
-        <button class="mobile-nav-item" data-tab="notes" onclick="switchTab('notes')">
+        <button class="mobile-nav-item" data-tab="notes" data-action="switch-tab" data-tab="notes">
             <span class="nav-icon">🗒️</span>
         </button>
         <!-- Search -->
-        <button class="mobile-nav-item" onclick="document.getElementById('globalSearchBtn').click()">
+        <button class="mobile-nav-item" data-action="open-global-search">
             <span class="nav-icon">🔍</span>
         </button>
         <!-- Theme Toggle -->
-        <button class="mobile-nav-item" onclick="toggleTheme()">
+        <button class="mobile-nav-item" data-action="toggle-theme">
             <span class="nav-icon theme-icon">🌙</span>
         </button>
         <!-- Menu für Settings, Privacy etc. -->
-        <button class="mobile-nav-item" onclick="openMobileMenu()">
+        <button class="mobile-nav-item" data-action="open-mobile-menu">
             <span class="nav-icon">⋮</span>
         </button>
     </div>
@@ -1012,57 +1006,6 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        // --- Bottom Sheet Swipe-Logik ---
-        const bottomSheetOverlay = document.getElementById('bottomSheet');
-        const bottomSheetContent = bottomSheetOverlay.querySelector('.bottom-sheet-content');
-        const bottomSheetHeader = bottomSheetOverlay.querySelector('.bottom-sheet-header');
-        
-        let bsTouchStartY = 0;
-        let bsCurrentTranslateY = 0;
-
-        if (bottomSheetHeader && bottomSheetContent) {
-            bottomSheetHeader.addEventListener('touchstart', (e) => {
-                bsTouchStartY = e.touches[0].clientY;
-                bottomSheetContent.style.transition = 'none'; // Deaktiviert die CSS-Transition während des Ziehens
-            }, { passive: true });
-
-            bottomSheetHeader.addEventListener('touchmove', (e) => {
-                const touchY = e.touches[0].clientY;
-                const deltaY = touchY - bsTouchStartY;
-                
-                if (deltaY > 0) { // Nur nach unten ziehen erlauben
-                    bsCurrentTranslateY = deltaY;
-                    bottomSheetContent.style.transform = `translateY(${bsCurrentTranslateY}px)`;
-                }
-            });
-
-            bottomSheetHeader.addEventListener('touchend', () => {
-                if (bsCurrentTranslateY === 0) return;
-
-                bottomSheetContent.style.transition = 'transform 0.3s ease-out';
-                const sheetHeight = bottomSheetContent.offsetHeight;
-
-                // Wenn mehr als 1/4 nach unten gezogen, schließen
-                if (bsCurrentTranslateY > sheetHeight / 4) {
-                    // Da wir die genaue Schließfunktion nicht kennen, verstecken wir das Element.
-                    // Dies ist eine sichere Methode, die in den meisten Fällen funktionieren sollte.
-                    // Idealerweise gäbe es eine Funktion wie `closeBottomSheet()`, die hier aufgerufen wird.
-                    bottomSheetOverlay.style.display = 'none';
-                    // Transform zurücksetzen für das nächste Öffnen
-                    bottomSheetContent.style.transform = 'translateY(0)';
-                } else {
-                    // Zurück zur Ausgangsposition schnappen
-                    bottomSheetContent.style.transform = 'translateY(0)';
-                }
-
-                bsCurrentTranslateY = 0;
-                bsTouchStartY = 0;
-            });
-        }
-    });
-    </script>
+    <script src="script.js" defer></script>
 </body>
 </html>

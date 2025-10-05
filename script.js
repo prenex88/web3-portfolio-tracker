@@ -899,6 +899,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateEntrySummary();
     initializeCharts();
     addEventListeners();
+    setupActionDelegation();
     
     // Warte kurz, bis alle DOM-Elemente geladen sind
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -1659,6 +1660,115 @@ function addEventListeners() {
     window.addEventListener('touchmove', () => hideChartTooltip(), { passive: true });
 }
 
+function setupActionDelegation() {
+    const actionHandlers = {
+        'bulk-change-amount': () => bulkChangeAmount(),
+        'bulk-change-date': () => bulkChangeDate(),
+        'bypass-biometric': () => bypassBiometric(),
+        'clear-all-data': () => clearAllData(),
+        'clear-api-cache': () => clearApiCache(),
+        'clear-single-item-filter': () => clearSingleItemFilter(),
+        'clear-entry-inputs': () => clearEntryInputs(),
+        'clear-gist-id': () => clearGistId(),
+        'clear-github-token': () => clearGitHubToken(),
+        'close-global-search': () => closeGlobalSearch(),
+        'create-new-gist': () => createNewGist(),
+        'delete-selected-entries': () => deleteSelectedEntries(),
+        'export-chart': el => {
+            const targetId = el.dataset.target;
+            if (targetId) exportChart(targetId);
+        },
+        'export-csv': () => exportCSV(),
+        'export-json': () => exportJSON(),
+        'export-pdf': () => exportPDF(),
+        'export-search-results': () => exportSearchResults(),
+        'filter-category': el => {
+            const category = el.dataset.category;
+            if (category) filterCategory(el, category);
+        },
+        'load-last-entries': () => loadLastEntries(),
+        'open-cashflow-from-entry': () => openCashflowFromEntry(),
+        'open-cloud-settings': () => openCloudSettings(),
+        'open-date-filter': () => openDateFilterModal(),
+        'open-global-search': () => openGlobalSearch(),
+        'open-mobile-menu': () => openMobileMenu(),
+        'reset-platforms': () => resetPlatforms(),
+        'restore-local-backup': () => restoreFromLocalBackup(),
+        'reset-date-filter': () => resetDateFilter(),
+        'save-all-entries': () => saveAllEntries(),
+        'save-cashflow': () => saveCashflow(),
+        'save-strategy-only': () => saveStrategyOnly(),
+        'select-favorite-platforms': () => selectFavoritePlatformsForEntry(),
+        'select-platforms-with-balance': () => selectPlatformsWithBalance(),
+        'apply-custom-date-filter': () => applyAndSetCustomDateFilterFromModal(),
+        'set-cashflow-view': el => {
+            const view = el.dataset.view;
+            if (view) setCashflowView(view);
+        },
+        'set-date-filter': el => {
+            const range = el.dataset.range;
+            if (range) setDateFilter(range);
+        },
+        'set-date-range-filter': el => {
+            const range = el.dataset.range;
+            if (range) setDateRangeFilter(range);
+        },
+        'set-forecast-period': el => {
+            const years = Number(el.dataset.years);
+            if (!Number.isNaN(years)) setForecastPeriod(years);
+        },
+        'set-history-view': el => {
+            const view = el.dataset.view;
+            if (view) setHistoryView(view);
+        },
+        'set-to-today': () => setToToday(),
+        'set-to-yesterday': () => setToYesterday(),
+        'setup-gist-id': () => setupGistId(),
+        'setup-github-token': () => setupGitHubToken(),
+        'switch-tab': el => {
+            const tab = el.dataset.tab;
+            if (tab) switchTab(tab);
+        },
+        'sync-now': () => syncNow(),
+        'test-connection': () => testConnection(),
+        'toggle-biometric': () => toggleBiometric(),
+        'toggle-compact-mode': () => toggleCompactMode(),
+        'toggle-header-menu': () => toggleHeaderMenu(),
+        'toggle-privacy-mode': () => togglePrivacyMode(),
+        'toggle-scenarios': () => toggleScenarios(),
+        'toggle-search-filter': el => {
+            const type = el.dataset.filterType;
+            const value = el.dataset.filterValue;
+            if (type && value) toggleSearchFilter(type, value);
+        },
+        'toggle-sync-bar': () => toggleSyncBar(),
+        'toggle-theme': () => toggleTheme(),
+        'trigger-csv-upload': () => document.getElementById('csvFileInput')?.click(),
+        'trigger-json-upload': () => document.getElementById('jsonFileInput')?.click()
+    };
+
+    document.addEventListener('click', event => {
+        const target = event.target.closest('[data-action]');
+        if (!target) return;
+
+        const action = target.dataset.action;
+        const handler = actionHandlers[action];
+        if (!handler) return;
+
+        event.preventDefault();
+
+        handler(target, event);
+
+        if (target.dataset.closeMenu === 'true') {
+            closeHeaderDropdown();
+        }
+
+        if (target.dataset.closeSheet === 'true') {
+            closeBottomSheet();
+        }
+    });
+}
+
 function setupMobileTitle() {
     // Change title on mobile devices
     function updateTitle() {
@@ -2110,7 +2220,7 @@ function applyDateFilter() {
 }
 
 function setDateFilter(period) {
-    const chartFilterButton = document.querySelector(`.chart-controls .chart-timeframe-btn[onclick="setDateFilter('${period}')"]`);
+    const chartFilterButton = document.querySelector(`.chart-controls .chart-timeframe-btn[data-range="${period}"]`);
     if (chartFilterButton) {
         document.querySelectorAll('.chart-controls .chart-timeframe-btn').forEach(b => b.classList.remove('active'));
         chartFilterButton.classList.add('active');
@@ -2161,36 +2271,116 @@ function resetDateFilter() {
 }
 
 function openDateFilterModal() {
-    const contentHtml = `
-        <div class="modal-header"><h2 class="modal-title">🗓️ Zeitraum filtern</h2></div>
-        <div class="modal-body">
-            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">Wähle einen vordefinierten Zeitraum oder lege einen eigenen fest.</p>
-            <div class="filter-presets" style="margin-bottom: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button class="btn" onclick="setDateFilter('all'); closeBottomSheet();">Alles</button>
-                <button class="btn" onclick="setDateFilter('7d'); closeBottomSheet();">7 Tage</button>
-                <button class="btn" onclick="setDateFilter('30d'); closeBottomSheet();">30 Tage</button>
-                <button class="btn" onclick="setDateFilter('90d'); closeBottomSheet();">90 Tage</button>
-                <button class="btn" onclick="setDateFilter('ytd'); closeBottomSheet();">YTD</button>
-                <button class="btn" onclick="setDateFilter('1y'); closeBottomSheet();">1 Jahr</button>
-            </div>
-            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; border-top: 1px solid var(--border); padding-top: 16px;">Eigener Zeitraum</h3>
-            <div class="custom-date-range" style="display: flex; flex-direction: column; gap: 16px;">
-                <div class="github-input-group" style="margin-bottom: 0;">
-                    <label for="modalFilterStartDate">Von:</label>
-                    <input type="date" id="modalFilterStartDate" class="date-input" style="width: 100%;" value="${document.getElementById('filterStartDate').value}">
-                </div>
-                <div class="github-input-group" style="margin-bottom: 0;">
-                    <label for="modalFilterEndDate">Bis:</label>
-                    <input type="date" id="modalFilterEndDate" class="date-input" style="width: 100%;" value="${document.getElementById('filterEndDate').value}">
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-danger" onclick="resetDateFilter(); closeBottomSheet();">Zurücksetzen</button>
-            <button class="btn btn-success" onclick="applyAndSetCustomDateFilterFromModal()">Anwenden</button>
-        </div>
-    `;
-    openBottomSheet(contentHtml);
+    const container = document.createElement('div');
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h2');
+    title.className = 'modal-title';
+    title.textContent = '🗓️ Zeitraum filtern';
+    header.appendChild(title);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+
+    const intro = document.createElement('p');
+    intro.textContent = 'Wähle einen vordefinierten Zeitraum oder lege einen eigenen fest.';
+    intro.style.color = 'var(--text-secondary)';
+    intro.style.fontSize = '14px';
+    intro.style.marginBottom = '20px';
+    body.appendChild(intro);
+
+    const presetGrid = document.createElement('div');
+    presetGrid.className = 'filter-presets';
+    presetGrid.style.marginBottom = '24px';
+    presetGrid.style.display = 'grid';
+    presetGrid.style.gridTemplateColumns = '1fr 1fr';
+    presetGrid.style.gap = '10px';
+
+    const presets = [
+        { label: 'Alles', range: 'all' },
+        { label: '7 Tage', range: '7d' },
+        { label: '30 Tage', range: '30d' },
+        { label: '90 Tage', range: '90d' },
+        { label: 'YTD', range: 'ytd' },
+        { label: '1 Jahr', range: '1y' }
+    ];
+
+    presets.forEach(preset => {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = preset.label;
+        btn.dataset.action = 'set-date-filter';
+        btn.dataset.range = preset.range;
+        btn.dataset.closeSheet = 'true';
+        presetGrid.appendChild(btn);
+    });
+    body.appendChild(presetGrid);
+
+    const customHeading = document.createElement('h3');
+    customHeading.textContent = 'Eigener Zeitraum';
+    customHeading.style.fontSize = '16px';
+    customHeading.style.fontWeight = '600';
+    customHeading.style.marginBottom = '16px';
+    customHeading.style.borderTop = '1px solid var(--border)';
+    customHeading.style.paddingTop = '16px';
+    body.appendChild(customHeading);
+
+    const customRange = document.createElement('div');
+    customRange.className = 'custom-date-range';
+    customRange.style.display = 'flex';
+    customRange.style.flexDirection = 'column';
+    customRange.style.gap = '16px';
+
+    const startGroup = document.createElement('div');
+    startGroup.className = 'github-input-group';
+    startGroup.style.marginBottom = '0';
+    const startLabel = document.createElement('label');
+    startLabel.htmlFor = 'modalFilterStartDate';
+    startLabel.textContent = 'Von:';
+    const startInput = document.createElement('input');
+    startInput.type = 'date';
+    startInput.id = 'modalFilterStartDate';
+    startInput.className = 'date-input';
+    startInput.style.width = '100%';
+    startInput.value = document.getElementById('filterStartDate').value;
+    startGroup.append(startLabel, startInput);
+
+    const endGroup = document.createElement('div');
+    endGroup.className = 'github-input-group';
+    endGroup.style.marginBottom = '0';
+    const endLabel = document.createElement('label');
+    endLabel.htmlFor = 'modalFilterEndDate';
+    endLabel.textContent = 'Bis:';
+    const endInput = document.createElement('input');
+    endInput.type = 'date';
+    endInput.id = 'modalFilterEndDate';
+    endInput.className = 'date-input';
+    endInput.style.width = '100%';
+    endInput.value = document.getElementById('filterEndDate').value;
+    endGroup.append(endLabel, endInput);
+
+    customRange.append(startGroup, endGroup);
+    body.appendChild(customRange);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-danger';
+    resetBtn.textContent = 'Zurücksetzen';
+    resetBtn.dataset.action = 'reset-date-filter';
+    resetBtn.dataset.closeSheet = 'true';
+
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'btn btn-success';
+    applyBtn.textContent = 'Anwenden';
+    applyBtn.dataset.action = 'apply-custom-date-filter';
+
+    footer.append(resetBtn, applyBtn);
+
+    container.append(header, body, footer);
+    openBottomSheet(container);
 }
 
 function applyAndSetCustomDateFilterFromModal() {
@@ -3971,19 +4161,28 @@ function updateSettingsConnectionStatus(status, message = '') {
     const statusEl = document.getElementById('connectionStatus');
     if (!statusEl) return;
 
+    const setStatusContent = (icon, text) => {
+        statusEl.textContent = '';
+        const iconSpan = document.createElement('span');
+        iconSpan.textContent = icon;
+        const textSpan = document.createElement('span');
+        textSpan.textContent = text;
+        statusEl.append(iconSpan, textSpan);
+    };
+
     switch(status) {
         case 'connected':
             statusEl.className = 'connection-status connected';
-            statusEl.innerHTML = `<span>✅</span><span>${message || 'Erfolgreich mit GitHub verbunden!'}</span>`;
+            setStatusContent('✅', message || 'Erfolgreich mit GitHub verbunden!');
             break;
         case 'error':
             statusEl.className = 'connection-status disconnected';
-            statusEl.innerHTML = `<span>❌</span><span>Verbindungsfehler: ${message}</span>`;
+            setStatusContent('❌', `Verbindungsfehler: ${String(message || '')}`);
             break;
         case 'initial':
         default:
             statusEl.className = 'connection-status disconnected';
-            statusEl.innerHTML = `<span>⚠️</span><span>Nicht verbunden - Konfiguriere GitHub für Cloud Sync</span>`;
+            setStatusContent('⚠️', 'Nicht verbunden - Konfiguriere GitHub für Cloud Sync');
             break;
     }
 }
@@ -4548,7 +4747,7 @@ function switchTab(tabName, options = {}) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     const newTabContent = document.getElementById(tabName);
     if(newTabContent) newTabContent.classList.add('active');
-    const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`);
+    const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
     if (tabBtn) tabBtn.classList.add('active');
     currentTab = tabName;
     localStorage.setItem(LAST_ACTIVE_TAB_KEY, tabName);
@@ -5827,7 +6026,7 @@ function updateBottomNavBadges() {
 function setCashflowView(mode) {
     cashflowViewMode = mode;
     document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`.view-switcher .view-btn[onclick="setCashflowView('${mode}')"]`).classList.add('active');
+    document.querySelector(`.view-switcher .view-btn[data-view="${mode}"]`).classList.add('active');
     updateCashflowDisplay();
 }
 
@@ -6356,7 +6555,7 @@ async function deleteEntriesForDate(date) {
 function setHistoryView(mode) {
     historyViewMode = mode;
     document.querySelectorAll('#history .view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`#history .view-switcher .view-btn[onclick="setHistoryView('${mode}')"]`).classList.add('active');
+    document.querySelector(`#history .view-switcher .view-btn[data-view="${mode}"]`).classList.add('active');
     updateHistory();
 }
 
@@ -7069,11 +7268,11 @@ function updateCashflowDisplay() {
         cashflowViewMode = 'list';
         document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = true); // Deaktiviert Umschalter
         document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.classList.remove('active'));
-        const listBtn = document.querySelector('.view-switcher .view-btn[onclick="setCashflowView(\'list\')"]');
+        const listBtn = document.querySelector('.view-switcher .view-btn[data-view="list"]');
         if (listBtn) listBtn.classList.add('active');
 
         renderCashflowTable(container, dataForDisplay);
-        const clearButtonHtml = `<div style="margin-bottom: 16px; text-align: center;"><button class="btn btn-primary" onclick="clearSingleItemFilter()">Alle Cashflows anzeigen</button></div>`;
+        const clearButtonHtml = `<div style="margin-bottom: 16px; text-align: center;"><button class="btn btn-primary" data-action="clear-single-item-filter">Alle Cashflows anzeigen</button></div>`;
         container.insertAdjacentHTML('afterbegin', clearButtonHtml);
     } else {
         document.querySelectorAll('.view-switcher .view-btn').forEach(btn => btn.disabled = false);
@@ -8687,10 +8886,17 @@ function setupBottomSheet() {
     header.addEventListener('touchend', onTouchEnd, { passive: true });
 }
 
-function openBottomSheet(contentHtml) {
+function openBottomSheet(content) {
     const sheet = document.getElementById('bottomSheet');
     const sheetBody = document.getElementById('bottomSheetBody');
-    sheetBody.innerHTML = contentHtml;
+    if (!sheet || !sheetBody) return;
+
+    sheetBody.innerHTML = '';
+    if (content instanceof Node) {
+        sheetBody.appendChild(content);
+    } else if (typeof content === 'string') {
+        sheetBody.innerHTML = content;
+    }
     sheet.classList.add('visible');
 }
 
@@ -8709,58 +8915,114 @@ function showCustomPrompt({ title, text, showInput = false, showDateInput = fals
     return new Promise(resolve => {
         promptResolve = resolve;
 
-        // Definiert, welche Aktionswerte eine Eingabe vom Benutzer erwarten.
-        const positiveActionValues = ['next', 'save', 'confirm', 'change', 'reset', 'DELETE ALL', 'RESTORE'];
+        const positiveActionValues = new Set(['next', 'save', 'confirm', 'change', 'reset', 'DELETE ALL', 'RESTORE']);
 
-        let actionsHtml = actions.map(action => {
-            let onclickCall;
-            // Wenn ein Input angezeigt wird UND die Aktion eine Bestätigungsaktion ist,
-            // wird der Wert des Inputs an closeBottomSheet übergeben.
-            if ((showInput || showDateInput) && positiveActionValues.includes(action.value)) {
-                const inputId = showInput ? 'bottomSheet_input' : 'bottomSheet_date_input';
-                onclickCall = `closeBottomSheet(document.getElementById('${inputId}').value)`;
+        const container = document.createElement('div');
+        container.className = 'bottom-sheet-modal';
+
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        const titleEl = document.createElement('h2');
+        titleEl.className = 'modal-title';
+        titleEl.textContent = title || '';
+        header.appendChild(titleEl);
+
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        if (text) {
+            const textParagraph = document.createElement('p');
+            textParagraph.textContent = text;
+            body.appendChild(textParagraph);
+        }
+
+        if (listHtml) {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = listHtml;
+            body.appendChild(wrapper);
+        }
+
+        let inputEl = null;
+        let dateInputEl = null;
+
+        if (showInput) {
+            inputEl = document.createElement('input');
+            inputEl.type = 'text';
+            inputEl.id = 'bottomSheet_input';
+            inputEl.className = 'input-field';
+            inputEl.style.width = '100%';
+            inputEl.style.marginTop = '15px';
+            body.appendChild(inputEl);
+        }
+
+        if (showDateInput) {
+            dateInputEl = document.createElement('input');
+            dateInputEl.type = 'date';
+            dateInputEl.id = 'bottomSheet_date_input';
+            dateInputEl.className = 'date-input';
+            dateInputEl.style.width = '100%';
+            dateInputEl.style.marginTop = '15px';
+            body.appendChild(dateInputEl);
+        }
+
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer';
+
+        const resolveWithInputValue = () => {
+            if (showInput && inputEl) {
+                closeBottomSheet(inputEl.value);
+            } else if (showDateInput && dateInputEl) {
+                closeBottomSheet(dateInputEl.value);
             } else {
-                // Andernfalls wird der Wert der Aktion selbst oder null (für Abbrechen) übergeben.
-                // Der Wert wird in Anführungszeichen gesetzt, um ihn als String zu übergeben, es sei denn, er ist 'true' oder 'null'.
-                const param = action.value !== undefined && action.value !== null ? (typeof action.value === 'boolean' ? action.value : `'${action.value}'`) : 'null';
-                onclickCall = `closeBottomSheet(${param})`;
+                closeBottomSheet(true);
             }
-            return `<button class="btn ${action.class || 'btn-primary'}" onclick="${onclickCall}">${action.text}</button>`;
-        }).join('');
+        };
 
         if (actions.length === 0) {
-            actionsHtml = `
-                <button class="btn btn-danger" onclick="closeBottomSheet(null)">Abbrechen</button>
-                <button class="btn btn-success" onclick="closeBottomSheet(document.getElementById('bottomSheet_input')?.value || document.getElementById('bottomSheet_date_input')?.value || true)">OK</button>
-            `;
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'btn btn-danger';
+            cancelBtn.textContent = 'Abbrechen';
+            cancelBtn.addEventListener('click', () => closeBottomSheet(null));
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'btn btn-success';
+            confirmBtn.textContent = 'OK';
+            confirmBtn.addEventListener('click', resolveWithInputValue);
+
+            footer.append(cancelBtn, confirmBtn);
+        } else {
+            actions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.className = `btn ${action.class || 'btn-primary'}`.trim();
+                btn.textContent = action.text || '';
+                btn.addEventListener('click', () => {
+                    if ((showInput || showDateInput) && positiveActionValues.has(action.value)) {
+                        resolveWithInputValue();
+                    } else {
+                        closeBottomSheet(action.value ?? null);
+                    }
+                });
+                footer.appendChild(btn);
+            });
         }
 
-        const contentHtml = `
-            <div class="modal-header"><h2 class="modal-title">${title}</h2></div>
-            <div class="modal-body">
-                <p>${text}</p>
-                ${listHtml || ''}
-                ${showInput ? '<input type="text" id="bottomSheet_input" class="input-field" style="width: 100%; margin-top: 15px;">' : ''}
-                ${showDateInput ? '<input type="date" id="bottomSheet_date_input" class="date-input" style="width: 100%; margin-top: 15px;">' : ''}
-            </div>
-            <div class="modal-footer">${actionsHtml}</div>
-        `;
-        openBottomSheet(contentHtml);
-        
-        const input = document.getElementById('bottomSheet_input');
-        const dateInput = document.getElementById('bottomSheet_date_input');
-        if (input) {
-            input.focus();
-            input.onkeydown = (e) => {
+        container.append(header, body, footer);
+        openBottomSheet(container);
+
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.addEventListener('keydown', e => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    closeBottomSheet(input.value);
+                    closeBottomSheet(inputEl.value);
                 }
-            };
+            });
         }
-        if (dateInput) {
-            dateInput.value = new Date().toISOString().split('T')[0];
-            dateInput.focus();
+
+        if (dateInputEl) {
+            dateInputEl.value = new Date().toISOString().split('T')[0];
+            if (!inputEl) {
+                dateInputEl.focus();
+            }
         }
     });
 }
@@ -9571,7 +9833,6 @@ function addMissingStyles() {
             }
             
             /* Hide platforms tab on mobile */
-            .tab-btn[onclick="switchTab('platforms')"],
             .tab-btn[data-tab="platforms"] {
                 display: none !important;
             }
@@ -9581,12 +9842,11 @@ function addMissingStyles() {
         #platforms,
         .tab-content#platforms,
         [data-tab="platforms"],
-        .tab-btn[onclick*="platforms"] {
+        .tab-btn[data-tab*="platforms"] {
             display: none !important;
         }
         
         /* Hide settings tab from main menu as it's in the dropdown */
-        .tab-btn[onclick="switchTab('settings')"],
         .tab-btn[data-tab="settings"]
         {
             display: none !important;
@@ -9732,12 +9992,22 @@ function addMissingStyles() {
 function toggleHeaderMenu() {
     const dropdown = document.getElementById('headerDropdown');
     dropdown.classList.toggle('show');
-    
+
     // Schließe Dropdown wenn außerhalb geklickt wird
     if (dropdown.classList.contains('show')) {
         setTimeout(() => {
             document.addEventListener('click', closeHeaderMenuOnOutsideClick);
         }, 0);
+    }
+}
+
+function closeHeaderDropdown() {
+    const dropdown = document.getElementById('headerDropdown');
+    if (!dropdown) return;
+
+    if (dropdown.classList.contains('show')) {
+        dropdown.classList.remove('show');
+        document.removeEventListener('click', closeHeaderMenuOnOutsideClick);
     }
 }
 
@@ -10491,35 +10761,6 @@ function setupSwipeNavigation() {
     }, { passive: true });
 }
 
-function improveKeyboardNavigation() {
-    // Diese Funktion wird absichtlich leer gelassen, da die "Enter"-Logik
-    // in `addPlatformInput` bereits das vom Benutzer gewünschte Verhalten
-    // (Speichern und zum nächsten Feld springen) implementiert.
-}
-
-function addAriaLabels() {
-    document.querySelectorAll('button, .btn').forEach(btn => {
-        if (!btn.getAttribute('aria-label') && btn.title) {
-            btn.setAttribute('aria-label', btn.title);
-        } else if (!btn.getAttribute('aria-label')) {
-            const text = btn.textContent.trim().replace(/\s+/g, ' ');
-            if (text) btn.setAttribute('aria-label', text);
-        }
-    });
-
-    document.querySelectorAll('input').forEach(input => {
-        if (!input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby')) {
-            const label = input.closest('div, label')?.querySelector('label, .setting-label, .platform-name');
-            if (label) {
-                if (!label.id) label.id = `label-${Math.random().toString(36).substr(2, 9)}`;
-                input.setAttribute('aria-labelledby', label.id);
-            }
-        }
-    });
-
-    updateEntrySummary();
-}
-
 function convertTablesToMobile() {
     if (window.innerWidth > 768) return;
 
@@ -10700,6 +10941,8 @@ function addAriaLabels() {
             }
         }
     });
+
+    updateEntrySummary();
 }
 
 function cleanupLocalStorage() {

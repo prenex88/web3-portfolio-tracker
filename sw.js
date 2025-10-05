@@ -1,4 +1,4 @@
-﻿const APP_CACHE_NAME = 'portfolio-tracker-v4';
+const APP_CACHE_NAME = 'portfolio-tracker-v4';
 const API_CACHE_NAME = 'api-cache-v2';
 const urlsToCache = [
   './',
