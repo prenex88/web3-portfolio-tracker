@@ -1,4 +1,4 @@
-﻿const APP_CACHE_NAME = 'portfolio-tracker-v3';
+﻿const APP_CACHE_NAME = 'portfolio-tracker-v4';
 const API_CACHE_NAME = 'api-cache-v2';
 const urlsToCache = [
   './',
@@ -42,6 +42,17 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // HTML/Navigations-Anfragen immer netzwerk-first beantworten, damit neue Builds sofort sichtbar werden.
+  if (request.mode === 'navigate' || request.destination === 'document') {
+    event.respondWith(handleDocumentRequest(request));
+    return;
+  }
+
+  if (request.destination === 'style' || request.destination === 'script') {
+    event.respondWith(handleAssetRequest(request));
+    return;
+  }
+
   if (
     url.href.includes('api.coingecko.com') ||
     url.href.includes('docs.google.com') ||
@@ -55,6 +66,38 @@ self.addEventListener('fetch', event => {
     caches.match(request).then(response => response || fetch(request))
   );
 });
+
+async function handleDocumentRequest(request) {
+  try {
+    const networkResponse = await fetch(request);
+    const cache = await caches.open(APP_CACHE_NAME);
+    await cache.put(request, networkResponse.clone());
+    return networkResponse;
+  } catch (error) {
+    console.warn('SW: Fallback auf Cache fuer Dokument:', error);
+    const cachedResponse = await caches.match(request) || await caches.match('./index.html');
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    throw error;
+  }
+}
+
+async function handleAssetRequest(request) {
+  const cache = await caches.open(APP_CACHE_NAME);
+  try {
+    const networkResponse = await fetch(request);
+    await cache.put(request, networkResponse.clone());
+    return networkResponse;
+  } catch (error) {
+    console.warn('SW: Fallback auf Cache fuer Asset:', error);
+    const cachedResponse = await cache.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    throw error;
+  }
+}
 
 async function handleApiRequest(request) {
   const cache = await caches.open(API_CACHE_NAME);

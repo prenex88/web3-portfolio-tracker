@@ -9016,24 +9016,85 @@ function initializeMobileNavigation() {
 }
 
 function openMobileMenu() {
+    const cloudIconEl = document.getElementById('cloudIcon');
+    const cloudTextEl = document.getElementById('cloudText');
+    const cloudStatusEl = document.getElementById('cloudStatusIndicator');
+    const cloudIcon = cloudIconEl ? cloudIconEl.textContent.trim() : '🔌';
+    const cloudText = cloudTextEl ? cloudTextEl.textContent.trim() : 'Offline';
+    const cloudStatusClass = cloudStatusEl
+        ? cloudStatusEl.className.split(' ').filter(cls => cls !== 'status-indicator').join(' ')
+        : 'disconnected';
+
+    const filterBadgeEl = document.getElementById('activeFilterBadge');
+    const filterBadge = filterBadgeEl && filterBadgeEl.style.display !== 'none'
+        ? filterBadgeEl.textContent.trim()
+        : '';
+
+    const isPrivacyMode = document.body.classList.contains('privacy-mode');
+    const isCompactMode = document.body.classList.contains('compact-mode');
+    const biometricEnabled = localStorage.getItem(`${STORAGE_PREFIX}biometricEnabled`) === 'true';
+    const themeLabel = currentTheme === 'light' ? 'Dark Mode aktivieren' : 'Light Mode aktivieren';
+
     const contentHtml = `
-        <div class="modal-header"><h2 class="modal-title">⚙️ Einstellungen</h2></div>
-        <div class="modal-body">
-            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="togglePrivacyMode(); closeBottomSheet();">
-                🙈 Privacy Mode
-            </button>
-            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="toggleCompactMode(); closeBottomSheet();">
-                📱 Kompakt-Modus
-            </button>
-            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="switchTab('settings'); closeBottomSheet();">
-                ⚙️ Einstellungen
-            </button>
-            <button class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="syncNow(); closeBottomSheet();">
-                ☁️ Cloud Sync
-            </button>
-            <button class="btn btn-success" style="width: 100%;" onclick="exportJSON(); closeBottomSheet();">
-                💾 Backup erstellen
-            </button>
+        <div class="mobile-menu">
+            <div class="mobile-menu-section">
+                <h3 class="mobile-menu-title">Cloud & Filter</h3>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="openCloudSettings(); closeBottomSheet();">
+                    <span class="item-icon">${cloudIcon}</span>
+                    <span class="item-text">${cloudText}</span>
+                    <span class="status-indicator ${cloudStatusClass}"></span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="syncNow(); closeBottomSheet();">
+                    <span class="item-icon">☁️</span>
+                    <span class="item-text">Cloud Sync starten</span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="openDateFilterModal(); closeBottomSheet();">
+                    <span class="item-icon">🗓️</span>
+                    <span class="item-text">Zeitraum filtern</span>
+                    ${filterBadge ? `<span class="status-indicator-badge mobile-menu-badge">${filterBadge}</span>` : ''}
+                </button>
+            </div>
+            <div class="mobile-menu-section">
+                <h3 class="mobile-menu-title">Navigation</h3>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="switchTab('cashflow'); closeBottomSheet();">
+                    <span class="item-icon">💸</span>
+                    <span class="item-text">Cashflow verwalten</span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="switchTab('settings'); closeBottomSheet();">
+                    <span class="item-icon">⚙️</span>
+                    <span class="item-text">Einstellungen</span>
+                </button>
+            </div>
+            <div class="mobile-menu-section">
+                <h3 class="mobile-menu-title">Darstellung</h3>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="toggleTheme(); updateThemeIcon(); closeBottomSheet();">
+                    <span class="item-icon">${currentTheme === 'light' ? '🌙' : '☀️'}</span>
+                    <span class="item-text">${themeLabel}</span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="togglePrivacyMode(); closeBottomSheet();">
+                    <span class="item-icon">👁️</span>
+                    <span class="item-text">${isPrivacyMode ? 'Privatsphäre deaktivieren' : 'Privatsphäre aktivieren'}</span>
+                    <span class="mobile-menu-toggle ${isPrivacyMode ? 'active' : ''}">${isPrivacyMode ? 'AN' : 'AUS'}</span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="toggleCompactMode(); closeBottomSheet();">
+                    <span class="item-icon">📱</span>
+                    <span class="item-text">${isCompactMode ? 'Kompaktmodus deaktivieren' : 'Kompaktmodus aktivieren'}</span>
+                    <span class="mobile-menu-toggle ${isCompactMode ? 'active' : ''}">${isCompactMode ? 'AN' : 'AUS'}</span>
+                </button>
+                <button class="dropdown-item-flex mobile-menu-item" onclick="toggleBiometric(); closeBottomSheet();">
+                    <span class="item-icon">🔐</span>
+                    <span class="item-text">${biometricEnabled ? 'Bio Auth deaktivieren' : 'Bio Auth aktivieren'}</span>
+                    <span class="mobile-menu-toggle ${biometricEnabled ? 'active' : ''}">${biometricEnabled ? 'AN' : 'AUS'}</span>
+                </button>
+            </div>
+            <div class="mobile-menu-section">
+                <h3 class="mobile-menu-title">Export</h3>
+                <div class="mobile-menu-grid">
+                    <button class="mobile-menu-action" onclick="exportPDF(); closeBottomSheet();">📄 PDF Export</button>
+                    <button class="mobile-menu-action" onclick="exportJSON(); closeBottomSheet();">💾 JSON Backup</button>
+                    <button class="mobile-menu-action" onclick="exportCSV(); closeBottomSheet();">📊 CSV Export</button>
+                </div>
+            </div>
         </div>
     `;
     openBottomSheet(contentHtml);
