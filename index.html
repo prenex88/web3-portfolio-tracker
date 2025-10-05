@@ -397,61 +397,63 @@
 
                 <div class="entry-layout">
                     <aside class="entry-context">
-                        <div class="context-card" id="dayStrategyContainer">
-                            <label class="context-label">🎯 Tages-Strategie</label>
-                            <textarea id="dailyStrategy" class="strategy-area" rows="4" placeholder="z.B. Absicherung, Rebalancing..." onkeydown="if(event.key === 'Enter' && event.metaKey) { event.preventDefault(); saveStrategyOnly(); }"></textarea>
-                            <div class="context-actions">
-                                <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">💾 Strategie speichern</button>
-                            </div>
-                        </div>
-
-                        <div class="context-card">
-                            <div class="context-header">
-                                <span class="context-title">⚡ Schnellaktionen</span>
-                            </div>
-                            <div class="entry-toolbar-status" id="entryLoadStatus">Noch keine Auswahl aktiv.</div>
-                            <div class="context-actions-stacked">
-                                <button class="btn btn-secondary" onclick="selectFavoritePlatformsForEntry()">⭐ Favoriten übernehmen</button>
-                                <button class="btn btn-secondary" onclick="selectPlatformsWithBalance()">💰 Mit Bestand</button>
-                                <button class="btn btn-secondary" onclick="openCashflowFromEntry()">💸 Cashflow verbuchen</button>
-                                <button class="btn btn-secondary" onclick="clearEntryInputs()">♻️ Zurücksetzen</button>
-                            </div>
-                        </div>
-
-                        <div id="entrySummary" class="context-card" style="display: none;">
-                            <div class="context-header">
-                                <span class="context-title">📊 Zusammenfassung</span>
-                            </div>
-                            <div class="summary-list">
-                                <div class="summary-item">
-                                    <span class="summary-label">Aktive Plattformen</span>
-                                    <span class="summary-value" id="summaryActiveCount">0</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Neuer Gesamtwert</span>
-                                    <span class="summary-value" id="summaryTotalValue">$0</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Veränderung</span>
-                                    <span class="summary-value" id="summaryDeltaValue">$0</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">Ungespeichert</span>
-                                    <span class="summary-value" id="summaryPendingCount">0</span>
+                        <details class="entry-fold" id="entrySummaryFold" hidden>
+                            <summary class="entry-fold-summary">📊 Zusammenfassung</summary>
+                            <div class="entry-fold-body">
+                                <div id="entrySummary" class="summary-list">
+                                    <div class="summary-item">
+                                        <span class="summary-label">Aktive Plattformen</span>
+                                        <span class="summary-value" id="summaryActiveCount">0</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Neuer Gesamtwert</span>
+                                        <span class="summary-value" id="summaryTotalValue">$0</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Veränderung</span>
+                                        <span class="summary-value" id="summaryDeltaValue">$0</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Ungespeichert</span>
+                                        <span class="summary-value" id="summaryPendingCount">0</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </details>
 
-                        <div class="context-card">
-                            <div class="context-header">
-                                <span class="context-title">⭐ Favoriten-Zone</span>
+                        <details class="entry-fold" id="dayStrategyFold">
+                            <summary class="entry-fold-summary">🎯 Tages-Strategie</summary>
+                            <div class="entry-fold-body" id="dayStrategyContainer">
+                                <textarea id="dailyStrategy" class="strategy-area" rows="4" placeholder="z.B. Absicherung, Rebalancing..." onkeydown="if(event.key === 'Enter' && event.metaKey) { event.preventDefault(); saveStrategyOnly(); }"></textarea>
+                                <div class="entry-fold-actions">
+                                    <button class="btn btn-primary btn-small" onclick="saveStrategyOnly()">💾 Strategie speichern</button>
+                                </div>
                             </div>
-                            <p class="context-subtext">Ziehe Plattformen hierher, um sie schnell zur täglichen Erfassung hinzuzufügen.<br> Tipp: Stern erneut anklicken oder ❌ nutzen, um Favoriten zu entfernen.</p>
-                            <div id="favoritesGrid" class="favorites-zone"></div>
-                        </div>
+                        </details>
 
-                        <div class="context-card context-hint-card">
-                            <div class="context-hint">💡 Beim Speichern kannst du nicht ausgewählte Plattformen automatisch auf 0 setzen.</div>
+                        <details class="entry-fold" id="quickActionsFold">
+                            <summary class="entry-fold-summary">⚡ Schnellaktionen</summary>
+                            <div class="entry-fold-body">
+                                <div class="entry-toolbar-status" id="entryLoadStatus">Noch keine Auswahl aktiv.</div>
+                                <div class="entry-fold-actions stacked">
+                                    <button class="btn btn-secondary" onclick="selectFavoritePlatformsForEntry()">⭐ Favoriten übernehmen</button>
+                                    <button class="btn btn-secondary" onclick="selectPlatformsWithBalance()">💰 Mit Bestand</button>
+                                    <button class="btn btn-secondary" onclick="openCashflowFromEntry()">💸 Cashflow verbuchen</button>
+                                    <button class="btn btn-secondary" onclick="clearEntryInputs()">♻️ Zurücksetzen</button>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="entry-fold" id="favoritesFold">
+                            <summary class="entry-fold-summary">⭐ Favoriten</summary>
+                            <div class="entry-fold-body">
+                                <p class="entry-fold-subtext">Ziehe Plattformen hierher, um sie schnell zur täglichen Erfassung hinzuzufügen.<br> Tipp: Stern erneut anklicken oder ❌ nutzen, um Favoriten zu entfernen.</p>
+                                <div id="favoritesGrid" class="favorites-zone"></div>
+                            </div>
+                        </details>
+
+                        <div class="entry-hint-card">
+                            💡 Beim Speichern kannst du nicht ausgewählte Plattformen automatisch auf 0 setzen.
                         </div>
                     </aside>
 

@@ -65,7 +65,8 @@ class SearchEngine {
     // Highlight search terms in text
     highlightText(text, searchTerm) {
         if (!searchTerm || !text) return text;
-        const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp('(' + escapedTerm + ')', 'gi');
         return text.replace(regex, '<mark class="search-highlight">$1</mark>');
     }
 
@@ -478,9 +479,171 @@ let noteDraftTimer = null;
 let noteDraftStatusTimeout = null;
 let noteSearchMetadata = new Map();
 let noteGalleryState = { noteId: null, attachments: [], index: 0 };
+let entrySnapshotsByDate = new Map();
+let entrySnapshotList = [];
+let filteredSnapshotsByDate = new Map();
+let filteredSnapshotList = [];
 const noteAttachmentCache = new Map();
 let noteGallerySwipeStartX = null;
 let noteEditorSelectionRange = null;
+
+
+const ENTRY_TYPE_SNAPSHOT = 'snapshot';
+
+function normalizeEntry(entry, index = 0) {
+    if (!entry || typeof entry !== 'object') return null;
+    const normalized = { ...entry };
+
+    if (normalized.balance !== undefined) {
+        normalized.balance = Number(normalized.balance) || 0;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(normalized, 'id')) {
+        normalized.id = Date.now() + index + Math.random();
+    }
+
+    if (!normalized.createdAt) {
+        if (normalized.updatedAt) {
+            normalized.createdAt = normalized.updatedAt;
+        } else if (normalized.date) {
+            const base = Date.parse(`${normalized.date}T00:00:00Z`);
+            const safeBase = Number.isNaN(base) ? Date.now() : base;
+            normalized.createdAt = new Date(safeBase + index).toISOString();
+        } else {
+            normalized.createdAt = new Date().toISOString();
+        }
+    }
+
+    if (!normalized.type) {
+        normalized.type = ENTRY_TYPE_SNAPSHOT;
+    }
+
+    return normalized;
+}
+
+function createSnapshotEntry({ date, protocol, balance, note = '', strategy = '', type = ENTRY_TYPE_SNAPSHOT }) {
+    return {
+        id: Date.now() + Math.random(),
+        date,
+        protocol,
+        balance,
+        note,
+        strategy,
+        type,
+        createdAt: new Date().toISOString()
+    };
+}
+
+function getEntryTimestamp(entry) {
+    if (!entry) return 0;
+    const source = entry.createdAt || entry.updatedAt || (entry.date ? `${entry.date}T00:00:00Z` : null);
+    const ts = source ? Date.parse(source) : NaN;
+    return Number.isNaN(ts) ? Date.now() : ts;
+}
+
+function isEntryNewer(candidate, current) {
+    if (!candidate) return false;
+    if (!current) return true;
+    const candidateTs = getEntryTimestamp(candidate);
+    const currentTs = getEntryTimestamp(current);
+    if (candidateTs === currentTs) {
+        return (candidate.id || 0) > (current.id || 0);
+    }
+    return candidateTs > currentTs;
+}
+
+function buildSnapshotIndex(sourceEntries = []) {
+    const dateMap = new Map();
+    sourceEntries.forEach(entry => {
+        if (!entry || !entry.date || !entry.protocol) return;
+        const dateKey = entry.date;
+        let protocolMap = dateMap.get(dateKey);
+        if (!protocolMap) {
+            protocolMap = new Map();
+            dateMap.set(dateKey, protocolMap);
+        }
+        const existing = protocolMap.get(entry.protocol);
+        if (!existing || isEntryNewer(entry, existing)) {
+            protocolMap.set(entry.protocol, entry);
+        }
+    });
+    return dateMap;
+}
+
+function flattenSnapshotIndex(snapshotIndex) {
+    const result = [];
+    if (!snapshotIndex) return result;
+    snapshotIndex.forEach(protocolMap => {
+        protocolMap.forEach(entry => result.push(entry));
+    });
+    return result;
+}
+
+function getSnapshotEntriesForDate(snapshotIndex, date) {
+    if (!snapshotIndex || !date) return [];
+    const protocolMap = snapshotIndex.get(date);
+    if (!protocolMap) return [];
+    return Array.from(protocolMap.values());
+}
+
+function sumSnapshotForDate(snapshotIndex, date) {
+    return getSnapshotEntriesForDate(snapshotIndex, date).reduce((sum, entry) => sum + (entry.balance || 0), 0);
+}
+
+function refreshEntryCaches() {
+    entrySnapshotsByDate = buildSnapshotIndex(entries);
+    entrySnapshotList = flattenSnapshotIndex(entrySnapshotsByDate);
+    filteredSnapshotsByDate = buildSnapshotIndex(filteredEntries);
+    filteredSnapshotList = flattenSnapshotIndex(filteredSnapshotsByDate);
+}
+
+function getLatestEntryFromSnapshot(snapshotIndex, platformName, date = null) {
+    if (!snapshotIndex || !platformName) return null;
+    if (date) {
+        const protocolMap = snapshotIndex.get(date);
+        return protocolMap ? protocolMap.get(platformName) || null : null;
+    }
+    let latest = null;
+    snapshotIndex.forEach(protocolMap => {
+        const candidate = protocolMap.get(platformName);
+        if (candidate && isEntryNewer(candidate, latest)) {
+            latest = candidate;
+        }
+    });
+    return latest;
+}
+
+function getLatestEntryForPlatform(platformName) {
+    return getLatestEntryFromSnapshot(entrySnapshotsByDate, platformName);
+}
+
+function getLatestEntryForPlatformOnDate(platformName, date) {
+    return getLatestEntryFromSnapshot(entrySnapshotsByDate, platformName, date);
+}
+
+
+function getSortedSnapshotDates(snapshotIndex) {
+    if (!snapshotIndex) return [];
+    return Array.from(snapshotIndex.keys()).sort((a, b) => new Date(a) - new Date(b));
+}
+
+function getLatestSnapshotDate(snapshotIndex) {
+    const dates = getSortedSnapshotDates(snapshotIndex);
+    return dates.length ? dates[dates.length - 1] : null;
+}
+
+function buildSnapshotTotals(snapshotIndex) {
+    const totals = new Map();
+    if (!snapshotIndex) return totals;
+    snapshotIndex.forEach((protocolMap, date) => {
+        let sum = 0;
+        protocolMap.forEach(entry => {
+            sum += entry.balance || 0;
+        });
+        totals.set(date, sum);
+    });
+    return totals;
+}
 
 const ALLOWED_NOTE_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'SPAN', 'A', 'P', 'BR', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'DIV', 'CODE', 'PRE', 'FONT']);
 const ALLOWED_NOTE_ATTRS = {
@@ -1801,7 +1964,7 @@ async function loadData() {
         ...p,
         tags: p.tags || []
     }));
-    entries = entriesData || [];
+    entries = (entriesData || []).map((entry, index) => normalizeEntry(entry, index)).filter(Boolean);
     cashflows = cashflowsData || [];
     dayStrategies = dayStrategiesData || [];
     favorites = favoritesData || [];
@@ -1942,6 +2105,7 @@ function applyDateFilter() {
         filteredEntries = [...entries];
         filteredCashflows = [...cashflows];
     }
+    refreshEntryCaches();
     updateDisplay();
 }
 
@@ -3747,8 +3911,8 @@ function saveSingleEntry(inputElement) {
 
     if (!inputElement.value || isNaN(balance)) return;
 
-    entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-    entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note, strategy });
+    const snapshotEntry = createSnapshotEntry({ date, protocol: platformName, balance, note, strategy });
+    entries.push(snapshotEntry);
 
     saveData();
     applyDateFilter();
@@ -3760,6 +3924,7 @@ function saveSingleEntry(inputElement) {
         card.classList.add('saved-state');
         inputElement.classList.add('is-saved');
         inputElement.dataset.saved = 'true';
+        inputElement.dataset.originalValue = balance;
         
         const indicators = card.querySelector('.input-indicators');
         if (indicators) indicators.innerHTML = '<span class="indicator-saved">✓</span>';
@@ -4426,7 +4591,7 @@ function switchTab(tabName, options = {}) {
     // Badge-Update für Mobile Nav
     const mobileNavEntry = document.querySelector('.mobile-nav-item[data-tab="entry"]');
     if (mobileNavEntry) {
-        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split('T')[0]).length;
+        const todayEntriesCount = getSnapshotEntriesForDate(entrySnapshotsByDate, new Date().toISOString().split('T')[0]).length;
         if (todayEntriesCount > 0) {
             mobileNavEntry.setAttribute('data-badge', todayEntriesCount);
         } else {
@@ -4530,9 +4695,9 @@ function renderPlatformButtons() {
     favoritesGrid.innerHTML = '';
     platformGrid.innerHTML = '';
 
-    const lastDate = [...entries].sort((a,b) => new Date(b.date) - new Date(a.date))[0]?.date;
+    const lastDate = getLatestSnapshotDate(entrySnapshotsByDate);
     const platformsWithLastBalance = new Set(
-        entries.filter(e => e.date === lastDate && e.balance > 0).map(e => e.protocol)
+        lastDate ? getSnapshotEntriesForDate(entrySnapshotsByDate, lastDate).filter(entry => entry.balance > 0).map(entry => entry.protocol) : []
     );
     
     platforms.sort((a, b) => a.name.localeCompare(b.name));
@@ -4986,13 +5151,11 @@ function addPlatformInput(platformName) {
     if (document.getElementById(`input_${inputId}`)) return;
 
     if (container.children.length === 0) {
-        const strategyContainer = document.getElementById('dayStrategyContainer');
-        if (strategyContainer) {
-            strategyContainer.style.display = 'flex';
-            const date = document.getElementById('entryDate').value;
-            const strategyInput = document.getElementById('dailyStrategy');
-            if (strategyInput) strategyInput.value = getStrategyForDate(date);
-        }
+        const strategyFold = document.getElementById('dayStrategyFold');
+        if (strategyFold) strategyFold.open = true;
+        const date = document.getElementById('entryDate').value;
+        const strategyInput = document.getElementById('dailyStrategy');
+        if (strategyInput) strategyInput.value = getStrategyForDate(date);
     }
 
     const lastEntry = getLastEntryForPlatform(platformName);
@@ -5001,9 +5164,10 @@ function addPlatformInput(platformName) {
     
     // Prüfe ob für das aktuelle Datum bereits ein Wert existiert
     const currentDate = document.getElementById('entryDate').value;
-    const todayEntry = entries.find(e => e.date === currentDate && e.protocol === platformName);
+    const todayEntry = getLatestEntryForPlatformOnDate(platformName, currentDate);
     const isSaved = !!todayEntry;
-    const currentValue = todayEntry ? todayEntry.balance : lastValue;
+    const currentValue = isSaved ? todayEntry.balance : lastValue;
+    const baselineValue = isSaved ? todayEntry.balance : lastValue;
 
     const div = document.createElement('div');
     div.id = `input_${inputId}`;
@@ -5027,7 +5191,7 @@ function addPlatformInput(platformName) {
                        class="input-field ${isSaved ? 'is-saved' : ''}" 
                        placeholder="${isSaved ? 'Gespeichert' : 'Neuer Wert...'}"
                        data-platform="${platformName}"
-                       data-original-value="${lastValue}"
+                       data-original-value="${baselineValue}"
                        data-saved="${isSaved}"
                        value="${currentValue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}">
                 <div class="input-indicators">
@@ -5105,8 +5269,8 @@ function removePlatformInput(platformName) {
     // Strategie-Container ausblenden, wenn keine Inputs mehr vorhanden sind
     const container = document.getElementById('platformInputs');
     if (container.children.length === 0) {
-        const strategyContainer = document.getElementById('dayStrategyContainer');
-        if (strategyContainer) strategyContainer.style.display = 'none';
+        const strategyFold = document.getElementById('dayStrategyFold');
+        if (strategyFold) strategyFold.open = false;
     }
 
     updateEntrySummary();
@@ -5119,8 +5283,8 @@ function clearEntryInputs() {
     document.querySelectorAll('.platform-btn.selected').forEach(btn => btn.classList.remove('selected'));
     selectedPlatforms = [];
 
-    const strategyContainer = document.getElementById('dayStrategyContainer');
-    if (strategyContainer) strategyContainer.style.display = 'none';
+    const strategyFold = document.getElementById('dayStrategyFold');
+    if (strategyFold) strategyFold.open = false;
 
     const autoZeroHint = document.getElementById('autoZeroHint');
     if (autoZeroHint) autoZeroHint.classList.remove('visible');
@@ -5158,22 +5322,22 @@ function selectFavoritePlatformsForEntry() {
 }
 
 function selectPlatformsWithBalance() {
-    if (!entries || entries.length === 0) {
+    if (!entrySnapshotsByDate || entrySnapshotsByDate.size === 0) {
         setEntryStatus('Keine vorhandenen Einträge.', 'warning');
         showNotification('Keine früheren Einträge gefunden.', 'warning');
         return;
     }
 
-    const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+    const sortedDates = getSortedSnapshotDates(entrySnapshotsByDate).sort((a, b) => new Date(b) - new Date(a));
     if (sortedDates.length === 0) {
         setEntryStatus('Keine vorhandenen Einträge.', 'warning');
         return;
     }
 
     const lastDate = sortedDates[0];
-    const platformsToSelect = entries
-        .filter(e => e.date === lastDate && e.balance > 0)
-        .map(e => e.protocol);
+    const platformsToSelect = getSnapshotEntriesForDate(entrySnapshotsByDate, lastDate)
+        .filter(entry => entry.balance > 0)
+        .map(entry => entry.protocol);
 
     if (platformsToSelect.length === 0) {
         setEntryStatus('Keine Plattformen mit Bestand gefunden.', 'warning');
@@ -5214,19 +5378,19 @@ function openCashflowFromEntry() {
 
 
 function loadLastEntries() {
-    const sortedDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
+    const sortedDates = getSortedSnapshotDates(entrySnapshotsByDate).sort((a, b) => new Date(b) - new Date(a));
     if (sortedDates.length === 0) {
         showNotification('Keine früheren Einträge gefunden.', 'error');
         setEntryStatus('Keine früheren Einträge gefunden.', 'warning');
         return;
     }
     const lastEntryDate = sortedDates[0];
-    const entriesFromLastDate = entries.filter(e => e.date === lastEntryDate);
-    const platformsToLoad = [...new Set(entriesFromLastDate.map(e => e.protocol))];
+    const entriesFromLastDate = getSnapshotEntriesForDate(entrySnapshotsByDate, lastEntryDate);
+    const platformsToLoad = entriesFromLastDate.map(entry => entry.protocol);
 
-    console.log(`📊 Loading entries from ${lastEntryDate}: ${entriesFromLastDate.length} entries, ${platformsToLoad.length} platforms`);
-    console.log(`📋 Platforms to load:`, platformsToLoad);
-    console.log(`💰 Entry balances:`, entriesFromLastDate.map(e => `${e.protocol}: ${e.balance}`));
+    console.log(`📊 Loading entries from ${lastEntryDate}: ${entriesFromLastDate.length} Einträge, ${platformsToLoad.length} Plattformen`);
+    console.log('📋 Platforms to load:', platformsToLoad);
+    console.log('💰 Entry balances:', entriesFromLastDate.map(e => `${e.protocol}: ${e.balance}`));
 
     if (platformsToLoad.length === 0) {
         showNotification(`Keine Einträge am ${formatDate(lastEntryDate)} gefunden.`, 'warning');
@@ -5320,18 +5484,16 @@ function updateAutoZeroHint() {
 
 function getPlatformsToAutoZero() {
     const date = document.getElementById('entryDate').value;
-    if (!date || entries.length === 0) return [];
+    if (!date || entrySnapshotsByDate.size === 0) return [];
     
-    const previousDates = [...new Set(entries.map(e => e.date))].filter(d => d < date);
+    const previousDates = getSortedSnapshotDates(entrySnapshotsByDate).filter(d => d < date);
     if (previousDates.length === 0) return [];
 
-    const lastEntryDate = previousDates.sort((a,b) => new Date(b) - new Date(a))[0];
+    const lastEntryDate = previousDates[previousDates.length - 1];
+    const latestEntries = getSnapshotEntriesForDate(entrySnapshotsByDate, lastEntryDate);
+    const platformsOnLastDate = latestEntries.filter(entry => entry.balance > 0).map(entry => entry.protocol);
     
-    const platformsOnLastDate = new Set(
-        entries.filter(e => e.date === lastEntryDate && e.balance > 0).map(e => e.protocol)
-    );
-    
-    return [...platformsOnLastDate].filter(p => !selectedPlatforms.includes(p));
+    return platformsOnLastDate.filter(p => !selectedPlatforms.includes(p));
 }
 
 async function saveAllEntries() {
@@ -5366,8 +5528,8 @@ async function saveAllEntries() {
 
         if (confirmed === 'true') {
             unselectedPlatformsToZero.forEach(platformName => {
-                entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-                entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)' });
+                const zeroEntry = createSnapshotEntry({ date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)', type: 'auto-zero' });
+                entries.push(zeroEntry);
                 zeroedCount++;
             });
         } else {
@@ -5388,8 +5550,8 @@ async function saveAllEntries() {
                 showNotification(`Ungültiger Wert für ${platformName} übersprungen.`, 'warning');
                 return; // continue
             }
-            entries = entries.filter(e => !(e.date === date && e.protocol === platformName));
-            entries.push({ id: Date.now() + Math.random(), date, protocol: platformName, balance, note: noteInput?.value || '', strategy: strategyInput?.value || '' });
+            const snapshotEntry = createSnapshotEntry({ date, protocol: platformName, balance, note: noteInput?.value || '', strategy: strategyInput?.value || '' });
+            entries.push(snapshotEntry);
             newEntriesCount++;
         }
     });
@@ -5407,9 +5569,9 @@ async function saveAllEntries() {
     document.getElementById('platformInputs').innerHTML = '';
     
     // Strategie-Container nach dem Speichern ausblenden
-    const strategyContainer = document.getElementById('dayStrategyContainer');
-    if (strategyContainer) {
-        strategyContainer.style.display = 'none';
+    const strategyFold = document.getElementById('dayStrategyFold');
+    if (strategyFold) {
+        strategyFold.open = false;
     }
     
     document.getElementById('autoZeroHint').classList.remove('visible');
@@ -5653,7 +5815,7 @@ function updateBottomNavBadges() {
     if (!entryTab) return;
 
     const today = new Date().toISOString().split('T')[0];
-    const todayEntriesCount = entries.filter(e => e.date === today).length;
+    const todayEntriesCount = getSnapshotEntriesForDate(entrySnapshotsByDate, today).length;
 
     if (todayEntriesCount > 0) {
         entryTab.setAttribute('data-badge', todayEntriesCount);
@@ -5680,53 +5842,46 @@ function updateDisplay() {
     updateBottomNavBadges();
 }
 
+
 function updateStats() {
-    if (entries.length === 0) {
+    if (entrySnapshotsByDate.size === 0) {
         document.getElementById('totalValue').textContent = '$0.00';
         ['totalChangeValue', 'totalChangePercent', 'dailyChangePercent', 'dailyChangeValue', 'netInvested', 'netInvestedChange', 'totalProfit', 'profitPercent'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.textContent = '-';
         });
         ['totalChange', 'dailyChangeAmount'].forEach(id => {
-             const el = document.getElementById(id);
-             if(el) el.className = 'stat-change';
+            const el = document.getElementById(id);
+            if (el) el.className = 'stat-change';
         });
+        updateCashflowStats(filteredCashflows || [], []);
         return;
     }
 
     const filterStartDateStr = document.getElementById('filterStartDate').value;
     const filterEndDateStr = document.getElementById('filterEndDate').value;
     const isFiltered = filterStartDateStr || filterEndDateStr;
-    
-    const allDates = [...new Set(entries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-    const latestDateOverall = allDates[allDates.length - 1];
-    
-    const currentPortfolioValue = entries
-        .filter(e => e.date === latestDateOverall)
-        .reduce((sum, e) => sum + e.balance, 0);
+
+    const globalDatesAsc = getSortedSnapshotDates(entrySnapshotsByDate);
+    const latestDateOverall = globalDatesAsc[globalDatesAsc.length - 1];
+    const latestEntries = getSnapshotEntriesForDate(entrySnapshotsByDate, latestDateOverall);
+    const currentPortfolioValue = latestEntries.reduce((sum, entry) => sum + (entry.balance || 0), 0);
 
     let startBalance = 0;
     let endBalance = currentPortfolioValue;
 
     if (isFiltered) {
-        const filteredDates = [...new Set(filteredEntries.map(e => e.date))].sort((a,b) => new Date(a) - new Date(b));
-        if (filteredDates.length > 0) {
-            const firstDateInFilter = filteredDates[0];
-            const lastDateInFilter = filteredDates[filteredDates.length - 1];
-
-            const dateBeforeFilter = allDates.filter(d => d < firstDateInFilter).pop();
-            startBalance = dateBeforeFilter 
-                ? entries.filter(e => e.date === dateBeforeFilter).reduce((s, e) => s + e.balance, 0)
-                : 0;
-
-            endBalance = entries.filter(e => e.date === lastDateInFilter).reduce((s, e) => s + e.balance, 0);
+        const filteredDatesAsc = getSortedSnapshotDates(filteredSnapshotsByDate);
+        if (filteredDatesAsc.length > 0) {
+            const firstDateInFilter = filteredDatesAsc[0];
+            const lastDateInFilter = filteredDatesAsc[filteredDatesAsc.length - 1];
+            const dateBeforeFilter = globalDatesAsc.filter(d => new Date(d) < new Date(firstDateInFilter)).pop();
+            startBalance = dateBeforeFilter ? sumSnapshotForDate(entrySnapshotsByDate, dateBeforeFilter) : 0;
+            endBalance = sumSnapshotForDate(entrySnapshotsByDate, lastDateInFilter);
         } else {
             startBalance = 0;
             endBalance = 0;
         }
-    } else {
-        startBalance = 0;
-        endBalance = currentPortfolioValue;
     }
 
     const relevantCashflows = (isFiltered ? filteredCashflows : cashflows);
@@ -5734,30 +5889,25 @@ function updateStats() {
     const withdrawalsInPeriod = relevantCashflows.filter(c => c.type === 'withdraw').reduce((s, c) => s + c.amount, 0);
     const netCashflowInPeriod = depositsInPeriod - withdrawalsInPeriod;
 
-    // Berechne den Perioden-ROI korrekt
     const periodProfit = endBalance - startBalance - netCashflowInPeriod;
-    const investedCapital = startBalance + netCashflowInPeriod;  // Startkapital + Netto-Cashflow in der Periode
-
-    // ROI für die gewählte Periode
+    const investedCapital = startBalance + netCashflowInPeriod;
     const periodRoiPercent = investedCapital > 0 ? (periodProfit / investedCapital) * 100 : 0;
-
-    // Für die Anzeige "Reale Performance" 
-    const totalProfit = periodProfit;  // Verwende den Perioden-Profit
+    const totalProfit = periodProfit;
 
     document.getElementById('totalValue').textContent = formatDollar(currentPortfolioValue);
-    
+
     const changeSign = periodProfit >= 0 ? '+' : '';
-    document.getElementById('totalChangeValue').textContent = `${changeSign}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}`;
+    document.getElementById('totalChangeValue').textContent = `${changeSign}${periodProfit.toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
     document.getElementById('totalChangePercent').textContent = ` (${periodRoiPercent.toFixed(2)}%)`;
     document.getElementById('totalChange').className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
-    const allUniqueDates = [...new Set(entries.map(e => e.date))].sort((a, b) => new Date(b) - new Date(a));
-    if (allUniqueDates.length >= 2) {
-        const latestDate = allUniqueDates[0];
-        const previousDate = allUniqueDates[1];
-        const latestTotal = entries.filter(e => e.date === latestDate).reduce((sum, e) => sum + e.balance, 0);
-        const previousTotal = entries.filter(e => e.date === previousDate).reduce((sum, e) => sum + e.balance, 0);
-        
+    const allUniqueDatesDesc = [...globalDatesAsc].sort((a, b) => new Date(b) - new Date(a));
+    if (allUniqueDatesDesc.length >= 2) {
+        const latestDate = allUniqueDatesDesc[0];
+        const previousDate = allUniqueDatesDesc[1];
+        const latestTotal = sumSnapshotForDate(entrySnapshotsByDate, latestDate);
+        const previousTotal = sumSnapshotForDate(entrySnapshotsByDate, previousDate);
+
         const cashflowBetween = cashflows
             .filter(c => c.date > previousDate && c.date <= latestDate)
             .reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
@@ -5773,15 +5923,14 @@ function updateStats() {
         document.getElementById('dailyChangeValue').textContent = '-';
         document.getElementById('dailyChangeAmount').className = 'stat-change';
     }
-    
+
     document.getElementById('netInvested').textContent = formatDollar(netCashflowInPeriod);
-    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', {minimumFractionDigits: 0})}`;
-    
+    document.getElementById('netInvestedChange').textContent = `Ein: $${depositsInPeriod.toLocaleString('de-DE', { minimumFractionDigits: 0 })} | Aus: $${withdrawalsInPeriod.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`;
+
     document.getElementById('totalProfit').textContent = formatDollar(totalProfit);
     document.getElementById('profitPercent').textContent = `${periodRoiPercent.toFixed(2)}% ROI`;
     document.getElementById('profitPercent').parentElement.className = `stat-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
 
-    // NEU: Chart-Header aktualisieren
     const chartHeaderValueEl = document.getElementById('chartHeaderValue');
     const chartHeaderChangeEl = document.getElementById('chartHeaderChange');
 
@@ -5789,13 +5938,12 @@ function updateStats() {
         chartHeaderValueEl.textContent = formatDollar(endBalance);
     }
     if (chartHeaderChangeEl) {
-        chartHeaderChangeEl.innerHTML = `<span class="dollar-value">${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', {minimumFractionDigits: 2})}</span> <span>(${periodRoiPercent.toFixed(2)}%)</span>`;
+        chartHeaderChangeEl.innerHTML = `<span class="dollar-value">${periodProfit >= 0 ? '+' : ''}${periodProfit.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span> <span>(${periodRoiPercent.toFixed(2)}%)</span>`;
         chartHeaderChangeEl.className = `chart-header-change ${periodProfit >= 0 ? 'positive' : 'negative'}`;
     }
 
-    updateCashflowStats(filteredCashflows || [], filteredEntries || []);
+    updateCashflowStats(filteredCashflows || [], filteredSnapshotList || []);
 }
-
 function updateCashflowStats(cashflowsToUse, entriesToUse) {
     // Ensure arrays exist and are valid
     const validCashflows = Array.isArray(cashflowsToUse) ? cashflowsToUse : [];
@@ -5843,8 +5991,9 @@ function updateCashflowStats(cashflowsToUse, entriesToUse) {
 // =================================================================================
 // KEY METRICS CALCULATION
 // =================================================================================
+
 function updateKeyMetrics() {
-    if (entries.length === 0) {
+    if (entrySnapshotsByDate.size === 0) {
         document.getElementById('welcomeCard').style.display = 'block';
         document.getElementById('dashboardContent').style.display = 'none';
         return;
@@ -5852,12 +6001,11 @@ function updateKeyMetrics() {
     document.getElementById('welcomeCard').style.display = 'none';
     document.getElementById('dashboardContent').style.display = 'block';
 
-    const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
-    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
-    
-    if (sortedEntries.length === 0) return;
+    const globalDatesAsc = getSortedSnapshotDates(entrySnapshotsByDate);
+    if (globalDatesAsc.length === 0) return;
 
-    const startDate = new Date(sortedEntries[0].date);
+    const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const startDate = new Date(globalDatesAsc[0]);
     document.getElementById('metricStartDate').textContent = formatDate(startDate);
     const durationMs = new Date() - startDate;
     const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
@@ -5868,33 +6016,28 @@ function updateKeyMetrics() {
         .reduce((sum, c) => sum + c.amount, 0);
     document.getElementById('metricStartCapital').textContent = formatDollar(startCapital);
 
-    const latestDate = sortedEntries[sortedEntries.length - 1].date;
-    const currentPortfolioValue = sortedEntries.filter(e => e.date === latestDate).reduce((s, e) => s + e.balance, 0);
+    const latestDate = globalDatesAsc[globalDatesAsc.length - 1];
+    const currentPortfolioValue = sumSnapshotForDate(entrySnapshotsByDate, latestDate);
     const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
     const totalReturnSum = currentPortfolioValue - totalNetInvested;
     const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
-    
+
     document.getElementById('metricTotalReturnSum').textContent = formatDollar(totalReturnSum);
     document.getElementById('metricTotalReturnPercent').textContent = `${totalReturnPercent.toFixed(2)}%`;
 
     const durationYears = durationDays / 365.25;
-    
     const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
     document.getElementById('metricAnnualForecast').textContent = `${(annualizedReturn * 100).toFixed(2)}%`;
-    
+
     const avgMonthlyReturn = durationYears > 0 ? Math.pow(1 + annualizedReturn, 1/12) - 1 : 0;
     document.getElementById('metricAvgMonthlyReturn').textContent = `${(avgMonthlyReturn * 100).toFixed(2)}%`;
-    
+
     const portfolioForecast = currentPortfolioValue * (1 + annualizedReturn);
     document.getElementById('metricPortfolioForecast').textContent = formatDollar(portfolioForecast);
 
     let peak = 0;
     let maxDrawdown = 0;
-    const portfolioHistory = [...new Set(sortedEntries.map(e => e.date))]
-        .sort((a,b) => new Date(a) - new Date(b))
-        .map(date => {
-            return sortedEntries.filter(e => e.date === date).reduce((sum, e) => sum + e.balance, 0);
-        });
+    const portfolioHistory = globalDatesAsc.map(date => sumSnapshotForDate(entrySnapshotsByDate, date));
 
     portfolioHistory.forEach(value => {
         if (value > peak) peak = value;
@@ -5904,6 +6047,7 @@ function updateKeyMetrics() {
     document.getElementById('metricMaxDrawdown').textContent = `${(maxDrawdown * 100).toFixed(2)}%`;
 }
 
+// --- NEUE, VERBESSERTE PROGNOSE-FUNKTIONEN ---
 // --- NEUE, VERBESSERTE PROGNOSE-FUNKTIONEN ---
 
 function setForecastPeriod(years) {
@@ -5927,19 +6071,24 @@ function toggleScenarios() {
     updateForecastChart();
 }
 
+
 function updateForecastChart() {
     const forecastWidget = document.getElementById('forecastWidget');
     if (!forecastWidget) return;
 
-    // Hide widget if not enough data
-    if (entries.length < 2) {
+    if (entrySnapshotsByDate.size < 2) {
         forecastWidget.style.display = 'none';
         return;
     }
 
-    const sortedEntries = [...entries].sort((a,b) => new Date(a.date) - new Date(b.date));
-    const firstDate = new Date(sortedEntries[0].date);
-    const lastDate = new Date(sortedEntries[sortedEntries.length - 1].date);
+    const globalDatesAsc = getSortedSnapshotDates(entrySnapshotsByDate);
+    if (globalDatesAsc.length < 2) {
+        forecastWidget.style.display = 'none';
+        return;
+    }
+
+    const firstDate = new Date(globalDatesAsc[0]);
+    const lastDate = new Date(globalDatesAsc[globalDatesAsc.length - 1]);
     const durationMs = lastDate - firstDate;
     const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
 
@@ -5949,19 +6098,17 @@ function updateForecastChart() {
     }
     forecastWidget.style.display = 'block';
 
-    // --- Berechnungen ---
     const durationYears = durationDays / 365.25;
-    const currentPortfolioValue = sortedEntries.filter(e => e.date === sortedEntries[sortedEntries.length - 1].date).reduce((s, e) => s + e.balance, 0);
+    const currentPortfolioValue = sumSnapshotForDate(entrySnapshotsByDate, globalDatesAsc[globalDatesAsc.length - 1]);
     const sortedCashflows = [...cashflows].sort((a,b) => new Date(a.date) - new Date(b.date));
     const totalNetInvested = sortedCashflows.reduce((sum, c) => sum + (c.type === 'deposit' ? c.amount : -c.amount), 0);
     const totalReturnSum = currentPortfolioValue - totalNetInvested;
     const totalReturnPercent = totalNetInvested > 0 ? (totalReturnSum / totalNetInvested) * 100 : 0;
     const annualizedReturn = durationYears > 0 ? Math.pow(1 + (totalReturnPercent / 100), 1 / durationYears) - 1 : 0;
 
-    // Szenarien definieren
     const realisticReturn = annualizedReturn;
-    const conservativeReturn = annualizedReturn * 0.5; // Annahme: 50% der hist. Rendite
-    const optimisticReturn = annualizedReturn * 1.5;   // Annahme: 150% der hist. Rendite
+    const conservativeReturn = annualizedReturn * 0.5;
+    const optimisticReturn = annualizedReturn * 1.5;
 
     const generateScenario = (startValue, annualReturn, years) => {
         const data = [startValue];
@@ -5975,14 +6122,13 @@ function updateForecastChart() {
     const conservativeData = generateScenario(currentPortfolioValue, conservativeReturn, currentForecastPeriod);
     const optimisticData = generateScenario(currentPortfolioValue, optimisticReturn, currentForecastPeriod);
 
-    // --- DOM Updates ---
     document.getElementById('forecastMetricRealisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
     document.getElementById('forecastMetricRealisticLabel').textContent = `Erwarteter Wert (${currentForecastPeriod}J)`;
     document.getElementById('forecastMetricAnnualReturn').textContent = `${(realisticReturn * 100).toFixed(1)}%`;
     document.getElementById('forecastMetricTotalProfit').textContent = formatDollar(realisticData[realisticData.length - 1] - currentPortfolioValue);
     document.getElementById('forecastMetricConservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
     document.getElementById('forecastMetricConservativeLabel').textContent = `"Pessimistisch" (${currentForecastPeriod}J)`;
-    
+
     document.getElementById('conservativeValue').textContent = formatDollar(conservativeData[conservativeData.length - 1]);
     document.getElementById('realisticValue').textContent = formatDollar(realisticData[realisticData.length - 1]);
     document.getElementById('optimisticValue').textContent = formatDollar(optimisticData[optimisticData.length - 1]);
@@ -5990,7 +6136,6 @@ function updateForecastChart() {
     document.getElementById('realisticReturnLabel').textContent = `+${(realisticReturn * 100).toFixed(1)}% jährlich`;
     document.getElementById('optimisticReturnLabel').textContent = `+${(optimisticReturn * 100).toFixed(1)}% jährlich`;
 
-    // --- Chart Update ---
     const ctx = document.getElementById('forecastChart').getContext('2d');
     const labels = Array.from({length: currentForecastPeriod + 1}, (_, i) => i === 0 ? 'Heute' : `Jahr ${i}`);
 
@@ -6041,7 +6186,7 @@ function updateForecastChart() {
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 datalabels: {
-                    display: false // Verhindert, dass die Zahlen direkt auf dem Chart angezeigt werden
+                    display: false
                 },
                 legend: { position: 'bottom', align: 'center', labels: { usePointStyle: true, padding: 20, font: { size: 14, weight: '500' }}},
                 tooltip: {
@@ -7115,12 +7260,14 @@ async function deletePlatformWithConfirmation(platformName) {
 function updatePlatformDetails() {
     const tbody = document.getElementById('platformDetailsBody');
     const platformStats = {};
-    entries.forEach(entry => {
-        if (!platformStats[entry.protocol]) {
-            platformStats[entry.protocol] = { entries: [], totalBalance: 0 };
-        }
-        platformStats[entry.protocol].entries.push(entry);
-        platformStats[entry.protocol].totalBalance += entry.balance;
+    entrySnapshotsByDate.forEach(protocolMap => {
+        protocolMap.forEach(entry => {
+            if (!platformStats[entry.protocol]) {
+                platformStats[entry.protocol] = { entries: [], totalBalance: 0 };
+            }
+            platformStats[entry.protocol].entries.push(entry);
+            platformStats[entry.protocol].totalBalance += entry.balance;
+        });
     });
 
     let dataToDisplay = Object.keys(platformStats).map(platform => {
@@ -7219,7 +7366,8 @@ const externalTooltipHandler = (context) => {
     }
     // Strategy Logic: General strategy has priority, otherwise show platform-specific strategies
     const dayStrategy = dayStrategies.find(s => s.date === date)?.strategy || '';
-    const entriesWithStrategies = entries.filter(e => e.date === date && e.strategy && e.strategy.trim() !== '');
+    const snapshotEntriesForDate = getSnapshotEntriesForDate(entrySnapshotsByDate, date);
+    const entriesWithStrategies = snapshotEntriesForDate.filter(e => e.strategy && e.strategy.trim() !== '');
     
     let strategyToDisplay = '';
     if (dayStrategy && dayStrategy.trim() !== '') {
@@ -7232,7 +7380,7 @@ const externalTooltipHandler = (context) => {
     } else {
         strategyToDisplay = 'Keine Strategie für diesen Tag hinterlegt.';
     }
-    const activeProtocols = entries.filter(e => e.date === date && e.balance > 0).map(e => e.protocol).join(', ');
+    const activeProtocols = snapshotEntriesForDate.filter(e => e.balance > 0).map(e => e.protocol).join(', ');
     tooltipContainer.innerHTML = ''; 
     const twrColor = twrPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
     const roiColor = roiPercentage >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -7534,12 +7682,12 @@ function hideChartTooltip() {
 function updateCharts() {
     updateChartWithBenchmarks();
     
-    const dateGroups = filteredEntries.reduce((acc, e) => { acc[e.date] = (acc[e.date] || 0) + e.balance; return acc; }, {});
-    const sortedDates = Object.keys(dateGroups).sort((a,b) => new Date(a) - new Date(b));
+    const totalsByDate = buildSnapshotTotals(filteredSnapshotsByDate);
+    const sortedDates = Array.from(totalsByDate.keys()).sort((a, b) => new Date(a) - new Date(b));
 
     if (allocationChart && sortedDates.length > 0) {
         const latestDate = sortedDates[sortedDates.length - 1];
-        const latestEntries = filteredEntries.filter(e => e.date === latestDate && e.balance > 0);
+        const latestEntries = getSnapshotEntriesForDate(filteredSnapshotsByDate, latestDate).filter(entry => entry.balance > 0);
         allocationChart.data.labels = latestEntries.map(e => e.protocol);
         allocationChart.data.datasets[0].data = latestEntries.map(e => e.balance);
         allocationChart.update();
@@ -7755,12 +7903,13 @@ function calculateTWR(dates, values, cashflowsToConsider) {
     return percentages;
 }
 
+
 async function updateChartWithBenchmarks() {
-    const dateGroups = filteredEntries.reduce((acc, e) => { acc[e.date] = (acc[e.date] || 0) + e.balance; return acc; }, {});
-    const sortedDates = Object.keys(dateGroups).sort((a,b) => new Date(a) - new Date(b));
+    const totalsByDate = buildSnapshotTotals(filteredSnapshotsByDate);
+    const sortedDates = Array.from(totalsByDate.keys()).sort((a, b) => new Date(a) - new Date(b));
 
     if (!portfolioChart) return;
-    
+
     // Fall 1: Keine oder zu wenige Daten -> Diagramm leeren und beenden.
     if (sortedDates.length < 2) {
         portfolioChart.data.labels = [];
@@ -7770,7 +7919,7 @@ async function updateChartWithBenchmarks() {
     }
 
     // Portfolio-Daten vorbereiten
-    const portfolioValues = sortedDates.map(d => dateGroups[d]);
+    const portfolioValues = sortedDates.map(d => totalsByDate.get(d));
     portfolioChart.data.originalDates = sortedDates; 
     portfolioChart.data.portfolioValues = portfolioValues;
 
@@ -8340,6 +8489,7 @@ const formatDollarSigned = (value) => {
 
 function updateEntrySummary() {
     const summaryCard = document.getElementById('entrySummary');
+    const summaryFold = document.getElementById('entrySummaryFold');
     if (!summaryCard) return;
 
     const inputCards = Array.from(document.querySelectorAll('#platformInputs .input-card'));
@@ -8351,7 +8501,10 @@ function updateEntrySummary() {
     const pendingCountEl = document.getElementById('summaryPendingCount');
 
     if (activeCount === 0) {
-        summaryCard.style.display = 'none';
+        if (summaryFold) {
+            summaryFold.setAttribute('hidden', 'hidden');
+            summaryFold.open = false;
+        }
         if (activeCountEl) activeCountEl.textContent = '0';
         if (totalValueEl) totalValueEl.textContent = formatDollar(0);
         if (deltaValueEl) {
@@ -8362,7 +8515,10 @@ function updateEntrySummary() {
         return;
     }
 
-    summaryCard.style.display = 'block';
+    if (summaryFold) {
+        summaryFold.removeAttribute('hidden');
+        summaryFold.open = true;
+    }
 
     let totalCurrent = 0;
     let totalOriginal = 0;
@@ -8418,7 +8574,7 @@ function setToYesterday() {
 }
 
 function getLastEntryForPlatform(platformName) {
-    return entries.filter(e => e.protocol === platformName).sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+    return getLatestEntryForPlatform(platformName);
 }
 
 function updateCashflowTargets() {
@@ -10521,82 +10677,9 @@ function improveKeyboardNavigation() {
     });
 }
 
-function enableBatchSelection() {
-    const container = document.getElementById('platformGrid');
-    if (!container) return;
 
-    let isSelecting = false;
-    let batchSelectedPlatforms = new Set();
 
-    container.addEventListener('touchstart', e => {
-        const timer = setTimeout(() => {
-            isSelecting = true;
-            container.classList.add('selection-mode');
-            if (navigator.vibrate) navigator.vibrate(50);
-            updateBatchActionBar(batchSelectedPlatforms);
-        }, 500);
 
-        const clearTimer = () => clearTimeout(timer);
-        container.addEventListener('touchend', clearTimer, { once: true });
-        container.addEventListener('touchmove', clearTimer, { once: true });
-    });
-
-    container.addEventListener('click', e => {
-        if (!isSelecting) return;
-        e.preventDefault();
-        e.stopPropagation();
-
-        const platformBtn = e.target.closest('.platform-btn');
-        if (!platformBtn) return;
-
-        platformBtn.classList.toggle('batch-selected');
-        const name = platformBtn.dataset.platform;
-
-        if (batchSelectedPlatforms.has(name)) {
-            batchSelectedPlatforms.delete(name);
-        } else {
-            batchSelectedPlatforms.add(name);
-        }
-        updateBatchActionBar(batchSelectedPlatforms);
-    });
-
-    window.addSelectedPlatforms = () => {
-        batchSelectedPlatforms.forEach(name => {
-            const btn = document.querySelector(`.platform-btn[data-platform="${name}"]`);
-            if (btn && !btn.classList.contains('selected')) {
-                togglePlatform(btn, name);
-            }
-        });
-        cancelBatchSelection();
-    };
-
-    window.cancelBatchSelection = () => {
-        isSelecting = false;
-        container.classList.remove('selection-mode');
-        container.querySelectorAll('.batch-selected').forEach(el => el.classList.remove('batch-selected'));
-        batchSelectedPlatforms.clear();
-        updateBatchActionBar(batchSelectedPlatforms);
-    };
-}
-
-function updateBatchActionBar(selected) {
-    let bar = document.getElementById('batchActionBar');
-    if (!bar) return;
-
-    if (selected.size === 0) {
-        bar.style.display = 'none';
-        return;
-    }
-
-    bar.style.display = 'flex';
-    bar.innerHTML = `
-        <span>${selected.size} ausgewählt</span>
-        <div>
-            <button class="btn btn-primary btn-small" onclick="addSelectedPlatforms()">Hinzufügen</button>
-            <button class="btn btn-small" onclick="cancelBatchSelection()">Abbrechen</button>
-        </div>
-    `;
-}
 
 function addAriaLabels() {
     document.querySelectorAll('button, .btn').forEach(btn => {
@@ -10663,7 +10746,7 @@ function debugLoadLastEntries() {
 function updateMobileNavBadges() {
     const mobileNavEntry = document.querySelector(".mobile-nav-item[data-tab=\"entry\"]");
     if (mobileNavEntry) {
-        const todayEntriesCount = entries.filter(e => e.date === new Date().toISOString().split("T")[0]).length;
+        const todayEntriesCount = getSnapshotEntriesForDate(entrySnapshotsByDate, new Date().toISOString().split("T")[0]).length;
         if (todayEntriesCount > 0) {
             mobileNavEntry.setAttribute("data-badge", todayEntriesCount);
         } else {
