@@ -5695,14 +5695,41 @@ function getPlatformsToAutoZero() {
     return platformsOnLastDate.filter(p => !selectedPlatforms.includes(p));
 }
 
+function removeExistingEntriesForDateAndPlatform(date, protocol) {
+    const beforeLength = entries.length;
+    entries = entries.filter(entry => !(entry.date === date && entry.protocol === protocol));
+    return beforeLength - entries.length;
+}
+
+function dedupeEntriesForLatestSnapshots() {
+    const beforeLength = entries.length;
+    const snapshotIndex = buildSnapshotIndex(entries);
+    const dedupedEntries = flattenSnapshotIndex(snapshotIndex);
+
+    dedupedEntries.sort((a, b) => {
+        if (a.date !== b.date) {
+            return new Date(b.date) - new Date(a.date);
+        }
+        return getEntryTimestamp(b) - getEntryTimestamp(a);
+    });
+
+    entries = dedupedEntries;
+    return beforeLength - dedupedEntries.length;
+}
+
 async function saveAllEntries() {
     const date = document.getElementById('entryDate').value;
     if (!date) return showNotification('Bitte Datum wählen!', 'error');
 
     let newEntriesCount = 0;
     let zeroedCount = 0;
+    let updatedCount = 0;
+    let zeroUpdatedCount = 0;
     let strategyChanged = false;
     let autoZeroSkipped = false;
+    let removedDuplicatesBeforeSave = 0;
+
+    removedDuplicatesBeforeSave = dedupeEntriesForLatestSnapshots();
 
     const dayStrategy = document.getElementById('dailyStrategy')?.value || '';
     const oldStrategy = getStrategyForDate(date);
@@ -5725,8 +5752,9 @@ async function saveAllEntries() {
             ]
         });
 
-        if (confirmed === 'true') {
+        if (confirmed) {
             unselectedPlatformsToZero.forEach(platformName => {
+                zeroUpdatedCount += removeExistingEntriesForDateAndPlatform(date, platformName);
                 const zeroEntry = createSnapshotEntry({ date, protocol: platformName, balance: 0, note: 'Auto-Zero (Kapital verschoben)', type: 'auto-zero' });
                 entries.push(zeroEntry);
                 zeroedCount++;
@@ -5749,19 +5777,24 @@ async function saveAllEntries() {
                 showNotification(`Ungültiger Wert für ${platformName} übersprungen.`, 'warning');
                 return; // continue
             }
+            updatedCount += removeExistingEntriesForDateAndPlatform(date, platformName);
             const snapshotEntry = createSnapshotEntry({ date, protocol: platformName, balance, note: noteInput?.value || '', strategy: strategyInput?.value || '' });
             entries.push(snapshotEntry);
             newEntriesCount++;
         }
     });
 
-    if (newEntriesCount === 0 && zeroedCount === 0 && !strategyChanged) {
+    const noEntryChanges = (newEntriesCount === 0 && zeroedCount === 0 && !strategyChanged);
+    if (noEntryChanges && removedDuplicatesBeforeSave === 0) {
         if (autoZeroSkipped) {
             return showNotification('Auto-Zeroing übersprungen. Keine weiteren Änderungen.', 'info');
         } else {
             return showNotification('Keine Änderungen zum Speichern!', 'error');
         }
     }
+
+    const removedDuplicatesAfterSave = dedupeEntriesForLatestSnapshots();
+    const removedDuplicates = removedDuplicatesBeforeSave + removedDuplicatesAfterSave;
 
     saveData();
     applyDateFilter();
@@ -5780,11 +5813,20 @@ async function saveAllEntries() {
     updateEntrySummary();
 
     let message = '';
-    if (newEntriesCount > 0) message += `${newEntriesCount} Einträge gespeichert. `;
+    if (newEntriesCount > 0) {
+        message += `${newEntriesCount} Einträge gespeichert`;
+        if (updatedCount > 0) message += ` (${updatedCount} aktualisiert)`;
+        message += '. ';
+    }
     if (zeroedCount > 0) {
-        message += `${zeroedCount} Plattformen auf 0 gesetzt. `;
+        message += `${zeroedCount} Plattformen auf 0 gesetzt`;
+        if (zeroUpdatedCount > 0) message += ` (${zeroUpdatedCount} aktualisiert)`;
+        message += '. ';
     } else if (autoZeroSkipped) {
         message += 'Auto-Zeroing übersprungen. ';
+    }
+    if (removedDuplicates > 0) {
+        message += `${removedDuplicates} doppelte Einträge bereinigt. `;
     }
     if (strategyChanged) message += `Tages-Strategie gespeichert.`;
     showNotification(message.trim(), 'success');
@@ -6540,7 +6582,7 @@ async function deleteEntriesForDate(date) {
         ]
     });
 
-    if (confirmed === 'true') {
+    if (confirmed) {
         saveToUndoStack('delete_entries', entriesOnDate);
         entries = entries.filter(e => e.date !== date);
         saveData();
@@ -7047,7 +7089,7 @@ async function deleteSingleEntryWithConfirmation(entryId) {
         text: 'Sind Sie sicher, dass Sie diesen Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === true) {
+    if (confirmed) {
         deleteEntry(entryId);
     }
 }
@@ -7130,7 +7172,7 @@ async function deleteSelectedEntries() {
         text: `${selectedHistoryEntries.size} Einträge wirklich löschen?`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === 'true') {
+    if (confirmed) {
         const deletedEntries = entries.filter(e => selectedHistoryEntries.has(e.id));
         if (deletedEntries.length > 0) {
             saveToUndoStack('bulk_delete', deletedEntries);
@@ -7440,7 +7482,7 @@ async function deleteCashflowWithConfirmation(cashflowId) {
         text: 'Sind Sie sicher, dass Sie diesen Cashflow-Eintrag endgültig löschen möchten?',
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === true) {
+    if (confirmed) {
         deleteCashflow(cashflowId);
     }
 }
@@ -7451,7 +7493,7 @@ async function deletePlatformWithConfirmation(platformName) {
         text: `Sind Sie sicher, dass Sie die Plattform '${platformName}' löschen möchten? Alle zugehörigen Einträge werden ebenfalls entfernt.`,
         actions: [{text: 'Abbrechen'}, {text: 'Löschen', class: 'btn-danger', value: true}]
     });
-    if (confirmed === true) {
+    if (confirmed) {
         deletePlatform(platformName);
     }
 }
