@@ -1488,13 +1488,15 @@ function addEventListeners() {
                 inputsContainer.classList.remove('is-focused');
             }
         });
+
+        inputsContainer.addEventListener('keydown', (e) => {
+            if (e.defaultPrevented) return;
+            if (e.target.classList.contains('input-field') && e.key === 'Enter') {
+                e.preventDefault();
+                saveSingleEntry(e.target);
+            }
+        });
     }
-    document.getElementById('platformInputs').addEventListener('keydown', (e) => {
-        if (e.target.classList.contains('input-field') && e.key === 'Enter') {
-            e.preventDefault();
-            saveSingleEntry(e.target);
-        }
-    });
 
     document.querySelectorAll('.data-table th.sortable').forEach(th => th.addEventListener('click', handleSort));
     const csvFileInput = document.getElementById('csvFileInput');
