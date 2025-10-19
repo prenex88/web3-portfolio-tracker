@@ -1100,6 +1100,7 @@ function showUndoNotification(action) {
         case 'delete_cashflow': actionText = 'Cashflow gelöscht'; break;
         case 'delete_platform': actionText = 'Plattform gelöscht'; break;
         case 'bulk_delete': actionText = 'Mehrere Einträge gelöscht'; break;
+        case 'delete_note': actionText = 'Notiz gelöscht'; break;
     }
     
     textEl.innerHTML = `${actionText} <button class="undo-btn" onclick="undoLastAction()">↩️ Rückgängig</button>`;
@@ -1140,6 +1141,20 @@ function undoLastAction() {
             renderPlatformButtons();
             updateCashflowTargets();
             break;
+        
+        case 'delete_note': {
+            const restoredNote = lastAction.data;
+            if (restoredNote) {
+                const existingIndex = notes.findIndex(n => n.id === restoredNote.id);
+                if (existingIndex !== -1) {
+                    notes[existingIndex] = restoredNote;
+                } else {
+                    notes.push(restoredNote);
+                }
+                renderNotesList();
+            }
+            break;
+        }
             
         case 'bulk_delete':
             entries.push(...lastAction.data);
@@ -3801,7 +3816,7 @@ function editNote(noteId) {
     }
 }
 
-async function deleteNote(noteId) {
+async function deleteNote(noteId, { reopenDetailOnCancel = false } = {}) {
     const note = notes.find(n => n.id === noteId);
     if (!note) return;
 
@@ -3815,16 +3830,24 @@ async function deleteNote(noteId) {
     });
 
     if (confirmed !== 'confirm') {
+        if (reopenDetailOnCancel) {
+            openNoteDetail(noteId);
+        }
         return;
     }
 
+    saveToUndoStack('delete_note', JSON.parse(JSON.stringify(note)));
     notes = notes.filter(n => n.id !== noteId);
     saveData();
     renderNotesList();
     if (editingNoteId === noteId) {
         resetNoteForm();
     }
-    showNotification('Notiz gelöscht.', 'success');
+    closeBottomSheet();
+}
+
+function confirmDeleteNoteFromDetail(noteId) {
+    deleteNote(noteId, { reopenDetailOnCancel: true });
 }
 
 function toggleNotePin(noteId) {
@@ -3952,7 +3975,7 @@ function openNoteDetail(noteId) {
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="editNote('${noteId}'); closeBottomSheet();">Bearbeiten</button>
-            <button class="btn btn-danger" onclick="deleteNote('${noteId}'); closeBottomSheet();">Löschen</button>
+            <button class="btn btn-danger" onclick="confirmDeleteNoteFromDetail('${noteId}')">Löschen</button>
         </div>
     `;
 
