@@ -20,105 +20,145 @@
 </head>
 <body>
 
-    <div id="biometricOverlay" class="biometric-overlay">
+    <a href="#appContainer" class="skip-link">Zum Inhalt springen</a>
+
+    <div id="biometricOverlay" class="biometric-overlay" role="dialog" aria-modal="true" aria-labelledby="biometricTitle">
         <div class="biometric-content">
-            <div class="biometric-icon">🔐</div>
-            <div class="biometric-text">Portfolio Tracker entsperren</div>
+            <div class="biometric-icon" aria-hidden="true">🔐</div>
+            <div class="biometric-text" id="biometricTitle">Portfolio Tracker entsperren</div>
             <div class="biometric-subtitle">Verwenden Sie Ihren Fingerabdruck oder Face ID</div>
             <button class="biometric-fallback" data-action="bypass-biometric">
-                Ohne Authentifizierung fortfahren
+                <span class="sr-only">Notfalloption: </span>Ohne Authentifizierung fortfahren
             </button>
         </div>
     </div>
 
-    <div id="syncStatusBar" class="sync-status-bar">
+    <aside id="syncStatusBar" class="sync-status-bar" role="status" aria-live="polite">
         <div class="sync-status">
             <div id="syncIndicator" class="sync-indicator offline"></div>
             <span id="syncStatusText">Offline Modus</span>
-            <span id="lastSyncTime" style="color: var(--text-secondary); font-size: 12px;"></span>
+            <span id="lastSyncTime" class="sync-last-update" aria-live="polite"></span>
         </div>
         <div class="sync-actions">
-            <button id="syncNowBtn" class="btn btn-primary btn-small" data-action="sync-now">
-                <span id="syncBtnIcon">☁️</span>
+            <button id="syncNowBtn" class="btn btn-primary btn-small" data-action="sync-now" aria-live="polite">
+                <span id="syncBtnIcon" aria-hidden="true">☁️</span>
                 <span id="syncBtnText">Sync</span>
             </button>
-            <button class="btn btn-small" data-action="toggle-sync-bar">✕</button>
+            <button class="btn btn-small" data-action="toggle-sync-bar" aria-label="Sync-Leiste schließen">
+                <span aria-hidden="true">✕</span>
+            </button>
         </div>
-    </div>
+    </aside>
 
-    <div class="container" id="appContainer">
-        <div class="header">
+    <main class="container" id="appContainer" role="main" tabindex="-1">
+        <header class="header" role="banner">
             <div class="header-content">
-                <div class="header-title-group clickable" data-action="switch-tab" data-tab="dashboard" title="Zum Dashboard">
-                    <h1>🚀 Web3 Portfolio</h1>
+                <div class="header-title-group clickable" data-action="switch-tab" data-tab="dashboard" title="Zum Dashboard" role="button" tabindex="0" aria-label="Zum Dashboard wechseln">
+                    <h1><span class="app-icon" aria-hidden="true">🚀</span> Web3 Portfolio</h1>
                     <!-- Subtitle nur auf Desktop -->
                     <div class="subtitle desktop-only">Track your crypto & DeFi investments</div>
                 </div>
                 <!-- Controls nur auf Desktop -->
                 <div class="header-controls desktop-only">
-                <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)">🔍</button>
-                <button class="theme-toggle btn-icon" data-action="toggle-theme" title="Theme wechseln (Ctrl+D)">🌙</button>
+                <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)" aria-label="Globale Suche öffnen" data-action="open-global-search">
+                    <span class="app-icon" aria-hidden="true">🔍</span>
+                </button>
+                <button class="theme-toggle btn-icon" data-action="toggle-theme" title="Theme wechseln (Ctrl+D)" aria-pressed="false" aria-label="Dunkles Design aktivieren">🌙</button>
                 
                 <!-- Dropdown Menü -->
                 <div class="header-menu-dropdown">
-                    <button class="btn-icon" data-action="toggle-header-menu" title="Mehr Optionen">
+                    <button class="btn-icon" data-action="toggle-header-menu" title="Mehr Optionen" aria-haspopup="true" aria-expanded="false" aria-controls="headerDropdown">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
                         </svg>
                     </button>
                     <div id="headerDropdown" class="dropdown-content">
                         <button class="dropdown-item-flex" data-action="open-cloud-settings" data-close-menu="true">
-                            <span class="item-icon" id="cloudIcon">🔌</span>
+                            <span class="item-icon app-icon" id="cloudIcon" aria-hidden="true">🔌</span>
                             <span class="item-text" id="cloudText">Offline</span>
                             <span id="cloudStatusIndicator" class="status-indicator disconnected"></span>
                         </button>
                         <button class="dropdown-item-flex" data-action="open-date-filter" data-close-menu="true">
-                            <span class="item-icon">🗓️</span>
+                            <span class="item-icon app-icon" aria-hidden="true">🗓️</span>
                             <span class="item-text">Zeitraum filtern</span>
                             <span id="activeFilterBadge" class="status-indicator-badge"></span>
                         </button>
-                        <button class="dropdown-item-flex" data-action="switch-tab" data-tab="cashflow" data-close-menu="true">
-                            <span class="item-icon">💸</span>
+                        <button id="tab-cashflow" class="dropdown-item-flex" data-action="switch-tab" data-tab="cashflow" data-close-menu="true">
+                            <span class="item-icon app-icon" aria-hidden="true">💸</span>
                             <span class="item-text">Cashflow verwalten</span>
                         </button>
-                        <button class="dropdown-item-flex" data-action="switch-tab" data-tab="history" data-close-menu="true">
-                            <span class="item-icon">📜</span>
+                        <button id="tab-history" class="dropdown-item-flex" data-action="switch-tab" data-tab="history" data-close-menu="true">
+                            <span class="item-icon app-icon" aria-hidden="true">📜</span>
                             <span class="item-text">Historie öffnen</span>
                         </button>
                         <div class="dropdown-divider"></div>
-                        <button data-action="toggle-privacy-mode" data-close-menu="true">👁️ Privatsphäre-Modus</button>
-                        <button data-action="toggle-compact-mode" data-close-menu="true">📱 Kompakte Ansicht</button>
-                        <button data-action="toggle-biometric" data-close-menu="true">🔐 Bio Auth</button>
-                        <button data-action="export-pdf" data-close-menu="true">📄 PDF Export</button>
-                        <button data-action="export-json" data-close-menu="true">💾 JSON Backup</button>
-                        <button data-action="export-csv" data-close-menu="true">📊 CSV Export</button>
+                        <button data-action="toggle-privacy-mode" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">👁️</span>
+                            <span>Privatsphäre-Modus</span>
+                        </button>
+                        <button data-action="toggle-compact-mode" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">📱</span>
+                            <span>Kompakte Ansicht</span>
+                        </button>
+                        <button data-action="toggle-biometric" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">🔐</span>
+                            <span>Bio Auth</span>
+                        </button>
+                        <button data-action="export-pdf" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">📄</span>
+                            <span>PDF Export</span>
+                        </button>
+                        <button data-action="export-json" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">💾</span>
+                            <span>JSON Backup</span>
+                        </button>
+                        <button data-action="export-csv" data-close-menu="true">
+                            <span class="app-icon" aria-hidden="true">📊</span>
+                            <span>CSV Export</span>
+                        </button>
                         <div class="dropdown-divider"></div>
                         <button data-action="switch-tab" data-tab="settings" data-close-menu="true">⚙️ Einstellungen</button>
                     </div>
                 </div>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <div class="tab-navigation">
-            <button class="tab-btn active" data-action="switch-tab" title="Alt+1" data-tab="dashboard">📊 Dashboard</button>
-            <button class="tab-btn" data-action="switch-tab" title="Alt+2" data-tab="entry">📝 Neuer Eintrag</button>
-            <button class="tab-btn" data-action="switch-tab" title="Alt+3" data-tab="platforms">💼 Plattformen</button>
-            <button class="tab-btn" data-action="switch-tab" title="Alt+5" data-tab="notes">🗒️ Notizen</button>
-            <button class="tab-btn" data-action="switch-tab" title="Alt+6" data-tab="settings">⚙️ Einstellungen</button>
-        </div>
+        <nav class="tab-navigation" role="tablist" aria-label="Bereiche">
+            <button id="tab-dashboard" class="tab-btn active" role="tab" aria-selected="true" aria-controls="dashboard" tabindex="0" data-action="switch-tab" title="Alt+1" data-tab="dashboard">
+                <span class="app-icon" aria-hidden="true">📊</span>
+                <span>Dashboard</span>
+            </button>
+            <button id="tab-entry" class="tab-btn" role="tab" aria-selected="false" aria-controls="entry" tabindex="-1" data-action="switch-tab" title="Alt+2" data-tab="entry">
+                <span class="app-icon" aria-hidden="true">📝</span>
+                <span>Neuer Eintrag</span>
+            </button>
+            <button id="tab-platforms" class="tab-btn" role="tab" aria-selected="false" aria-controls="platforms" tabindex="-1" data-action="switch-tab" title="Alt+3" data-tab="platforms">
+                <span class="app-icon" aria-hidden="true">💼</span>
+                <span>Plattformen</span>
+            </button>
+            <button id="tab-notes" class="tab-btn" role="tab" aria-selected="false" aria-controls="notes" tabindex="-1" data-action="switch-tab" title="Alt+5" data-tab="notes">
+                <span class="app-icon" aria-hidden="true">🗒️</span>
+                <span>Notizen</span>
+            </button>
+            <button id="tab-settings" class="tab-btn" role="tab" aria-selected="false" aria-controls="settings" tabindex="-1" data-action="switch-tab" title="Alt+6" data-tab="settings">
+                <span class="app-icon" aria-hidden="true">⚙️</span>
+                <span>Einstellungen</span>
+            </button>
+        </nav>
 
         <!-- Versteckte Inputs für den Filter-Status -->
         <input type="hidden" id="filterStartDate">
         <input type="hidden" id="filterEndDate">
 
-        <div id="dashboard" class="tab-content active">
-            <div id="welcomeCard" class="section" style="display: none; text-align: center;">
-                <div style="font-size: 48px; margin-bottom: 16px;">👋</div>
-                <h2 class="section-title" style="justify-content: center; margin-bottom: 16px;">Willkommen beim Portfolio Tracker!</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 24px;">Es sieht so aus, als hättest du noch keine Daten eingegeben. Starte jetzt mit deinem ersten Eintrag!</p>
+        <div id="dashboard" class="tab-content active" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0">
+            <div id="welcomeCard" class="section welcome-card text-center">
+                <div class="welcome-emoji" aria-hidden="true">👋</div>
+                <h2 class="section-title section-title-centered">Willkommen beim Portfolio Tracker!</h2>
+                <p class="section-description text-secondary">Es sieht so aus, als hättest du noch keine Daten eingegeben. Starte jetzt mit deinem ersten Eintrag!</p>
                 <button class="btn btn-success" data-action="switch-tab" data-tab="entry">
-                    <span>📝</span><span>Ersten Eintrag erstellen</span>
+                    <span class="app-icon" aria-hidden="true">📝</span>
+                    <span>Ersten Eintrag erstellen</span>
                 </button>
             </div>
 
@@ -127,11 +167,11 @@
                     <div class="stat-card">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
-                            <div class="stat-icon">💰</div>
+                            <div class="stat-icon" aria-hidden="true">💰</div>
                             <div class="stat-label">Portfolio Gesamtwert</div>
                             <div class="stat-value dollar-value" id="totalValue">$0</div>
                             <div class="stat-change" id="totalChange">
-                                <span>📊</span>
+                                <span class="app-icon" aria-hidden="true">📊</span>
                                 <span id="totalChangeValue" class="dollar-value"></span>
                                 <span id="totalChangePercent"></span>
                             </div>
@@ -252,7 +292,7 @@
                     </div>
                 </div>
                 <!-- NEUES, VERBESSERTES PROGNOSE-WIDGET -->
-                <div id="forecastWidget" class="section" style="display: none;">
+                <div id="forecastWidget" class="section forecast-widget">
                     <div class="forecast-header">
                         <div>
                             <div class="forecast-title">🔮 Portfolio Prognose</div>
@@ -366,7 +406,7 @@
             </div>
         </div>
 
-        <div id="entry" class="tab-content">
+        <div id="entry" class="tab-content" role="tabpanel" aria-labelledby="tab-entry" tabindex="0" hidden>
              <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>📝</span><span>Neuer Eintrag</span></div>
@@ -489,7 +529,7 @@
             </div>
         </div>
 
-        <div id="cashflow" class="tab-content">
+        <div id="cashflow" class="tab-content" role="tabpanel" aria-labelledby="tab-cashflow" tabindex="0" hidden>
             <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>💸</span><span>Cashflow Management</span></div>
@@ -579,7 +619,7 @@
             </div>
         </div>
 
-        <div id="platforms" class="tab-content">
+        <div id="platforms" class="tab-content" role="tabpanel" aria-labelledby="tab-platforms" tabindex="0" hidden>
              <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>💼</span><span>Platform Details</span></div>
@@ -602,7 +642,7 @@
             </div>
         </div>
 
-        <div id="history" class="tab-content">
+        <div id="history" class="tab-content" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
             <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>📜</span><span>Eintrags-Historie</span></div>
@@ -611,7 +651,7 @@
                         <button class="view-btn" data-action="set-history-view" data-view="grouped">Nach Plattform</button>
                         <button class="view-btn" data-action="set-history-view" data-view="bydate">Nach Datum</button>
                     </div>
-                    <input type="text" id="historySearch" class="input-field" placeholder="In Liste suchen..." style="width: 200px;">
+                    <input type="text" id="historySearch" class="input-field history-search-input" placeholder="In Liste suchen...">
                 </div>
                 <div id="historyListView">
                     <div class="data-table-wrapper">
@@ -648,16 +688,16 @@
                         </button>
                     </div>
                 </div>
-                <div id="historyGroupedView" style="display: none;">
+                <div id="historyGroupedView" class="history-grouped-view">
                     <!-- Gruppierte Ansicht wird hier von JavaScript eingefügt -->
                 </div>
-                <div id="historyByDateView" style="display: none;">
+                <div id="historyByDateView" class="history-by-date-view">
                     <!-- Neue, nach Datum gruppierte Ansicht -->
                 </div>
             </div>
         </div>
 
-        <div id="notes" class="tab-content">
+        <div id="notes" class="tab-content" role="tabpanel" aria-labelledby="tab-notes" tabindex="0" hidden>
             <div class="section">
                 <div class="section-header">
                     <div class="section-title"><span>🗒️</span><span>Notizbuch</span></div>
@@ -734,13 +774,13 @@
                     <div class="section-title"><span>📚</span><span>Meine Notizen</span></div>
                     <div id="notesStats" class="notes-meta"></div>
                 </div>
-                <div id="notesEmptyState" class="empty-state" style="display: none;">
+                <div id="notesEmptyState" class="empty-state notes-empty-state">
                     <div class="empty-state-icon">🗒️</div>
                     <h3>Keine Notizen gespeichert</h3>
                     <p>Halte spontane Ideen, wichtige Todos oder Links fest. Über den Button oben kannst du Screenshots hinzufügen.</p>
                 </div>
                 <div class="notes-sections">
-                    <div class="notes-group" id="notesPinnedGroup" style="display: none;">
+                    <div class="notes-group" id="notesPinnedGroup">
                         <div class="notes-group-title">📌 Angepinnt</div>
                         <div id="notesPinned" class="notes-list pinned"></div>
                     </div>
@@ -752,14 +792,14 @@
             </div>
         </div>
 
-        <div id="settings" class="tab-content">
+        <div id="settings" class="tab-content" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
             <div class="section">
                 <details open>
                     <summary class="section-header-summary">
                         <div class="section-title"><span>☁️</span><span>Cloud Sync Einstellungen</span></div>
                         <span class="summary-arrow">▼</span>
                     </summary>
-                    <div class="details-content" style="padding-top: 16px;">
+                    <div class="details-content details-content-padded">
                         <div id="connectionStatus" class="connection-status disconnected">
                             <span>⚠️</span>
                             <span>Nicht verbunden - Konfiguriere GitHub für Cloud Sync</span>
@@ -783,20 +823,20 @@
                                 </div>
                             </div>
                             
-                            <div class="setting-item" style="display: none;">
+                            <div class="setting-item setting-item-hidden">
                                 <div class="setting-label">Gist ID</div>
                                 <div class="setting-value" id="gistDisplay">Nicht konfiguriert</div>
                                 <div class="setting-actions">
                                     <button class="btn btn-primary btn-small" data-action="setup-gist-id">Gist ID setzen</button>
                                     <button class="btn btn-success btn-small" data-action="create-new-gist">Neu erstellen</button>
-                                     <button class="btn btn-danger btn-small" data-action="clear-gist-id">Löschen</button>
+                                    <button class="btn btn-danger btn-small" data-action="clear-gist-id">Löschen</button>
                                 </div>
                             </div>
 
                             <div class="setting-item">
                                 <div class="setting-label">Auto-Sync</div>
                                 <div class="setting-value">
-                                    <label style="display: flex; align-items: center; gap: 10px;">
+                                    <label class="toggle-label">
                                         <input type="checkbox" id="autoSyncToggle" onchange="toggleAutoSync()">
                                         <span>Bei jeder Änderung automatisch synchronisieren</span>
                                     </label>
@@ -812,9 +852,9 @@
                             </div>
                         </div>
 
-                        <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                        <div class="settings-action-bar">
                             <button class="btn btn-primary" data-action="test-connection">
-                                <span>🔌</span><span>Verbindung testen</span>
+                                <span class="app-icon" aria-hidden="true">🔌</span><span>Verbindung testen</span>
                             </button>
                         </div>
                     </div>
@@ -828,7 +868,7 @@
                         <span class="summary-arrow">▼</span>
                     </summary>
                     <div class="details-content">
-                        <div class="settings-grid" style="margin-top: 16px;">
+                        <div class="settings-grid settings-grid-spaced">
                             <div class="setting-item">
                                 <div class="setting-label">Lokales Backup</div>
                                 <div class="setting-value">Stellt den Zustand vom letzten Speichern wieder her.</div>
@@ -837,7 +877,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="info-box" style="margin-top: 24px;">
+                        <div class="info-box info-box-spaced">
                             <h3>💡 Deine Backup-Strategie</h3>
                             <p>Deine Daten sind mehrfach gesichert:</p>
                             <ul>
@@ -858,11 +898,11 @@
                         <span class="summary-arrow">▼</span>
                     </summary>
                     <div class="details-content">
-                        <div class="settings-grid" style="margin-top: 16px;">
+                        <div class="settings-grid settings-grid-spaced">
                             <div class="setting-item">
                                 <div class="setting-label">Kompakte Ansicht</div>
                                 <div class="setting-value">
-                                    <label style="display: flex; align-items: center; gap: 10px;">
+                                    <label class="toggle-label">
                                         <input type="checkbox" id="compactModeToggle" onchange="toggleCompactMode()">
                                         <span>Optimiert für kleine Bildschirme</span>
                                     </label>
@@ -881,7 +921,7 @@
                         <span class="summary-arrow">▼</span>
                     </summary>
                     <div class="details-content">
-                        <div class="settings-grid" style="margin-top: 16px;">
+                        <div class="settings-grid settings-grid-spaced">
                             <div class="setting-item">
                                 <div class="setting-label">📤 Export Optionen</div>
                                 <div class="setting-value">Sichere deine Daten in verschiedenen Formaten</div>
@@ -896,8 +936,8 @@
                                 <div class="setting-label">📥 Import</div>
                                 <div class="setting-value">Lade bestehende Daten</div>
                                 <div class="setting-actions">
-                                    <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
-                                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                                    <input type="file" id="jsonFileInput" accept=".json" hidden>
+                                    <input type="file" id="csvFileInput" accept=".csv" hidden>
                                     <button class="btn btn-primary btn-small" data-action="trigger-json-upload">JSON</button>
                                     <button class="btn btn-primary btn-small" data-action="trigger-csv-upload">CSV</button>
                                 </div>
@@ -936,17 +976,22 @@
     </div>
 
     <!-- Globale Suche Modal -->
-    <div id="globalSearchOverlay" class="global-search-overlay">
+    <div id="globalSearchOverlay" class="global-search-overlay" role="dialog" aria-modal="true" aria-labelledby="globalSearchHeading">
         <div id="globalSearchModal" class="global-search-modal">
             <div class="search-input-wrapper">
-                <input type="text" id="globalSearchInput" placeholder="Suche nach Plattformen, Einträgen, Aktionen...">
-                <button class="btn btn-small" data-action="export-search-results" title="Suchergebnisse exportieren">💾</button>
-                <span class="search-modal-close" data-action="close-global-search">✕</span>
+                <label for="globalSearchInput" id="globalSearchHeading" class="sr-only">Suche nach Plattformen, Einträgen oder Aktionen</label>
+                <input type="text" id="globalSearchInput" placeholder="Suche nach Plattformen, Einträgen, Aktionen..." aria-describedby="searchQuickFilters">
+                <button class="btn btn-small" data-action="export-search-results" title="Suchergebnisse exportieren" aria-label="Suchergebnisse exportieren">
+                    <span class="app-icon" aria-hidden="true">💾</span>
+                </button>
+                <button class="search-modal-close" type="button" data-action="close-global-search" aria-label="Suche schließen">
+                    <span aria-hidden="true">✕</span>
+                </button>
             </div>
-            <div id="searchFilters" class="search-filters" style="display: none;">
+            <div id="searchFilters" class="search-filters">
                 <!-- Filter werden hier dynamisch eingefügt -->
             </div>
-            <div class="search-quick-filters">
+            <div class="search-quick-filters" id="searchQuickFilters">
                 <button class="btn btn-small" data-action="set-date-range-filter" data-range="heute">📅 Heute</button>
                 <button class="btn btn-small" data-action="set-date-range-filter" data-range="woche">📅 Diese Woche</button>
                 <button class="btn btn-small" data-action="set-date-range-filter" data-range="monat">📅 Dieser Monat</button>
@@ -962,29 +1007,29 @@
 
     <!-- Mobile Bottom Navigation -->
     <!-- Mobile Bottom Navigation mit mehr Funktionen -->
-    <div class="mobile-bottom-nav" style="display: none;">
-        <button class="mobile-nav-item active" data-tab="dashboard" data-action="switch-tab" data-tab="dashboard">
-            <span class="nav-icon">📊</span>
+    <nav class="mobile-bottom-nav" role="navigation" aria-label="Mobile Navigation">
+        <button class="mobile-nav-item active" data-action="switch-tab" data-tab="dashboard" aria-label="Dashboard anzeigen" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">📊</span>
         </button>
-        <button class="mobile-nav-item" data-tab="entry" data-action="switch-tab" data-tab="entry">
-            <span class="nav-icon">➕</span>
+        <button class="mobile-nav-item" data-action="switch-tab" data-tab="entry" aria-label="Neuen Eintrag erstellen">
+            <span class="nav-icon" aria-hidden="true">➕</span>
         </button>
-        <button class="mobile-nav-item" data-tab="notes" data-action="switch-tab" data-tab="notes">
-            <span class="nav-icon">🗒️</span>
+        <button class="mobile-nav-item" data-action="switch-tab" data-tab="notes" aria-label="Notizen anzeigen">
+            <span class="nav-icon" aria-hidden="true">🗒️</span>
         </button>
         <!-- Search -->
-        <button class="mobile-nav-item" data-action="open-global-search">
-            <span class="nav-icon">🔍</span>
+        <button class="mobile-nav-item" data-action="open-global-search" aria-label="Suche öffnen">
+            <span class="nav-icon" aria-hidden="true">🔍</span>
         </button>
         <!-- Theme Toggle -->
-        <button class="mobile-nav-item" data-action="toggle-theme">
-            <span class="nav-icon theme-icon">🌙</span>
+        <button class="mobile-nav-item" data-action="toggle-theme" aria-pressed="false" aria-label="Dunkles Design aktivieren">
+            <span class="nav-icon theme-icon" aria-hidden="true">🌙</span>
         </button>
         <!-- Menu für Settings, Privacy etc. -->
-        <button class="mobile-nav-item" data-action="open-mobile-menu">
-            <span class="nav-icon">⋮</span>
+        <button class="mobile-nav-item" data-action="open-mobile-menu" aria-label="Mobiles Menü öffnen">
+            <span class="nav-icon" aria-hidden="true">⋮</span>
         </button>
-    </div>
+    </nav>
 
     <div id="noteGalleryOverlay" class="note-gallery-overlay">
         <div class="note-gallery-content">
