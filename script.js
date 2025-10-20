@@ -4775,12 +4775,8 @@ function updateLastSyncDisplay() {
     if (settingsDisplay) settingsDisplay.textContent = timeText;
     const syncStatusText = document.getElementById('lastSyncTime');
     if (syncStatusText) syncStatusText.textContent = timeText;
-    const headerBadge = document.getElementById('headerLastSync');
-    if (headerBadge) {
-        headerBadge.textContent = timeText === 'Gerade eben' ? 'Gerade aktualisiert' : `Aktualisiert ${timeText}`;
-        headerBadge.classList.add('updated');
-        setTimeout(() => headerBadge.classList.remove('updated'), 600);
-    }
+    const footerSync = document.getElementById('footerLastSync');
+    if (footerSync) footerSync.textContent = timeText;
 }
 setInterval(updateLastSyncDisplay, 60000);
 

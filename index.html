@@ -58,12 +58,8 @@
                     <!-- Subtitle nur auf Desktop -->
                     <div class="subtitle desktop-only">Track your crypto & DeFi investments</div>
                 </div>
-                <div class="header-right">
-                    <div class="header-status" aria-live="polite">
-                        <span class="header-badge" id="headerLastSync">Noch nie synchronisiert</span>
-                    </div>
-                    <!-- Controls nur auf Desktop -->
-                    <div class="header-controls desktop-only">
+                <!-- Controls nur auf Desktop -->
+                <div class="header-controls desktop-only">
                         <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)" aria-label="Globale Suche öffnen" data-action="open-global-search">
                             <span class="app-icon" aria-hidden="true">🔍</span>
                         </button>
@@ -124,7 +120,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
             </div>
         </header>
 
@@ -219,23 +214,23 @@
                     </div>
                 </div>
 
-                <div class="section" id="portfolio-chart-widget">
-                    <div class="section-header">
-                        <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
-                        <div class="chart-controls">
-                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="30d">1M</button>
+        <div class="section" id="portfolio-chart-widget">
+            <div class="section-header">
+                <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                <div class="chart-controls">
+                    <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="30d">1M</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="90d">3M</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="ytd">YTD</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="1y">1J</button>
                             <button class="chart-timeframe-btn active" data-action="set-date-filter" data-range="all">MAX</button>
                         </div>
-                        <button class="btn btn-primary btn-small" data-action="export-chart" data-target="portfolioChartContainer" title="Ctrl+E">📷 Export</button>
-                    </div>
-                    <div class="chart-container" id="portfolioChartContainer">
-                         <div class="chart-skeleton"></div>
-                        <canvas id="portfolioChart"></canvas>
-                    </div>
-                    <div id="chart-performance-legend" class="chart-performance-legend"></div>
+                <button class="btn btn-primary btn-small" data-action="export-chart" data-target="portfolioChartContainer" title="Ctrl+E">📷 Export</button>
+            </div>
+            <div class="chart-container" id="portfolioChartContainer">
+                 <div class="chart-skeleton"></div>
+                <canvas id="portfolioChart"></canvas>
+            </div>
+            <div id="chart-performance-legend" class="chart-performance-legend"></div>
                 </div>
                 
                 <div class="two-column-layout" id="details-widgets">
@@ -962,8 +957,20 @@
                 </details>
             </div>
         </div>
-    </div>
-    
+
+    <footer class="app-footer surface" aria-label="Seitenfuß">
+        <div class="footer-status" aria-live="polite">
+            <span class="footer-label">Zuletzt aktualisiert:</span>
+            <span id="footerLastSync">Noch nie synchronisiert</span>
+        </div>
+        <div class="footer-links">
+            <a href="#" aria-label="Datenschutzerklärung">Datenschutz</a>
+            <a href="#" aria-label="Support kontaktieren">Support</a>
+        </div>
+    </footer>
+
+    </main>
+
     <div id="bottomSheet" class="bottom-sheet-overlay">
         <div class="bottom-sheet-content">
             <div class="bottom-sheet-header">
