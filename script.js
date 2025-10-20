@@ -4771,8 +4771,16 @@ function updateLastSyncDisplay() {
     const lastSync = new Date(lastSyncTime);
     const diffMins = Math.floor((new Date() - lastSync) / 60000);
     let timeText = diffMins < 1 ? 'Gerade eben' : `Vor ${diffMins} min`;
-    document.getElementById('lastSyncDisplay').textContent = timeText;
-    document.getElementById('lastSyncTime').textContent = timeText;
+    const settingsDisplay = document.getElementById('lastSyncDisplay');
+    if (settingsDisplay) settingsDisplay.textContent = timeText;
+    const syncStatusText = document.getElementById('lastSyncTime');
+    if (syncStatusText) syncStatusText.textContent = timeText;
+    const headerBadge = document.getElementById('headerLastSync');
+    if (headerBadge) {
+        headerBadge.textContent = timeText === 'Gerade eben' ? 'Gerade aktualisiert' : `Aktualisiert ${timeText}`;
+        headerBadge.classList.add('updated');
+        setTimeout(() => headerBadge.classList.remove('updated'), 600);
+    }
 }
 setInterval(updateLastSyncDisplay, 60000);
 

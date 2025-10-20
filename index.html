@@ -51,80 +51,84 @@
     </aside>
 
     <main class="container" id="appContainer" role="main" tabindex="-1">
-        <header class="header" role="banner">
+        <header class="header surface" role="banner">
             <div class="header-content">
                 <div class="header-title-group clickable" data-action="switch-tab" data-tab="dashboard" title="Zum Dashboard" role="button" tabindex="0" aria-label="Zum Dashboard wechseln">
                     <h1><span class="app-icon" aria-hidden="true">🚀</span> Web3 Portfolio</h1>
                     <!-- Subtitle nur auf Desktop -->
                     <div class="subtitle desktop-only">Track your crypto & DeFi investments</div>
                 </div>
-                <!-- Controls nur auf Desktop -->
-                <div class="header-controls desktop-only">
-                <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)" aria-label="Globale Suche öffnen" data-action="open-global-search">
-                    <span class="app-icon" aria-hidden="true">🔍</span>
-                </button>
-                <button class="theme-toggle btn-icon" data-action="toggle-theme" title="Theme wechseln (Ctrl+D)" aria-pressed="false" aria-label="Dunkles Design aktivieren">🌙</button>
-                
-                <!-- Dropdown Menü -->
-                <div class="header-menu-dropdown">
-                    <button class="btn-icon" data-action="toggle-header-menu" title="Mehr Optionen" aria-haspopup="true" aria-expanded="false" aria-controls="headerDropdown">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
-                        </svg>
-                    </button>
-                    <div id="headerDropdown" class="dropdown-content">
-                        <button class="dropdown-item-flex" data-action="open-cloud-settings" data-close-menu="true">
-                            <span class="item-icon app-icon" id="cloudIcon" aria-hidden="true">🔌</span>
-                            <span class="item-text" id="cloudText">Offline</span>
-                            <span id="cloudStatusIndicator" class="status-indicator disconnected"></span>
-                        </button>
-                        <button class="dropdown-item-flex" data-action="open-date-filter" data-close-menu="true">
-                            <span class="item-icon app-icon" aria-hidden="true">🗓️</span>
-                            <span class="item-text">Zeitraum filtern</span>
-                            <span id="activeFilterBadge" class="status-indicator-badge"></span>
-                        </button>
-                        <button id="tab-cashflow" class="dropdown-item-flex" data-action="switch-tab" data-tab="cashflow" data-close-menu="true">
-                            <span class="item-icon app-icon" aria-hidden="true">💸</span>
-                            <span class="item-text">Cashflow verwalten</span>
-                        </button>
-                        <button id="tab-history" class="dropdown-item-flex" data-action="switch-tab" data-tab="history" data-close-menu="true">
-                            <span class="item-icon app-icon" aria-hidden="true">📜</span>
-                            <span class="item-text">Historie öffnen</span>
-                        </button>
-                        <div class="dropdown-divider"></div>
-                        <button data-action="toggle-privacy-mode" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">👁️</span>
-                            <span>Privatsphäre-Modus</span>
-                        </button>
-                        <button data-action="toggle-compact-mode" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">📱</span>
-                            <span>Kompakte Ansicht</span>
-                        </button>
-                        <button data-action="toggle-biometric" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">🔐</span>
-                            <span>Bio Auth</span>
-                        </button>
-                        <button data-action="export-pdf" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">📄</span>
-                            <span>PDF Export</span>
-                        </button>
-                        <button data-action="export-json" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">💾</span>
-                            <span>JSON Backup</span>
-                        </button>
-                        <button data-action="export-csv" data-close-menu="true">
-                            <span class="app-icon" aria-hidden="true">📊</span>
-                            <span>CSV Export</span>
-                        </button>
-                        <div class="dropdown-divider"></div>
-                        <button data-action="switch-tab" data-tab="settings" data-close-menu="true">⚙️ Einstellungen</button>
+                <div class="header-right">
+                    <div class="header-status" aria-live="polite">
+                        <span class="header-badge" id="headerLastSync">Noch nie synchronisiert</span>
                     </div>
-                </div>
+                    <!-- Controls nur auf Desktop -->
+                    <div class="header-controls desktop-only">
+                        <button id="globalSearchBtn" class="btn-icon" title="Globale Suche (Ctrl+K)" aria-label="Globale Suche öffnen" data-action="open-global-search">
+                            <span class="app-icon" aria-hidden="true">🔍</span>
+                        </button>
+                        <button class="theme-toggle btn-icon" data-action="toggle-theme" title="Theme wechseln (Ctrl+D)" aria-pressed="false" aria-label="Dunkles Design aktivieren">🌙</button>
+
+                        <div class="header-menu-dropdown">
+                            <button class="btn-icon" data-action="toggle-header-menu" title="Mehr Optionen" aria-haspopup="true" aria-expanded="false" aria-controls="headerDropdown">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+                                </svg>
+                            </button>
+                            <div id="headerDropdown" class="dropdown-content">
+                                <button class="dropdown-item-flex" data-action="open-cloud-settings" data-close-menu="true">
+                                    <span class="item-icon app-icon" id="cloudIcon" aria-hidden="true">🔌</span>
+                                    <span class="item-text" id="cloudText">Offline</span>
+                                    <span id="cloudStatusIndicator" class="status-indicator disconnected"></span>
+                                </button>
+                                <button class="dropdown-item-flex" data-action="open-date-filter" data-close-menu="true">
+                                    <span class="item-icon app-icon" aria-hidden="true">🗓️</span>
+                                    <span class="item-text">Zeitraum filtern</span>
+                                    <span id="activeFilterBadge" class="status-indicator-badge"></span>
+                                </button>
+                                <button id="tab-cashflow" class="dropdown-item-flex" data-action="switch-tab" data-tab="cashflow" data-close-menu="true">
+                                    <span class="item-icon app-icon" aria-hidden="true">💸</span>
+                                    <span class="item-text">Cashflow verwalten</span>
+                                </button>
+                                <button id="tab-history" class="dropdown-item-flex" data-action="switch-tab" data-tab="history" data-close-menu="true">
+                                    <span class="item-icon app-icon" aria-hidden="true">📜</span>
+                                    <span class="item-text">Historie öffnen</span>
+                                </button>
+                                <div class="dropdown-divider"></div>
+                                <button data-action="toggle-privacy-mode" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">👁️</span>
+                                    <span>Privatsphäre-Modus</span>
+                                </button>
+                                <button data-action="toggle-compact-mode" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">📱</span>
+                                    <span>Kompakte Ansicht</span>
+                                </button>
+                                <button data-action="toggle-biometric" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">🔐</span>
+                                    <span>Bio Auth</span>
+                                </button>
+                                <button data-action="export-pdf" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">📄</span>
+                                    <span>PDF Export</span>
+                                </button>
+                                <button data-action="export-json" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">💾</span>
+                                    <span>JSON Backup</span>
+                                </button>
+                                <button data-action="export-csv" data-close-menu="true">
+                                    <span class="app-icon" aria-hidden="true">📊</span>
+                                    <span>CSV Export</span>
+                                </button>
+                                <div class="dropdown-divider"></div>
+                                <button data-action="switch-tab" data-tab="settings" data-close-menu="true">⚙️ Einstellungen</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <nav class="tab-navigation" role="tablist" aria-label="Bereiche">
+        <nav class="tab-navigation surface" role="tablist" aria-label="Bereiche">
             <button id="tab-dashboard" class="tab-btn active" role="tab" aria-selected="true" aria-controls="dashboard" tabindex="0" data-action="switch-tab" title="Alt+1" data-tab="dashboard">
                 <span class="app-icon" aria-hidden="true">📊</span>
                 <span>Dashboard</span>
