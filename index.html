@@ -163,7 +163,7 @@
 
             <div id="dashboardContent">
                 <div class="stats-grid" id="stats-widget">
-                    <div class="stat-card">
+                    <div class="stat-card" data-card-key="totalValue">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
                             <div class="stat-icon" aria-hidden="true">💰</div>
@@ -176,7 +176,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card" data-card-key="dailyChange">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
                             <div class="stat-icon">⚡</div>
@@ -188,7 +188,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card" data-card-key="netInvested">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
                             <div class="stat-icon">💎</div>
@@ -200,7 +200,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card" data-card-key="totalProfit">
                         <div class="stat-card-skeleton"></div>
                         <div class="stat-content">
                             <div class="stat-icon">🏆</div>
@@ -214,23 +214,38 @@
                     </div>
                 </div>
 
-        <div class="section" id="portfolio-chart-widget">
-            <div class="section-header">
-                <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
-                <div class="chart-controls">
-                    <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="30d">1M</button>
+                
+                <div class="section" id="dashboardConfigPanel" hidden>
+                    <div class="section-header">
+                        <div class="section-title"><span>⚙️</span><span>Dashboard anpassen</span></div>
+                        <button class="btn btn-small" data-action="close-dashboard-config">Schließen</button>
+                    </div>
+                    <div class="config-description">Aktiviere oder deaktiviere einzelne Kennzahlen und ändere die Reihenfolge per Drag & Drop.</div>
+                    <div class="config-grid">
+                        <label class="config-item"><input type="checkbox" data-card-visibility="totalValue" checked> Portfolio Gesamtwert</label>
+                        <label class="config-item"><input type="checkbox" data-card-visibility="dailyChange" checked> Letzte Veränderung</label>
+                        <label class="config-item"><input type="checkbox" data-card-visibility="netInvested" checked> Netto investiert</label>
+                        <label class="config-item"><input type="checkbox" data-card-visibility="totalProfit" checked> Reale Performance</label>
+                    </div>
+                </div>
+                <div class="section" id="portfolio-chart-widget">
+                    <div class="section-header">
+                        <div class="section-title"><span>📈</span><span>Portfolio Entwicklung</span></div>
+                        <div class="chart-controls">
+                            <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="30d">1M</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="90d">3M</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="ytd">YTD</button>
                             <button class="chart-timeframe-btn" data-action="set-date-filter" data-range="1y">1J</button>
                             <button class="chart-timeframe-btn active" data-action="set-date-filter" data-range="all">MAX</button>
                         </div>
-                <button class="btn btn-primary btn-small" data-action="export-chart" data-target="portfolioChartContainer" title="Ctrl+E">📷 Export</button>
-            </div>
-            <div class="chart-container" id="portfolioChartContainer">
-                 <div class="chart-skeleton"></div>
-                <canvas id="portfolioChart"></canvas>
-            </div>
-            <div id="chart-performance-legend" class="chart-performance-legend"></div>
+                        <button class="btn btn-primary btn-small" data-action="open-dashboard-config" title="Dashboard anpassen">⚙️ Anpassen</button>
+                        <button class="btn btn-primary btn-small" data-action="export-chart" data-target="portfolioChartContainer" title="Ctrl+E">📷 Export</button>
+                    </div>
+                    <div class="chart-container" id="portfolioChartContainer">
+                         <div class="chart-skeleton"></div>
+                        <canvas id="portfolioChart"></canvas>
+                    </div>
+                    <div id="chart-performance-legend" class="chart-performance-legend"></div>
                 </div>
                 
                 <div class="two-column-layout" id="details-widgets">

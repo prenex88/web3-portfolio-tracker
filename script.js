@@ -356,6 +356,9 @@ const GIST_ID_CURRENT = isFxVersion ? GIST_ID_FX : GIST_ID_DEFAULT;
 const DB_VERSION = 2; // Aktuelle Version für die IndexedDB
 const LAST_ACTIVE_TAB_KEY = `${STORAGE_PREFIX}lastActiveTab`;
 const NOTE_DRAFT_KEY = `${STORAGE_PREFIX}noteDraft`;
+const DASHBOARD_CARD_ORDER_KEY = `${STORAGE_PREFIX}dashboardCardOrder`;
+const DASHBOARD_CARD_VISIBILITY_KEY = `${STORAGE_PREFIX}dashboardCardVisibility`;
+let statsGridSortable = null;
 const NOTE_AUTOSAVE_DELAY = 600;
 const NOTE_DRAFT_MESSAGE_DURATION = 4000;
 
@@ -923,6 +926,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     applyDashboardWidgetOrder();
     initializeDragAndDrop();
+    setupDashboardCardConfig();
 
     // UX Improvements
     // setupSwipeNavigation(); // Deaktiviert, um nur Button-Navigation zu erlauben
@@ -1239,6 +1243,127 @@ function initializeDragAndDrop() {
                 saveData();
             }
         });
+    }
+}
+
+function setupDashboardCardConfig() {
+    const statsGrid = document.querySelector('.stats-grid');
+    const configPanel = document.getElementById('dashboardConfigPanel');
+    if (!statsGrid || !configPanel) return;
+
+    const savedOrder = JSON.parse(localStorage.getItem(DASHBOARD_CARD_ORDER_KEY) || '[]');
+    if (Array.isArray(savedOrder) && savedOrder.length) {
+        applyDashboardCardOrder(savedOrder);
+    }
+
+    const savedVisibility = JSON.parse(localStorage.getItem(DASHBOARD_CARD_VISIBILITY_KEY) || '{}');
+    applyDashboardCardVisibility(savedVisibility);
+
+    const visibilityCheckboxes = Array.from(configPanel.querySelectorAll('[data-card-visibility]'));
+    visibilityCheckboxes.forEach(checkbox => {
+        const key = checkbox.dataset.cardVisibility;
+        checkbox.checked = savedVisibility[key] !== false;
+        checkbox.addEventListener('change', () => {
+            const activeCount = visibilityCheckboxes.filter(cb => cb.checked).length;
+            if (activeCount === 0) {
+                checkbox.checked = true;
+                showNotification('Mindestens eine Kennzahl muss sichtbar bleiben.', 'warning');
+                return;
+            }
+            const currentMap = JSON.parse(localStorage.getItem(DASHBOARD_CARD_VISIBILITY_KEY) || '{}');
+            currentMap[key] = checkbox.checked;
+            localStorage.setItem(DASHBOARD_CARD_VISIBILITY_KEY, JSON.stringify(currentMap));
+            applyDashboardCardVisibility(currentMap);
+        });
+    });
+}
+
+function applyDashboardCardOrder(order) {
+    if (!Array.isArray(order) || !order.length) return;
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    const cards = Array.from(statsGrid.querySelectorAll('.stat-card'));
+    const cardByKey = Object.fromEntries(cards.map(card => [card.dataset.cardKey, card]));
+    order.forEach(key => {
+        const card = cardByKey[key];
+        if (card) {
+            statsGrid.appendChild(card);
+        }
+    });
+    cards.forEach(card => {
+        if (!order.includes(card.dataset.cardKey)) {
+            statsGrid.appendChild(card);
+        }
+    });
+}
+
+function applyDashboardCardVisibility(map) {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    statsGrid.querySelectorAll('.stat-card').forEach(card => {
+        const key = card.dataset.cardKey;
+        const isVisible = map[key] !== false;
+        card.classList.toggle('hidden-card', !isVisible);
+    });
+    const configPanel = document.getElementById('dashboardConfigPanel');
+    if (configPanel) {
+        configPanel.querySelectorAll('[data-card-visibility]').forEach(checkbox => {
+            const key = checkbox.dataset.cardVisibility;
+            checkbox.checked = map[key] !== false;
+        });
+        const visibilityCheckboxes = Array.from(configPanel.querySelectorAll('[data-card-visibility]'));
+        if (visibilityCheckboxes.length && !visibilityCheckboxes.some(cb => cb.checked)) {
+            visibilityCheckboxes[0].checked = true;
+            const key = visibilityCheckboxes[0].dataset.cardVisibility;
+            map[key] = true;
+            localStorage.setItem(DASHBOARD_CARD_VISIBILITY_KEY, JSON.stringify(map));
+            statsGrid.querySelector(`[data-card-key="${key}"]`)?.classList.remove('hidden-card');
+        }
+    }
+}
+
+function openDashboardConfig() {
+    const panel = document.getElementById('dashboardConfigPanel');
+    if (!panel) return;
+    if (!panel.hidden) {
+        closeDashboardConfig();
+        return;
+    }
+    panel.hidden = false;
+    document.body.classList.add('dashboard-config-mode');
+    enableStatsGridSorting();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeDashboardConfig() {
+    const panel = document.getElementById('dashboardConfigPanel');
+    if (!panel) return;
+    panel.hidden = true;
+    document.body.classList.remove('dashboard-config-mode');
+    disableStatsGridSorting();
+}
+
+function enableStatsGridSorting() {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid || statsGridSortable) return;
+    statsGridSortable = new Sortable(statsGrid, {
+        animation: 180,
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        handle: '.stat-content',
+        filter: '.hidden-card',
+        onEnd: () => {
+            const order = Array.from(statsGrid.querySelectorAll('.stat-card'))
+                .map(card => card.dataset.cardKey);
+            localStorage.setItem(DASHBOARD_CARD_ORDER_KEY, JSON.stringify(order));
+        }
+    });
+}
+
+function disableStatsGridSorting() {
+    if (statsGridSortable) {
+        statsGridSortable.destroy();
+        statsGridSortable = null;
     }
 }
 
@@ -1710,6 +1835,7 @@ function setupActionDelegation() {
         'open-cashflow-from-entry': () => openCashflowFromEntry(),
         'open-cloud-settings': () => openCloudSettings(),
         'open-date-filter': () => openDateFilterModal(),
+        'open-dashboard-config': () => openDashboardConfig(),
         'open-global-search': () => openGlobalSearch(),
         'open-mobile-menu': () => openMobileMenu(),
         'reset-platforms': () => resetPlatforms(),
@@ -1756,6 +1882,7 @@ function setupActionDelegation() {
         'toggle-header-menu': () => toggleHeaderMenu(),
         'toggle-privacy-mode': () => togglePrivacyMode(),
         'toggle-scenarios': () => toggleScenarios(),
+        'close-dashboard-config': () => closeDashboardConfig(),
         'toggle-search-filter': el => {
             const type = el.dataset.filterType;
             const value = el.dataset.filterValue;
@@ -8583,19 +8710,114 @@ function exportChart(containerId) {
     const chartContainer = document.getElementById(containerId);
     if (!chartContainer) return;
     showNotification('Exportiere Chart...', 'warning');
+
+    const chartInstance = getChartInstanceForContainer(containerId);
+    if (chartInstance) {
+        try {
+            exportChartViaChartJS(chartInstance, containerId);
+            showNotification('Chart exportiert!', 'success');
+            return;
+        } catch (err) {
+            console.error('ChartJS Export fehlgeschlagen, fallback auf HTML2Canvas', err);
+        }
+    }
+
+    exportChartViaHtml2Canvas(chartContainer, containerId);
+}
+
+function getChartInstanceForContainer(containerId) {
+    switch (containerId) {
+        case 'portfolioChartContainer':
+            return portfolioChart;
+        case 'allocationChartContainer':
+            return allocationChart;
+        default:
+            return null;
+    }
+}
+
+function exportChartViaChartJS(chart, containerId) {
+    if (!chart) throw new Error('Kein ChartJS-Objekt vorhanden');
+
+    const width = chart.width;
+    const height = chart.height;
+    const scale = Math.max(3, window.devicePixelRatio * 2);
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = width * scale;
+    exportCanvas.height = height * scale;
+    const exportCtx = exportCanvas.getContext('2d');
+    exportCtx.scale(scale, scale);
+
+    const tmpHost = document.createElement('div');
+    tmpHost.style.position = 'fixed';
+    tmpHost.style.left = '-9999px';
+    tmpHost.style.top = '-9999px';
+    tmpHost.style.pointerEvents = 'none';
+    tmpHost.style.opacity = '0';
+    tmpHost.appendChild(exportCanvas);
+    document.body.appendChild(tmpHost);
+
+    const baseConfig = chart.config._config || chart.config;
+    const cloneConfig = Chart.helpers ? Chart.helpers.merge({}, baseConfig) : structuredClone(baseConfig);
+
+    if (!cloneConfig.options) cloneConfig.options = {};
+    cloneConfig.options.animation = false;
+    cloneConfig.options.responsive = false;
+    cloneConfig.options.maintainAspectRatio = false;
+    cloneConfig.options.devicePixelRatio = scale;
+    if (cloneConfig.options.plugins?.legend?.labels) {
+        cloneConfig.options.plugins.legend.labels.font = cloneConfig.options.plugins.legend.labels.font || {};
+        cloneConfig.options.plugins.legend.labels.font.size = 14;
+    }
+
+    const exportChartInstance = new Chart(exportCtx, cloneConfig);
+    exportChartInstance.resize(width, height);
+    exportChartInstance.update('none');
+
+    const gradient = exportCtx.createLinearGradient(0, 0, width, height);
+    if (currentTheme === 'dark') {
+        gradient.addColorStop(0, '#111827');
+        gradient.addColorStop(1, '#1f2937');
+    } else {
+        gradient.addColorStop(0, '#f5f7ff');
+        gradient.addColorStop(1, '#ffffff');
+    }
+    exportCtx.save();
+    exportCtx.globalCompositeOperation = 'destination-over';
+    exportCtx.fillStyle = gradient;
+    exportCtx.fillRect(0, 0, width, height);
+    exportCtx.restore();
+
+    const dataUrl = exportCanvas.toDataURL('image/png', 1);
+    downloadDataUrl(dataUrl, `${containerId}_export_${new Date().toISOString().split('T')[0]}.png`);
+
+    exportChartInstance.destroy();
+    document.body.removeChild(tmpHost);
+}
+
+function exportChartViaHtml2Canvas(chartContainer, containerId) {
+    chartContainer.classList.add('exporting');
+    void chartContainer.offsetHeight;
     html2canvas(chartContainer, {
         backgroundColor: currentTheme === 'dark' ? '#111827' : '#ffffff',
-        scale: 2
+        scale: Math.max(3, window.devicePixelRatio * 2)
     }).then(canvas => {
-        const link = document.createElement('a');
-        link.download = `${containerId}_export_${new Date().toISOString().split('T')[0]}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
+        downloadDataUrl(canvas.toDataURL('image/png'), `${containerId}_export_${new Date().toISOString().split('T')[0]}.png`);
         showNotification('Chart exportiert!', 'success');
     }).catch(err => {
         showNotification('Chart-Export fehlgeschlagen!', 'error');
         console.error(err);
+    }).finally(() => {
+        chartContainer.classList.remove('exporting');
     });
+}
+
+function downloadDataUrl(url, filename) {
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = url;
+    link.click();
 }
 
 async function exportPDF() {
